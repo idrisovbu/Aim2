@@ -211,7 +211,7 @@ age_labels = c(
 df$my_column <- factor(df$my_column,
                        levels = c("low", "medium", "high"))
 
-# Plot
+# Plot ## LEFT OFF HERE
 ggplot(aes(as.factor(age_label), spend_bil, fill = factor(payer, levels = c("mdcr", "mdcd", "priv", "oop")))) +
   facet_share(~ sex, scales = "free_x", reverse_num = TRUE) +
   geom_bar(stat = "identity") +
