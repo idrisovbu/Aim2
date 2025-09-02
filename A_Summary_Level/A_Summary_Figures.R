@@ -9,11 +9,16 @@
 ##----------------------------------------------------------------
 rm(list = ls())
 
-pacman::p_load(dplyr, openxlsx, RMySQL, data.table, ini, DBI, tidyr, openxlsx, reticulate)
+pacman::p_load(dplyr, openxlsx, RMySQL, data.table, ini, DBI, tidyr, openxlsx, reticulate, ggpubr, arrow)
 library(lbd.loader, lib.loc = sprintf("/share/geospatial/code/geospatial-libraries/lbd.loader-%s", R.version$major))
 if("dex.dbr"%in% (.packages())) detach("package:dex.dbr", unload=TRUE)
 library(dex.dbr, lib.loc = lbd.loader::pkg_loc("dex.dbr"))
 suppressMessages(devtools::load_all(path = "/ihme/homes/idrisov/repo/dex_us_county/"))
+
+# Load in packages stored in repo
+user_lib <- file.path(h, "/repo/Aim2/Y_Utilities/R_Packages/")
+.libPaths(c(user_lib, .libPaths()))
+library(ggpol)
 
 # Set drive paths
 if (Sys.info()["sysname"] == 'Linux'){
@@ -40,6 +45,25 @@ ensure_dir_exists <- function(dir_path) {
   }
 }
 
+save_plot <- function(ggplot_obj, ggplot_name, output_path, width = 12, height = 10, dpi = 500, path = ".") {
+  
+  # Build full file path
+  file_path <- file.path(output_path, paste0(ggplot_name, ".png"))
+  
+  # Save the plot
+  ggsave(
+    filename = file_path,
+    plot = ggplot_obj + 
+    theme(),
+    width = width,
+    height = height,
+    dpi = dpi,
+    units = "in"
+  )
+  
+  message("Plot saved as: ", normalizePath(file_path))
+}
+
 ##----------------------------------------------------------------
 ## 0.1 Set directories for DEX estimate data / county estimates
 ##----------------------------------------------------------------
@@ -58,24 +82,62 @@ dirs_dex_estimates <- list.dirs(fp_dex_estimates, recursive = TRUE)[-1]
 #   "vol_per_bene_mean", "vol_per_bene_lower", "vol_per_bene_upper"
 # )
 
+# Set the current date for folder naming
+date_today <- format(Sys.time(), "%Y%m%d")
+
 # Set output directories
 dir_output <- "/mnt/share/scratch/users/idrisov/Aim2_Outputs/"
-dir_output_figures <- file.path(dir_output, "A_Figures/")
+dir_output_figures <- file.path(dir_output, "A_Figures/", date_today)
 
 ensure_dir_exists(dir_output)
 ensure_dir_exists(dir_output_figures)
 
 ##----------------------------------------------------------------
-## 1. Figure 1
+## 0.2 Set colors and labels for plots
+##----------------------------------------------------------------
+
+# colors and labels to use 
+# Use full payer name in plot titles and labels
+payer_list <- list("mdcr" = "Medicare", 
+                   "mdcd" = "Medicaid", 
+                   "priv" = "Private Insurance", 
+                   "oop" = "Out-of-Pocket")
+
+# payer colors
+payer_colors <- list("priv" =	"#E69F00", 
+                     "mdcr" =	"#0E5EAE", 
+                     "mdcd" =	"#009E73", 
+                     "oop" =	"#ae3918")
+
+#colors for type of care
+toc_colors <- c(
+  "ED" = "#9B110E",
+  "AM" = "#0B775E",
+  "HH" = "#F1B9B9",
+  "IP" = "#35274A",
+  "NF" = "#6e9ab5",
+  "DV" = "#E69F00",
+  "RX" = "#BC87E4")
+
+# long names for types of care
+toc_labels = c(
+  "ED" = "Emergency Department",
+  "AM" = "Ambulatory",
+  "IP" = "Inpatient",
+  "HH" = "Home Health",
+  "NF" = "Nursing Facility",
+  "DV" = "Dental",
+  "RX" = "Pharmaceutical"
+)
+
+##----------------------------------------------------------------
+## 1. Figure 1 - HIV
 ## What are the differences in spending per beneficiary for patients with HIV 
 ## for each age group based on different types of insurance (Medicare, Medicaid, Private)? 
 ## (all years, all counties)
 ##
-## Figure 2. Repeat for SUD
 ## Notes: TODO calculate CI correctly, needs some research for this
 ##----------------------------------------------------------------
-
-# Figure 1 - HIV
 
 # List out HIV data files
 dirs_dex_estimates_hiv <- dirs_dex_estimates[1]
@@ -110,6 +172,9 @@ df_hiv <- combined_df_hiv %>%
     "spend_mean" = mean(spend_mean)
   )
 
+# drop combined_df_hiv to save data
+rm(combined_df_hiv)
+
 # convert to dollars
 for (col in colnames(df_hiv)) {
   if (col == "spend_mean") {
@@ -117,183 +182,185 @@ for (col in colnames(df_hiv)) {
   }
 }
 
-# make plot
+# Create factors
+age_factor <- c("0 - <1", "1 - <5", "5 - <10", "10 - <15", "15 - <20", "20 - <25", "25 - <30", 
+                "30 - <35", "35 - <40", "40 - <45", "45 - <50",  "50 - <55", 
+                "55 - <60", "60 - <65", "65 - <70", "70 - <75", "75 - <80", "80 - <85", 
+                "85+")
+df_hiv$age_name <- factor(df_hiv$age_name,
+                          levels = age_factor) 
 
-## -----------------------------------
-## Arguments and set up
-## -----------------------------------
-# # specify scaled_version 
-# scaled_version <- "XX"
-# 
-# # data paths to pull from
-# national_data_path <- "FILEPATH"
-# 
-# out_dir <- paste0("FILEPATH", scaled_version,"FILEPATH")
-# if(!dir.exists(out_dir)){
-#   dir.create(out_dir, recursive = T)
-# }
+sex_factor <- c("Male", "Female")
+df_hiv$sex_name <- factor(df_hiv$sex_name,
+                          levels = sex_factor) 
 
-# colors and labels to use 
-# Use full payer name in plot titles and labels
-payer_list <- list("mdcr" = "Medicare", 
-                   "mdcd" = "Medicaid", 
-                   "priv" = "Private Insurance", 
-                   "oop" = "Out-of-Pocket")
-# payer colors
-payer_colors <- list("priv" =	"#E69F00", 
-                     "mdcr" =	"#0E5EAE", 
-                     "mdcd" =	"#009E73", 
-                     "oop" =	"#ae3918")
-
-#colors for type of care
-toc_colors <- c(
-  "ED" = "#9B110E",
-  "AM" = "#0B775E",
-  "HH" = "#F1B9B9",
-  "IP" = "#35274A",
-  "NF" = "#6e9ab5",
-  "DV" = "#E69F00",
-  "RX" = "#BC87E4")
-# long names for types of care
-toc_labels = c(
-  "ED" = "Emergency Department",
-  "AM" = "Ambulatory",
-  "IP" = "Inpatient",
-  "HH" = "Home Health",
-  "NF" = "Nursing Facility",
-  "DV" = "Dental",
-  "RX" = "Pharmaceutical"
-)
-
-# age range labels
-age_labels = c(
-  `0` = "0 - <1",
-  `1` = "1 - <5",
-  `5` = "5 - <10",
-  `10` = "10 - <15",
-  `15` = "15 - <20",
-  `20` = "20 - <25",
-  `25` = "25 - <30",
-  `30` = "30 - <35",
-  `35` = "35 - <40",
-  `40` = "40 - <45",
-  `45` = "45 - <50",
-  `50` = "50 - <55",
-  `55` = "55 - <60",
-  `60` = "60 - <65",
-  `65` = "65 - <70",
-  `70` = "70 - <75",
-  `75` = "75 - <80",
-  `80` = "80 - <85",
-  `85` = ">= 85"
-)
-
-## -----------------------------------
-## Reading in population
-## -----------------------------------
-
-# ## Population
-# pop <- fread("FILEPATH/pop_age_sex.csv")[year_id == 2019 & geo == "national"]
-# 
-# # Read in data used for payer age pyramids
-# pyramid_data1 <- open_dataset(national_data_path) %>% 
-#   filter(year_id == 2019, payer != "oth") %>%
-#   group_by(payer, age_group_years_start, sex_id, draw) %>%
-#   summarize(spend = sum(spend)) %>%
-#   group_by(payer, age_group_years_start, sex_id) %>%
-#   summarize(spend = mean(spend)) %>%
-#   
-#   pyramid_data1[, age_label := factor(age_labels[as.character(age_group_years_start)],
-#                                       levels = c(unname(age_labels)))]
-# pyramid_data1[, group_spend := sum(spend), .(age_group_years_start, sex_id)]
-
-# Set factors for ages
-df$my_column <- factor(df$my_column,
-                       levels = c("low", "medium", "high"))
-
-# Plot ## LEFT OFF HERE
-ggplot(aes(as.factor(age_label), spend_bil, fill = factor(payer, levels = c("mdcr", "mdcd", "priv", "oop")))) +
-  facet_share(~ sex, scales = "free_x", reverse_num = TRUE) +
-  geom_bar(stat = "identity") +
-  coord_flip() +
-  #scale_fill_manual(values = payer_colors, labels = payer_list, name = "Payer") +
-  #scale_y_continuous(breaks = seq(-160, 160, 40), labels = seq(-160, 160, 40)) +
-  theme_classic() +
-  labs(y = "Y Axis",
-       x = "X Axis",
-       title = "Title",
-       subtitle = "Subtitle") +
-  theme(axis.title.y = element_blank(),
-        text = element_text(size = 12),
-        plot.subtitle = element_text(size = 10))
+# Set male spending as negative
+df_hiv <- df_hiv %>%
+  mutate(spend_mean_inverse = ifelse(sex_name == "Male", spend_mean*-1, spend_mean))
 
 
-
-# making pyramid
-pyramid1 <- pyramid_data1 %>%
-  mutate(spend = ifelse(sex_id == 1, spend*-1, spend),
-         sex = ifelse(sex_id == 1, "Male", "Female"),
-         sex = factor(sex, levels = c("Male", "Female")),
-         spend_bil = spend/1e9) %>%
-  ggplot(aes(as.factor(age_label), spend_bil, fill = factor(payer, levels = c("mdcr", "mdcd", "priv", "oop")))) +
-  facet_share(~ sex, scales = "free_x", reverse_num = TRUE) +
+# Make plot 
+# TODO - Have x-axis be the same for both male and female, also fix the age axis labels to make them look more neat
+# basically copy from the original script, they are already typed out
+# https://github.com/ihmeuw/Resource_Tracking_US_DEX/blob/main/DEX_Capstone_2025/04_figures/figure_1.R
+f1 <- ggplot(data = df_hiv, aes(age_name, spend_mean_inverse, fill = factor(payer, levels = c("mdcr", "mdcd", "priv")))) +
+  facet_share(~ sex_name, scales = "free", reverse_num = FALSE) +
   geom_bar(stat = "identity") +
   coord_flip() +
   scale_fill_manual(values = payer_colors, labels = payer_list, name = "Payer") +
-  scale_y_continuous(breaks = seq(-160, 160, 40), labels = seq(-160, 160, 40)) +
+  scale_y_continuous(
+    #limits = (),
+    breaks = seq(-800000, 800000, 200000),
+    labels = function(x) scales::dollar(abs(x))
+    ) +
   theme_classic() +
-  labs(y = "Estimated total Spending (US$ billions, 2019 dollars)",
-       title = "Panel A: Estimated spending by age, sex, and payer",
-       subtitle = "Total health care spending in 2019: $2.4 trillion") +
-  theme(axis.title.y = element_blank(),
+  labs(y = "Estimated Average Spending (USD)",
+       x = "",
+       title = "Estimated HIV spending by insurance type per year, all years, all counties") +
+  theme(#axis.title.y = element_blank(),
         text = element_text(size = 12),
-        plot.subtitle = element_text(size = 10))
+        axis.text.x = element_text(size = 12), 
+        axis.text.y = element_text(size = 14), # age labels
+        plot.subtitle = element_text(size = 18), # nothing?
+        strip.text = element_text(size = 14), # "Male" "Female" 
+        legend.title = element_text(size = 14),
+        legend.text = element_text(size = 12),
+        panel.grid.major.x = element_line(color = "grey70", size = 0.5), # thicker lines
+        legend.position = "top",               # move legend above plot
+        legend.box = "horizontal",             # arrange items horizontally
+        legend.background = element_rect(      # put it in a box
+          color = "black", fill = "white", 
+          linewidth = 0.5, linetype = "solid"),
+        legend.key = element_rect(fill = "white"),
+        plot.margin = margin(t = 5, r = 5, b = 5, l = -50)
+        ) +
+  guides(
+    fill = guide_legend(
+      title.position = "top",  # put title above the keys
+      title.hjust = 0.5,       # center the title
+      nrow = 1                 # keep items in one row
+    )) +
+  geom_col(color = "black", width = 1, size = 0.3) 
 
-# Read in data used for type of care age pyramids
-pyramid_data2 <- open_dataset(national_data_path) %>%
-  filter(year_id == 2019, payer != "oth") %>%
-  group_by(toc, age_group_years_start, sex_id, draw) %>%
-  summarize(spend = sum(spend)) %>%
-  group_by(toc, age_group_years_start, sex_id) %>%
-  summarize(spend = mean(spend)) %>%
-  collect()
+# Save plot
+save_plot(f1, "F1", dir_output_figures)
 
-pyramid_data2 <- left_join(pyramid_data2, pop, by = c("age_group_years_start", "sex_id")) %>%
-  mutate(spend_pc = spend/pop)
-setDT(pyramid_data2)
-pyramid_data2[, age_label := factor(age_labels[as.character(age_group_years_start)],
-                                    levels = c(unname(age_labels)))]
 
-## National spend per capita for pyramid 2 subtitle
-nat_per_cap <- round(sum(pyramid_data1$spend)/sum(pop$pop))
+##----------------------------------------------------------------
+## 2. Figure 2 - SUD
+## What are the differences in spending per beneficiary for patients with SUD 
+## for each age group based on different types of insurance (Medicare, Medicaid, Private)? 
+## (all years, all counties)
+##
+## Notes: TODO calculate CI correctly, needs some research for this
+##----------------------------------------------------------------
 
-# need to add a title a maybe make some aesthetic changes to facet labels
-pyramid2 <- pyramid_data2 %>%
-  mutate(spend_pc = ifelse(sex_id == 1, (spend_pc*-1)/1e3, spend_pc/1e3),
-         sex = ifelse(sex_id == 1, "Male", "Female"),
-         sex = factor(sex, levels = c("Male", "Female"))) %>%
-  ggplot(aes(age_label, spend_pc, fill = factor(toc, levels = c("DV", "ED", "HH", "RX", "NF", "IP", "AM")))) +
-  facet_share(~ sex, scales = "free_x", reverse_num = TRUE) +
+# List out HIV data files
+dirs_dex_estimates_sud <- dirs_dex_estimates[2:4]
+files_sud <- list.files(dirs_dex_estimates_sud, full.names = TRUE)
+
+# Columns of interest
+cols_of_int_2_sud <- c("year_id", "geo", "location_name", "fips","payer", "toc", 
+                       "acause", "cause_name", "age_group_years_start", "age_name", 
+                       "sex_id", "sex_name",
+                       "spend_mean", "spend_lower", "spend_upper")
+
+# Read in CSV files
+combined_df_sud <- rbindlist(
+  lapply(
+    files_sud,
+    function(f) fread(f, select = cols_of_int_2_sud, showProgress = FALSE)
+  ),
+  fill = TRUE
+)
+
+# Filter for county, remove "oop" data, remove NA data, remove spending == 0
+combined_df_sud <- combined_df_sud %>%
+  filter(geo == "county") %>%
+  filter(payer != "oop") %>%
+  filter(!is.na(spend_mean)) %>%
+  filter(spend_mean > 0)
+
+# Save combined_df_sud as parquet file for faster reading, read in if trying to save time
+write_parquet(combined_df_sud, file.path(dir_output_figures, "combined_df_sud.parquet"))
+combined_df_sud <- read_parquet(file.path(dir_output_figures, "combined_df_sud.parquet"))
+
+# group by: year_id, payer, cause_name
+df_sud <- combined_df_sud %>%
+  group_by(payer, age_name, sex_name) %>%
+  summarize(
+    "spend_mean" = mean(spend_mean)
+  )
+
+# drop combined_df_sud to save data
+# rm(combined_df_sud)
+
+# Create factors
+age_factor <- c("0 - <1", "1 - <5", "5 - <10", "10 - <15", "15 - <20", "20 - <25", "25 - <30", 
+                "30 - <35", "35 - <40", "40 - <45", "45 - <50",  "50 - <55", 
+                "55 - <60", "60 - <65", "65 - <70", "70 - <75", "75 - <80", "80 - <85", 
+                "85+")
+df_sud$age_name <- factor(df_sud$age_name,
+                          levels = age_factor) 
+
+sex_factor <- c("Male", "Female")
+df_sud$sex_name <- factor(df_sud$sex_name,
+                          levels = sex_factor) 
+
+# Set male spending as negative
+df_sud <- df_sud %>%
+  mutate(spend_mean_inverse = ifelse(sex_name == "Male", spend_mean*-1, spend_mean))
+
+
+# Make plot 
+# TODO - Have x-axis be the same for both male and female, also fix the age axis labels to make them look more neat
+# basically copy from the original script, they are already typed out
+# https://github.com/ihmeuw/Resource_Tracking_US_DEX/blob/main/DEX_Capstone_2025/04_figures/figure_1.R
+ggplot(data = df_sud, aes(age_name, spend_mean_inverse, fill = factor(payer, levels = c("mdcr", "mdcd", "priv")))) +
+  facet_share(~ sex_name, scales = "free", reverse_num = FALSE) +
   geom_bar(stat = "identity") +
   coord_flip() +
-  scale_fill_manual(values = toc_colors, labels = toc_labels, name = "Type of Care") +
+  scale_fill_manual(values = payer_colors, labels = payer_list, name = "Payer") +
+  scale_y_continuous(
+    #limits = (),
+    breaks = seq(-400000, 400000, 50000),
+    labels = function(x) scales::dollar(abs(x))
+  ) +
   theme_classic() +
-  labs(y = "Estimated spending per capita (US$ thousands, 2019 dollars)",
-       title = "Panel B: Estimated spending per capita by age, sex, and type of care",
-       subtitle = paste0("National average spending per capita in 2019: $", scales::comma(nat_per_cap))) +
-  theme(axis.title.y = element_blank(),
-        text = element_text(size = 12),
-        plot.subtitle = element_text(size = 10))
+  labs(y = "Estimated Average Spending (USD)",
+       x = "",
+       title = "Estimated SUD spending by insurance type per year, all years, all counties") +
+  theme(#axis.title.y = element_blank(),
+    text = element_text(size = 12),
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 14),
+    plot.subtitle = element_text(size = 12),
+    strip.text = element_text(size = 14),
+    panel.grid.major.x = element_line(color = "grey70", size = 0.5), # thicker lines
+    legend.position = "top",               # move legend above plot
+    legend.box = "horizontal",             # arrange items horizontally
+    legend.background = element_rect(      # put it in a box
+      color = "black", fill = "white", 
+      linewidth = 0.5, linetype = "solid"),
+    legend.key = element_rect(fill = "white"),
+    plot.margin = margin(t = 5, r = 5, b = 5, l = -50)
+  ) +
+  guides(
+    fill = guide_legend(
+      title.position = "top",  # put title above the keys
+      title.hjust = 0.5,       # center the title
+      nrow = 1                 # keep items in one row
+    )) +
+  geom_col(color = "black", width = 0.8, size = 0.3) 
 
-# layout - to cleanly add title to top of figure
-pyramids <- arrangeGrob(grobs = list(pyramid1, pyramid2), nrow = 1, ncol = 2) 
-title_grob <- text_grob("Figure 1. Age pyramids of total spending by payer and spending per capita by type of care in 2019", size = 16)
-layout <- arrangeGrob(title_grob, pyramids, nrow=2, ncol=1, heights=c(0.1, 1))
+# Save plot
+save_plot(f1, "F1", dir_output_figures)
 
-# setting file path
-file_name <- "Figure_1.pdf"
-full_path <- paste0(out_dir, file_name)
 
-pdf(file = full_path, width = 16, height = 5)
-grid.draw(layout)
-dev.off()
+### REFERENCE
+
+
+# # layout - to cleanly add title to top of figure
+# pyramids <- arrangeGrob(grobs = list(pyramid1, pyramid2), nrow = 1, ncol = 2) 
+# title_grob <- text_grob("Figure 1. Age pyramids of total spending by payer and spending per capita by type of care in 2019", size = 16)
+# layout <- arrangeGrob(title_grob, pyramids, nrow=2, ncol=1, heights=c(0.1, 1))
