@@ -15,11 +15,6 @@ if("dex.dbr"%in% (.packages())) detach("package:dex.dbr", unload=TRUE)
 library(dex.dbr, lib.loc = lbd.loader::pkg_loc("dex.dbr"))
 suppressMessages(devtools::load_all(path = "/ihme/homes/idrisov/repo/dex_us_county/"))
 
-# Load in packages stored in repo
-user_lib <- file.path(h, "/repo/Aim2/Y_Utilities/R_Packages/")
-.libPaths(c(user_lib, .libPaths()))
-library(ggpol)
-
 # Set drive paths
 if (Sys.info()["sysname"] == 'Linux'){
   j <- "/home/j/"
@@ -35,6 +30,10 @@ if (Sys.info()["sysname"] == 'Linux'){
   l <- 'L:/'
 }
 
+# Load in packages stored in repo
+user_lib <- file.path(h, "/repo/Aim2/Y_Utilities/R_Packages/")
+.libPaths(c(user_lib, .libPaths()))
+library(ggpol)
 
 ##----------------------------------------------------------------
 ## 0. Functions
@@ -89,7 +88,7 @@ date_today <- format(Sys.time(), "%Y%m%d")
 dir_output <- "/mnt/share/scratch/users/idrisov/Aim2_Outputs/"
 dir_output_figures <- file.path(dir_output, "A_Figures/")
 dir_output_figures_dated <- file.path(dir_output, "A_Figures/", date_today)
-parquet_storage <- file.path(dir_output, "A_Figures/parquet_storage/")
+parquet_storage <- file.path(dir_output, "Y_Utilities/parquet_storage/")
 
 ensure_dir_exists(dir_output)
 ensure_dir_exists(dir_output_figures)
@@ -169,26 +168,25 @@ theme_settings <- theme(
 ## 0.4 Read in data
 ##----------------------------------------------------------------
 
-################## Figure 1 - HIV
-
-# List out HIV data files
-dirs_dex_estimates_hiv <- dirs_dex_estimates[1]
-files_hiv <- list.files(dirs_dex_estimates_hiv, full.names = TRUE)
-
-# Columns of interest
-cols_of_int_1_hiv <- c("year_id", "geo", "location_name", "fips","payer", "toc", 
-                       "acause", "cause_name", "age_group_years_start", "age_name", 
-                       "sex_id", "sex_name",
-                       "spend_mean", "spend_lower", "spend_upper")
+################## HIV Data
 
 # Read in saved parquet file, or read in CSV files
 bool_hiv_parquet <- TRUE
 
 if (bool_hiv_parquet) {
   # Save combined_df_sud as parquet file for faster reading, read in if trying to save time
-  combined_df_hiv <- read_parquet(file.path(parquet_storage, "combined_df_hiv.parquet"))
+  combined_df_hiv <- read_parquet(file.path(parquet_storage, "combined_df_hiv_county.parquet"))
   
 } else if (!bool_hiv_parquet) {
+  # List out HIV data files
+  dirs_dex_estimates_hiv <- dirs_dex_estimates[1]
+  files_hiv <- list.files(dirs_dex_estimates_hiv, full.names = TRUE)
+  
+  # Columns of interest
+  cols_of_int_1_hiv <- c("year_id", "geo", "location_name", "fips","payer", "toc", 
+                         "acause", "cause_name", "age_group_years_start", "age_name", 
+                         "sex_id", "sex_name",
+                         "spend_mean", "spend_lower", "spend_upper")
   # Read in CSV files
   combined_df_hiv <- rbindlist(
     lapply(
@@ -206,29 +204,28 @@ if (bool_hiv_parquet) {
     filter(spend_mean > 0)
   
   # Save combined_df_hiv as parquet file for faster reading, read in if trying to save time
-  write_parquet(combined_df_hiv, file.path(parquet_storage, "combined_df_hiv.parquet"))
+  write_parquet(combined_df_hiv, file.path(parquet_storage, "combined_df_hiv_county.parquet"))
 }
 
-################## Figure 2 - SUD
-
-# List out SUD data files
-dirs_dex_estimates_sud <- dirs_dex_estimates[2:4]
-files_sud <- list.files(dirs_dex_estimates_sud, full.names = TRUE)
-
-# Columns of interest
-cols_of_int_2_sud <- c("year_id", "geo", "location_name", "fips","payer", "toc", 
-                       "acause", "cause_name", "age_group_years_start", "age_name", 
-                       "sex_id", "sex_name",
-                       "spend_mean", "spend_lower", "spend_upper")
+################## SUD Data
 
 # Read in saved parquet file, or read in CSV files
 bool_sud_parquet <- TRUE
 
 if (bool_sud_parquet) {
   # Save combined_df_sud as parquet file for faster reading, read in if trying to save time
-  combined_df_sud <- read_parquet(file.path(parquet_storage, "combined_df_sud.parquet"))
+  combined_df_sud <- read_parquet(file.path(parquet_storage, "combined_df_sud_county.parquet"))
   
 } else if (!bool_sud_parquet) {
+  # List out SUD data files
+  dirs_dex_estimates_sud <- dirs_dex_estimates[2:4]
+  files_sud <- list.files(dirs_dex_estimates_sud, full.names = TRUE)
+  
+  # Columns of interest
+  cols_of_int_2_sud <- c("year_id", "geo", "location_name", "fips","payer", "toc", 
+                         "acause", "cause_name", "age_group_years_start", "age_name", 
+                         "sex_id", "sex_name",
+                         "spend_mean", "spend_lower", "spend_upper")
   # Read in CSV files
   combined_df_sud <- rbindlist(
     lapply(
@@ -246,7 +243,7 @@ if (bool_sud_parquet) {
     filter(spend_mean > 0)
   
   # Save combined_df_sud as parquet file for faster reading, read in if trying to save time
-  write_parquet(combined_df_sud, file.path(parquet_storage, "combined_df_sud.parquet"))
+  write_parquet(combined_df_sud, file.path(parquet_storage, "combined_df_sud_county.parquet"))
 }
 
 ##----------------------------------------------------------------
@@ -391,7 +388,7 @@ df_f3_hiv$toc <- factor(df_f3_hiv$toc, levels = toc_factor)
 # TODO - Have x-axis be the same for both male and female, also fix the age axis labels to make them look more neat
 # basically copy from the original script, they are already typed out
 # https://github.com/ihmeuw/Resource_Tracking_US_DEX/blob/main/DEX_Capstone_2025/04_figures/figure_1.R
-ggplot(data = df_f3_hiv, aes(age_name, spend_mean_inverse, fill = toc)) +
+f3 <- ggplot(data = df_f3_hiv, aes(age_name, spend_mean_inverse, fill = toc)) +
   facet_share(~ sex_name, scales = "free", reverse_num = FALSE) +
   geom_bar(stat = "identity") +
   coord_flip() +
@@ -419,7 +416,7 @@ save_plot(f3, "F3", dir_output_figures_dated)
 
 ##----------------------------------------------------------------
 ## 4. Figure 4 - SUD
-## What are the differences in spending for patients with HIV for each age group based on different toc?
+## What are the differences in spending for patients with SUD for each age group based on different toc?
 ##
 ## Notes: TODO calculate CI correctly, needs some research for this
 ##----------------------------------------------------------------
@@ -446,7 +443,7 @@ df_f4_sud$toc <- factor(df_f4_sud$toc, levels = toc_factor)
 # TODO - Have x-axis be the same for both male and female, also fix the age axis labels to make them look more neat
 # basically copy from the original script, they are already typed out
 # https://github.com/ihmeuw/Resource_Tracking_US_DEX/blob/main/DEX_Capstone_2025/04_figures/figure_1.R
-ggplot(data = df_f4_sud, aes(age_name, spend_mean_inverse, fill = toc)) +
+f4 <- ggplot(data = df_f4_sud, aes(age_name, spend_mean_inverse, fill = toc)) +
   facet_share(~ sex_name, scales = "free", reverse_num = FALSE) +
   geom_bar(stat = "identity") +
   coord_flip() +
@@ -478,9 +475,15 @@ save_plot(f4, "F4", dir_output_figures_dated)
 
 
 ### REFERENCE CODE ### 
-df <- combined_df_hiv %>%
-  filter(age_name == "60 - <65") %>%
-  filter(toc == "NF")
+
+# Shape files used for large US map plotting by county
+# county: /ihme/dex/us_county/maps/mcnty_sf_shapefile.rds
+# state: /ihme/dex/us_county/maps/state_sf_shapefile.rds
+
+
+# df <- combined_df_hiv %>%
+#   filter(age_name == "60 - <65") %>%
+#   filter(toc == "NF")
 
 
 # # layout - to cleanly add title to top of figure
