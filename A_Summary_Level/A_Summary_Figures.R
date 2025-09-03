@@ -34,6 +34,7 @@ if (Sys.info()["sysname"] == 'Linux'){
 user_lib <- file.path(h, "/repo/Aim2/Y_Utilities/R_Packages/")
 .libPaths(c(user_lib, .libPaths()))
 library(ggpol)
+library(tidycensus)
 
 ##----------------------------------------------------------------
 ## 0. Functions
@@ -73,7 +74,8 @@ dirs_dex_estimates <- list.dirs(fp_dex_estimates, recursive = TRUE)[-1]
 # # Available columns
 # c("year_id", "geo", "location_name", "fips", "payer", "toc", 
 #   "acause", "cause_name", "age_group_years_start", "age_name", 
-#   "sex_id", "sex_name", "spend_mean", "spend_lower", "spend_upper", 
+#   "sex_id", "sex_name", 
+#   "spend_mean", "spend_lower", "spend_upper", 
 #   "spend_per_capita_mean", "spend_per_capita_lower", "spend_per_capita_upper", 
 #   "spend_per_bene_mean", "spend_per_bene_lower", "spend_per_bene_upper", 
 #   "spend_per_vol_mean", "spend_per_vol_lower", "spend_per_vol_upper", 
@@ -111,6 +113,11 @@ payer_colors <- list("priv" =	"#FFCB8D",
                      "mdcr" =	"#3188BD", 
                      "mdcd" =	"#ACDABA", 
                      "oop" =	"#D58192")
+
+payer_colors_maps <- list("priv" =	c("#f1f1f1", "#f5dbbc", "#f4c788", "#efb353", "#E69F00"),
+                             "mdcr" =	c("#f1f1f1","#c2c9e0", "#93a4d0","#6080bf","#0E5EAE"),
+                             "mdcd" =	c("#f1f1f1","#c1dcd0","#91c8b0","#5db391","#009E73"),
+                             "oop" =	c("#f1f1f1","#e8c3b7","#da967f","#c6694b","#ae3918"))
 
 #colors for type of care
 toc_colors <- c(
@@ -247,6 +254,18 @@ if (bool_sud_parquet) {
 }
 
 ##----------------------------------------------------------------
+## 0.5 Create FIPS code lookup table
+##
+## This is needed as we need to know the state from which each county
+## belongs to, and the FIPS codes in the data are missing a left padded "0"
+## which needs to be added back in to match on the state_name
+##----------------------------------------------------------------
+df_fips_lookup <- fips_codes
+
+df_fips_lookup <- df_fips_lookup %>%
+  mutate(full_fips_code = paste0(state_code, county_code))
+
+##----------------------------------------------------------------
 ## 1. Figure 1 - HIV
 ## What are the differences in spending for patients with HIV for each age group
 ## based on different types of insurance (Medicare, Medicaid, Private)? (all years, all counties)
@@ -363,7 +382,7 @@ save_plot(f2, "F2", dir_output_figures_dated)
 ## 3. Figure 3 - HIV
 ## What are the differences in spending for patients with HIV for each age group based on different toc?
 ##
-## Notes: TODO calculate CI correctly, needs some research for this
+## Notes: TODO calculate CI correctly, needs some research for this, exclude NF just for HIV?
 ##----------------------------------------------------------------
 # group by: year_id, toc, cause_name
 df_f3_hiv <- combined_df_hiv %>%
@@ -469,21 +488,118 @@ f4 <- ggplot(data = df_f4_sud, aes(age_name, spend_mean_inverse, fill = toc)) +
 # Save plot
 save_plot(f4, "F4", dir_output_figures_dated)
 
+##----------------------------------------------------------------
+## 5. Figure 5 - HIV
+## Visually, how does the spending per beneficiary look like stratified based on 
+## insurance (medicare, medicaid, private insurance) when plotted by county across
+## the US, all years, both sexes, all toc, for HIV? (big USA plot)
+##
+## Notes: 
+##----------------------------------------------------------------
+# Fix FIPS codes 
+df_f5_hiv <- combined_df_hiv %>%
+  mutate(
+    fips = as.character(fips),             # step 1: convert to character
+    fips = ifelse(nchar(fips) == 4,    # step 2: pad 4-digit strings
+                  paste0("0", fips),
+                  fips)
+  ) 
 
+df_f5_hiv <- left_join(x = df_f5_hiv, y = df_fips_lookup, by = c("fips" = "full_fips_code"))
 
+# group by: year_id, toc, cause_name
+df_f5_hiv <- df_f5_hiv %>%
+  group_by(payer, state_name, location_name, fips) %>%
+  summarize(
+    "spend_mean" = mean(spend_mean)
+  )
+
+plot_data <- copy(df_f5_hiv) %>% 
+  as.data.table() %>%
+  mutate(value = spend_mean)
+
+# Shape files used for large US map plotting by county
+mcnty_shapefile <- readRDS("/ihme/dex/us_county/maps/mcnty_sf_shapefile.rds")
+state_shapefile <- readRDS("/ihme/dex/us_county/maps/state_sf_shapefile.rds")
+
+# Spend per beneficiary maps
+plot_list <- list()
+for(p in c("mdcr", "mdcd", "priv")){
+  if(length(plot_list) >= 3){
+    plot_list = list()
+  }
+  print(p)
+  map_df <- plot_data[payer == p]
+  
+  brks <- c(quantile(map_df$value, .0, na.rm = TRUE),
+            quantile(map_df$value, .2, na.rm = TRUE),
+            quantile(map_df$value, .4, na.rm = TRUE),
+            quantile(map_df$value, .6, na.rm = TRUE),
+            quantile(map_df$value, .8, na.rm = TRUE),
+            quantile(map_df$value, 1, na.rm = TRUE))
+  labs <- paste0("$",format(comma(round(brks[-length(brks)]))), " - $", format(comma(round(brks[-1]))))
+  
+  
+  map_df$plot_val <- cut(map_df$value, breaks = c(brks), labels = labs)
+  cols = payer_colors_maps[[p]]
+  payer_title <- payer_list[[p]]
+  if(p == "oop"){
+    denom = "capita"
+  } else {
+    denom = "beneficiary"
+  }
+  
+  #make sf object with county shapefile
+  map_df <- merge(mcnty_shapefile, map_df, by = "locat")
+  
+  map <- ggplot(data = map_df)+
+    geom_sf(aes(fill = plot_val, geometry = geometry), color = NA)+
+    geom_sf(data = state_shapefile, fill = NA, linewidth = .4) +
+    labs(title = paste0(payer_title, " spending per ",denom),
+         fill = "") +
+    scale_fill_manual(values = cols, 
+                      breaks = levels(factor(map_df$plot_val))[levels(factor(map_df$plot_val)) != "NA"],
+                      na.value = "#838484")+
+    theme(legend.position = "bottom",
+          legend.justification = "top",
+          legend.margin = margin(t = -10, unit = "pt"),  # Adjust top margin of the legend to pull it closer
+          legend.spacing.y = unit(0, "cm"),
+          plot.margin = margin(0, 0, 1, 0, "cm"),
+          title = element_text(size = 12),
+          text = element_text(size = 10),
+          axis.ticks = element_blank(),
+          axis.text = element_blank(),
+          panel.background = element_blank()) 
+  plot_list[[length(plot_list) + 1]] <- map
+}
+
+## Arranging PDF layout of maps
+payer_maps <- arrangeGrob(grobs = plot_list, nrow = 2, ncol = 2) 
+title_grob <- text_grob("Figure 2. Age/sex standardized health care spending per capita and per beneficiary by US county in 2019", size = 16)
+
+# make county map a grob object to make compatible with arrangeGrob
+county_map_grob <- ggplotGrob(county_map)
+
+layout <- arrangeGrob(title_grob, county_map_grob, payer_maps, nrow=3, ncol=1, heights=c(0.05, 1, 1.5))
+
+# Save out
+file_name <- "Figure_2.pdf"
+full_path <- paste0(out_dir, file_name)
+
+pdf(file = full_path, width = 14, height = 16)
+grid.draw(layout)
+dev.off()
 
 
 
 ### REFERENCE CODE ### 
 
-# Shape files used for large US map plotting by county
-# county: /ihme/dex/us_county/maps/mcnty_sf_shapefile.rds
-# state: /ihme/dex/us_county/maps/state_sf_shapefile.rds
 
 
-# df <- combined_df_hiv %>%
-#   filter(age_name == "60 - <65") %>%
-#   filter(toc == "NF")
+
+df_high_hiv <- combined_df_hiv %>%
+  filter(age_name == "60 - <65") %>%
+  filter(toc == "NF")
 
 
 # # layout - to cleanly add title to top of figure
