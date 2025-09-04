@@ -9,7 +9,7 @@
 ##----------------------------------------------------------------
 rm(list = ls())
 
-pacman::p_load(dplyr, openxlsx, RMySQL, data.table, ini, DBI, tidyr, openxlsx, reticulate, ggpubr, arrow)
+pacman::p_load(dplyr, openxlsx, RMySQL, data.table, ini, DBI, tidyr, openxlsx, reticulate, ggpubr, arrow, grid, gridExtra)
 library(lbd.loader, lib.loc = sprintf("/share/geospatial/code/geospatial-libraries/lbd.loader-%s", R.version$major))
 if("dex.dbr"%in% (.packages())) detach("package:dex.dbr", unload=TRUE)
 library(dex.dbr, lib.loc = lbd.loader::pkg_loc("dex.dbr"))
@@ -494,7 +494,7 @@ save_plot(f4, "F4", dir_output_figures_dated)
 ## insurance (medicare, medicaid, private insurance) when plotted by county across
 ## the US, all years, both sexes, all toc, for HIV? (big USA plot)
 ##
-## Notes: 
+## Notes: TODO - fix title, possibly change how the data is cut (upper quintile is WAY too big), also add the average spending per county (all insurances)
 ##----------------------------------------------------------------
 # Fix FIPS codes 
 df_f5_hiv <- combined_df_hiv %>%
@@ -517,6 +517,19 @@ df_f5_hiv <- df_f5_hiv %>%
 plot_data <- copy(df_f5_hiv) %>% 
   as.data.table() %>%
   mutate(value = spend_mean)
+
+# read in county_names (mcnty -> fips)
+county_names <- fread("/mnt/share/dex/us_county/maps/merged_counties.csv")[, .(mcnty, fips = cnty)]
+county_names <- county_names %>%
+  mutate(
+    fips = as.character(fips),             # step 1: convert to character
+    fips = ifelse(nchar(fips) == 4,    # step 2: pad 4-digit strings
+                  paste0("0", fips),
+                  fips)
+  ) 
+
+# merge with plot_data
+plot_data <- left_join(x = plot_data, y = county_names, by = "fips")
 
 # Shape files used for large US map plotting by county
 mcnty_shapefile <- readRDS("/ihme/dex/us_county/maps/mcnty_sf_shapefile.rds")
@@ -550,7 +563,7 @@ for(p in c("mdcr", "mdcd", "priv")){
   }
   
   #make sf object with county shapefile
-  map_df <- merge(mcnty_shapefile, map_df, by = "locat")
+  map_df <- merge(mcnty_shapefile, map_df, by = "mcnty")
   
   map <- ggplot(data = map_df)+
     geom_sf(aes(fill = plot_val, geometry = geometry), color = NA)+
@@ -575,16 +588,16 @@ for(p in c("mdcr", "mdcd", "priv")){
 
 ## Arranging PDF layout of maps
 payer_maps <- arrangeGrob(grobs = plot_list, nrow = 2, ncol = 2) 
-title_grob <- text_grob("Figure 2. Age/sex standardized health care spending per capita and per beneficiary by US county in 2019", size = 16)
+title_grob <- text_grob("Figure 2. Age/sex standardized health care spending per beneficiary by US county in 2019", size = 16)
 
 # make county map a grob object to make compatible with arrangeGrob
 county_map_grob <- ggplotGrob(county_map)
 
-layout <- arrangeGrob(title_grob, county_map_grob, payer_maps, nrow=3, ncol=1, heights=c(0.05, 1, 1.5))
+layout <- arrangeGrob(title_grob, payer_maps, nrow=3, ncol=1, heights=c(0.05, 1, 1.5))
 
 # Save out
-file_name <- "Figure_2.pdf"
-full_path <- paste0(out_dir, file_name)
+file_name <- "Figure_5_test_hiv.pdf"
+full_path <- file.path(dir_output_figures_dated, file_name)
 
 pdf(file = full_path, width = 14, height = 16)
 grid.draw(layout)
