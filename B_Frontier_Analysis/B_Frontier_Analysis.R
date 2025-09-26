@@ -247,7 +247,7 @@ mx_ratio_model_run <- get_mxratio_model_run(measure_id = measure_id)$mxratio_mod
 # Can also filter on years, sex, race, location_id, age_group_id. Must be lists.
 # May take a while without further filtering
 mx_ratio_summary_data <- get_mxratio_model_summary_data(mxratio_model_run_id = mx_ratio_model_run,
-                                                        cause_id = cause_id,
+                                                        cause_id = list(cause_id),
                                                         measure_id = measure_id,
                                                         years = list(2018),
                                                         sex = list(1),
