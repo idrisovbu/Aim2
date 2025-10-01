@@ -48,8 +48,12 @@ script_path <- paste0(h, "/repo/Aim2/A_data_preparation/A2_worker/A2_worker_data
 date_folder <- format(Sys.Date(), "%Y%m%d")
 log_dir <- file.path("/mnt/share/limited_use/LU_CMS/DEX/hivsud/aim2/A_data_preparation/logs/")
 
+# Resources Directory
+res_dir <- file.path("/mnt/share/limited_use/LU_CMS/DEX/hivsud/aim2/R_resources/")
+
 # Create output and log directories
 ensure_dir_exists(log_dir)
+ensure_dir_exists(res_dir)
 
 ##----------------------------------------------------------------
 ## 2. Create parameters CSV file
@@ -88,7 +92,7 @@ df_list_input_data_subset <- df_list_input_data_subset %>% mutate(state = str_ex
 df_list_input_data_subset$age_group_years_start <- as.numeric(df_list_input_data_subset$age_group_years_start)
 
 # Save the filtered parameters to CSV save list as .csv for runner script to read in based off job
-fp_parameters <- paste0(l, "/LU_CMS/DEX/hivsud/aim1/resources_aim1/A1_f2t_parameters_aims1.csv")
+fp_parameters <- paste0(l, "/LU_CMS/DEX/hivsud/aim2/R_resources/A1_parameters_aims1.csv")
 write.csv(df_list_input_data_subset, file = fp_parameters, row.names = FALSE)
 
 ##----------------------------------------------------------------

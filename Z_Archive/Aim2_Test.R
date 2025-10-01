@@ -193,8 +193,7 @@ measure_id <- 5 # 5: prevalence, 6: incidence
 cause_id <- 973 # _subs example
 
 # Grab the model run id
-mx_ratio_model_run <- get_mxratio_model_run(measure_id = measure_id)
-$mxratio_model_run_id 
+mx_ratio_model_run <- get_mxratio_model_run(measure_id = measure_id)$mxratio_model_run_id 
 
 get_mxratio_model_run()
 
