@@ -94,9 +94,10 @@ df_ushd <- df_ushd %>%
     sex_id = sex
   )
 
-# USHD - Convert to int
+# USHD - Convert to int & numeric
 df_ushd$sex_id <- as.integer(df_ushd$sex_id)
 df_ushd$year_id <- as.integer(df_ushd$year_id)
+df_ushd$pred_mean <- as.numeric(df_ushd$pred_mean)
 
 # Merge DEX & USHD data
 df_dex_ushd <- left_join(
@@ -130,14 +131,29 @@ View(head(df_dex_ushd, 100))
 # Outcome: MX Ratio (pred_mean)
 # Predictor: Healthcare spending (spend_mean)
 
-# Model: MX Ratio ~ spend_mean
-mod_simple <- sfa(
+# Sample our data so model doesn't take all day
+df_dex_ushd_sample <- df_dex_ushd %>% sample_n(100000)
+
+df_dex_ushd_sample_hiv <- df_dex_ushd_sample %>% filter(acause == "hiv")
+df_dex_ushd_sample_subs <- df_dex_ushd_sample %>% filter(acause == "_subs")
+
+# Model: HIV - MX Ratio ~ spend_mean
+mod_simple_hiv <- sfa(
   log(pred_mean) ~ log(spend_mean),
-  data          = df_dex_ushd,
-  ineffDecrease = TRUE  # Increased MX Ratio is "bad", so inefficiency = more DALYs
+  data          = df_dex_ushd_sample_hiv,
+  ineffDecrease = TRUE  # Increased MX Ratio is "bad", so inefficiency = more MX ratio
 )
 
-summary(mod_simple)
+summary(mod_simple_hiv)
+
+# Model: SUD - MX Ratio ~ spend_mean
+mod_simple_subs <- sfa(
+  log(pred_mean) ~ log(spend_mean),
+  data          = df_dex_ushd_sample_subs,
+  ineffDecrease = TRUE  # Increased MX Ratio is "bad", so inefficiency = more MX ratio
+)
+
+summary(mod_simple_subs)
 
 # --- 2. Add demographics as controls -------------------------------
 # These controls shift the frontier itself (not the inefficiency).
@@ -159,33 +175,45 @@ summary(m_controls)
 ## Because we logged the dependent variable, set logDepVar = TRUE.
 ## minusU = TRUE gives Farrell-type efficiencies (higher = better).
 ##----------------------------------------------------------------
-eff_simple <- efficiencies(m_simple, asInData = TRUE,
+eff_simple_hiv <- efficiencies(mod_simple_hiv, asInData = TRUE,
                            logDepVar = TRUE, minusU = TRUE)
-eff_controls <- efficiencies(m_controls, asInData = TRUE,
-                             logDepVar = TRUE, minusU = TRUE)
+eff_simple_subs <- efficiencies(mod_simple_subs, asInData = TRUE,
+                           logDepVar = TRUE, minusU = TRUE)
+# eff_controls <- efficiencies(mod_controls, asInData = TRUE,
+#                              logDepVar = TRUE, minusU = TRUE)
 
-# Add to your dataframe
-df_hiv_model$eff_simple   <- eff_simple
-df_hiv_model$eff_controls <- eff_controls
+# Add to model results to dataframe
+df_dex_ushd_sample_hiv$eff_simple <- eff_simple_hiv
+df_dex_ushd_sample_subs$eff_simple <- eff_simple_subs
+# df_dex_ushd_sample$eff_controls <- eff_controls
 
 ##----------------------------------------------------------------
 ## 4. Results
 ##----------------------------------------------------------------
-head(df_hiv_model[, c("location_name", "sex", "age_group_name",
-                      "val", "spend_mean", "eff_simple", "eff_controls")])
 
-View(df_hiv_model[, c("location_name", "sex", "age_group_name",
-                      "val", "spend_mean", "eff_simple", "eff_controls")])
+# Create dollar mx ratio column
+df_dex_ushd_sample_hiv$dollar_mx_ratio <- df_dex_ushd_sample_hiv$spend_mean / df_dex_ushd_sample_hiv$pred_mean
+df_dex_ushd_sample_subs$dollar_mx_ratio <- df_dex_ushd_sample_subs$spend_mean / df_dex_ushd_sample_subs$pred_mean
 
-df_hiv_model$dollar_daly_ratio <- df_hiv_model$spend_mean / df_hiv_model$val
-
-View(df_hiv_model[, c("location_name", "sex", "age_group_name",
-                      "val", "spend_mean", "eff_simple", "eff_controls", "dollar_daly_ratio")])
-
+View(df_dex_ushd_sample_hiv[, c("state_name", "cnty_name", "acause", "cause_name", "sex_id", "age_name",
+                      "pred_mean", "spend_mean", "eff_simple", "dollar_mx_ratio")])
+View(df_dex_ushd_sample_subs[, c("state_name", "cnty_name", "acause", "cause_name", "sex_id", "age_name",
+                      "pred_mean", "spend_mean", "eff_simple", "dollar_mx_ratio")])
 
 
+##----------------------------------------------------------------
+## 5. Plots
+##----------------------------------------------------------------
 
+# Efficiency Score Distribution
+ggplot(df_dex_ushd_sample_hiv, aes(x = eff_simple)) +
+  geom_histogram(bins = 30, fill = "steelblue", color = "white") +
+  labs(title = "Distribution of County Efficiency Scores",
+       x = "Efficiency Score", y = "Number of Counties")
 
-
+ggplot(df_dex_ushd_sample_subs, aes(x = eff_simple)) +
+  geom_histogram(bins = 30, fill = "steelblue", color = "white") +
+  labs(title = "Distribution of County Efficiency Scores",
+       x = "Efficiency Score", y = "Number of Counties")
 
 
