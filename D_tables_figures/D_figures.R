@@ -1,7 +1,7 @@
 ##----------------------------------------------------------------
-##' Title: A_Summary_Figures.R
+##' Title: D_figures.R
 ##'
-##' Purpose: Creates figures for Summary Level data for Aim2
+##' Purpose: Creates figures for Aim2
 ##----------------------------------------------------------------
 
 ##----------------------------------------------------------------
@@ -30,14 +30,14 @@ if (Sys.info()["sysname"] == 'Linux'){
   l <- 'L:/'
 }
 
-# Load in packages stored in repo
-user_lib <- file.path(h, "/repo/Aim2/Y_Utilities/R_Packages/")
-.libPaths(c(user_lib, .libPaths()))
-library(ggpol)
-library(tidycensus)
+# # Load in packages stored in repo
+# user_lib <- file.path(h, "/repo/Aim2/Y_Utilities/R_Packages/")
+# .libPaths(c(user_lib, .libPaths()))
+# library(ggpol)
+# library(tidycensus)
 
 ##----------------------------------------------------------------
-## 0. Functions
+## 0.1 Functions
 ##----------------------------------------------------------------
 ensure_dir_exists <- function(dir_path) {
   if (!dir.exists(dir_path)) {
@@ -65,40 +65,19 @@ save_plot <- function(ggplot_obj, ggplot_name, output_path, width = 12, height =
 }
 
 ##----------------------------------------------------------------
-## 0.1 Set directories for DEX estimate data / county estimates
+## 0.2 Set directories for DEX estimate data / county estimates
 ##----------------------------------------------------------------
-# List out directories
-fp_dex_estimates <- file.path(h, "/county_data/")
-dirs_dex_estimates <- list.dirs(fp_dex_estimates, recursive = TRUE)[-1]
-
-# # Available columns
-# c("year_id", "geo", "location_name", "fips", "payer", "toc", 
-#   "acause", "cause_name", "age_group_years_start", "age_name", 
-#   "sex_id", "sex_name", 
-#   "spend_mean", "spend_lower", "spend_upper", 
-#   "spend_per_capita_mean", "spend_per_capita_lower", "spend_per_capita_upper", 
-#   "spend_per_bene_mean", "spend_per_bene_lower", "spend_per_bene_upper", 
-#   "spend_per_vol_mean", "spend_per_vol_lower", "spend_per_vol_upper", 
-#   "vol_per_capita_mean", "vol_per_capita_lower", "vol_per_capita_upper", 
-#   "vol_per_bene_mean", "vol_per_bene_lower", "vol_per_bene_upper"
-# )
-
-# Set the current date for folder naming
-date_today <- format(Sys.time(), "%Y%m%d")
+# Set path for DEX data
+date_dex <- "20251001"
+fp_dex <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_dex, "/compiled_dex_data_2010_2019.parquet")
 
 # Set output directories
-dir_output <- "/mnt/share/scratch/users/idrisov/Aim2_Outputs/"
-dir_output_figures <- file.path(dir_output, "A_Figures/")
-dir_output_figures_dated <- file.path(dir_output, "A_Figures/", date_today)
-parquet_storage <- file.path(dir_output, "Y_Utilities/parquet_storage/")
-
+date_today <- format(Sys.time(), "%Y%m%d")
+dir_output <- file.path(h, "/aim_outputs/Aim2/D_tables_figures/", date_today)
 ensure_dir_exists(dir_output)
-ensure_dir_exists(dir_output_figures)
-ensure_dir_exists(dir_output_figures_dated)
-ensure_dir_exists(parquet_storage)
 
 ##----------------------------------------------------------------
-## 0.2 Set colors and labels for plots
+## 0.3 Set colors and labels for plots
 ##----------------------------------------------------------------
 
 # colors and labels to use 
@@ -149,7 +128,7 @@ sex_factor <- c("Male", "Female")
 toc_factor <- c("AM", "ED", "HH", "IP", "NF", "RX")
 
 ##----------------------------------------------------------------
-## 0.3 Set ggplot theme
+## 0.4 Set ggplot theme
 ##----------------------------------------------------------------
 
 theme_settings <- theme(
@@ -172,101 +151,23 @@ theme_settings <- theme(
   )
 
 ##----------------------------------------------------------------
-## 0.4 Read in data
+## 0.5 Read in data & loc_ids file & map files
 ##----------------------------------------------------------------
+# Main DEX Data
+df_dex <- read_parquet(fp_dex)
 
-################## HIV Data
+# DEX causes that aggregate to "_subs" cause
+subs_causes <- c("mental_alcohol", "mental_drug_agg", "mental_drug_opioids")
 
-# Read in saved parquet file, or read in CSV files
-bool_hiv_parquet <- TRUE
+# File containing main mapping of loc_ids, fips, mcnty, etc.
+df_loc_ids <- fread("/ihme/homes/idrisov/aim_outputs/Aim2/R_resources/county_fips_locs.csv")
 
-if (bool_hiv_parquet) {
-  # Save combined_df_sud as parquet file for faster reading, read in if trying to save time
-  combined_df_hiv <- read_parquet(file.path(parquet_storage, "combined_df_hiv.parquet"))
-  
-} else if (!bool_hiv_parquet) {
-  # List out HIV data files
-  dirs_dex_estimates_hiv <- dirs_dex_estimates[1]
-  files_hiv <- list.files(dirs_dex_estimates_hiv, full.names = TRUE)
-  
-  # Columns of interest
-  cols_of_int_1_hiv <- c("year_id", "geo", "location_name", "fips","payer", "toc", 
-                         "acause", "cause_name", "age_group_years_start", "age_name", 
-                         "sex_id", "sex_name",
-                         "spend_mean", "spend_lower", "spend_upper")
-  # Read in CSV files
-  combined_df_hiv <- rbindlist(
-    lapply(
-      files_hiv,
-      function(f) fread(f, select = cols_of_int_1_hiv, showProgress = TRUE)
-    ),
-    fill = TRUE
-  )
-  
-  # Filter for county, remove "oop" data, remove NA data, remove spending == 0
-  combined_df_hiv <- combined_df_hiv %>%
-    filter(geo == "county") %>%
-    filter(payer != "oop") %>%
-    filter(!is.na(spend_mean)) %>%
-    filter(spend_mean > 0)
-  
-  # Save combined_df_hiv as parquet file for faster reading, read in if trying to save time
-  write_parquet(combined_df_hiv, file.path(parquet_storage, "combined_df_hiv.parquet"))
-}
-
-################## SUD Data
-
-# Read in saved parquet file, or read in CSV files
-bool_sud_parquet <- TRUE
-
-if (bool_sud_parquet) {
-  # Save combined_df_sud as parquet file for faster reading, read in if trying to save time
-  combined_df_sud <- read_parquet(file.path(parquet_storage, "combined_df_sud.parquet"))
-  
-} else if (!bool_sud_parquet) {
-  # List out SUD data files
-  dirs_dex_estimates_sud <- dirs_dex_estimates[2:4]
-  files_sud <- list.files(dirs_dex_estimates_sud, full.names = TRUE)
-  
-  # Columns of interest
-  cols_of_int_2_sud <- c("year_id", "geo", "location_name", "fips","payer", "toc", 
-                         "acause", "cause_name", "age_group_years_start", "age_name", 
-                         "sex_id", "sex_name",
-                         "spend_mean", "spend_lower", "spend_upper")
-  # Read in CSV files
-  combined_df_sud <- rbindlist(
-    lapply(
-      files_sud,
-      function(f) fread(f, select = cols_of_int_2_sud, showProgress = FALSE)
-    ),
-    fill = TRUE
-  )
-  
-  # Filter for county, remove "oop" data, remove NA data, remove spending == 0
-  combined_df_sud <- combined_df_sud %>%
-    filter(geo == "county") %>%
-    filter(payer != "oop") %>%
-    filter(!is.na(spend_mean)) %>%
-    filter(spend_mean > 0)
-  
-  # Save combined_df_sud as parquet file for faster reading, read in if trying to save time
-  write_parquet(combined_df_sud, file.path(parquet_storage, "combined_df_sud.parquet"))
-}
+# Shape files used for large US map plotting by county
+mcnty_shapefile <- readRDS("/ihme/dex/us_county/maps/mcnty_sf_shapefile.rds")
+state_shapefile <- readRDS("/ihme/dex/us_county/maps/state_sf_shapefile.rds")
 
 ##----------------------------------------------------------------
-## 0.5 Create FIPS code lookup table
-##
-## This is needed as we need to know the state from which each county
-## belongs to, and the FIPS codes in the data are missing a left padded "0"
-## which needs to be added back in to match on the state_name
-##----------------------------------------------------------------
-df_fips_lookup <- fips_codes
-
-df_fips_lookup <- df_fips_lookup %>%
-  mutate(full_fips_code = paste0(state_code, county_code))
-
-##----------------------------------------------------------------
-## 1. Figure 1 - HIV
+## 1. Figure 1 - HIV - Spending by insurance
 ## What are the differences in spending for patients with HIV for each age group
 ## based on different types of insurance (Medicare, Medicaid, Private)? (all years, all counties)
 ##
@@ -274,28 +175,29 @@ df_fips_lookup <- df_fips_lookup %>%
 ##----------------------------------------------------------------
 
 # group by: year_id, payer, cause_name
-df_hiv <- combined_df_hiv %>%
+df_f1 <- df_dex %>%
+  filter(acause == "hiv") %>%
   group_by(payer, age_name, sex_name) %>%
   summarize(
     "spend_mean" = mean(spend_mean)
   )
 
 # Remove spaces from "age_name"
-df_hiv$age_name <- str_replace_all(df_hiv$age_name, " ", "")
+df_f1$age_name <- str_replace_all(df_f1$age_name, " ", "")
 
 # Set male spending as negative
-df_hiv <- df_hiv %>%
+df_f1 <- df_f1 %>%
   mutate(spend_mean_inverse = ifelse(sex_name == "Male", spend_mean*-1, spend_mean))
 
 # Create factors
-df_hiv$age_name <- factor(df_hiv$age_name, levels = age_factor) 
-df_hiv$sex_name <- factor(df_hiv$sex_name, levels = sex_factor) 
+df_f1$age_name <- factor(df_f1$age_name, levels = age_factor) 
+df_f1$sex_name <- factor(df_f1$sex_name, levels = sex_factor) 
 
 # Make plot 
 # TODO - Have x-axis be the same for both male and female, also fix the age axis labels to make them look more neat
 # basically copy from the original script, they are already typed out
 # https://github.com/ihmeuw/Resource_Tracking_US_DEX/blob/main/DEX_Capstone_2025/04_figures/figure_1.R
-f1 <- ggplot(data = df_hiv, aes(age_name, spend_mean_inverse, fill = factor(payer, levels = c("mdcr", "mdcd", "priv")))) +
+f1 <- ggplot(data = df_f1, aes(age_name, spend_mean_inverse, fill = factor(payer, levels = c("mdcr", "mdcd", "priv", "oop")))) +
   facet_share(~ sex_name, scales = "free", reverse_num = FALSE) +
   geom_bar(stat = "identity") +
   coord_flip() +
@@ -319,11 +221,11 @@ f1 <- ggplot(data = df_hiv, aes(age_name, spend_mean_inverse, fill = factor(paye
   geom_col(color = "black", width = 1, size = 0.3) 
 
 # Save plot
-save_plot(f1, "F1", dir_output_figures_dated)
+save_plot(f1, "F1_HIV_spending_by_insurance", dir_output)
 
 
 ##----------------------------------------------------------------
-## 2. Figure 2 - SUD
+## 2. Figure 2 - SUD - Spending by insurance
 ## What are the differences in spending for patients with SUD for each age group
 ## based on different types of insurance (Medicare, Medicaid, Private)? (all years, all counties)
 ##
@@ -331,28 +233,29 @@ save_plot(f1, "F1", dir_output_figures_dated)
 ##----------------------------------------------------------------
 
 # group by: year_id, payer, cause_name
-df_sud <- combined_df_sud %>%
+df_f2 <- df_dex %>%
+  filter(acause %in% subs_causes) %>%
   group_by(payer, age_name, sex_name) %>%
   summarize(
     "spend_mean" = mean(spend_mean)
   )
 
 # Remove spaces from "age_name"
-df_sud$age_name <- str_replace_all(df_sud$age_name, " ", "")
+df_f2$age_name <- str_replace_all(df_f2$age_name, " ", "")
 
 # Set male spending as negative
-df_sud <- df_sud %>%
+df_f2 <- df_f2 %>%
   mutate(spend_mean_inverse = ifelse(sex_name == "Male", spend_mean*-1, spend_mean))
 
 # Create factors
-df_sud$age_name <- factor(df_sud$age_name, levels = age_factor) 
-df_sud$sex_name <- factor(df_sud$sex_name, levels = sex_factor) 
+df_f2$age_name <- factor(df_f2$age_name, levels = age_factor) 
+df_f2$sex_name <- factor(df_f2$sex_name, levels = sex_factor) 
 
 # Make plot 
 # TODO - Have x-axis be the same for both male and female, also fix the age axis labels to make them look more neat
 # basically copy from the original script, they are already typed out
 # https://github.com/ihmeuw/Resource_Tracking_US_DEX/blob/main/DEX_Capstone_2025/04_figures/figure_1.R
-f2 <- ggplot(data = df_sud, aes(age_name, spend_mean_inverse, fill = factor(payer, levels = c("mdcr", "mdcd", "priv")))) +
+f2 <- ggplot(data = df_f2, aes(age_name, spend_mean_inverse, fill = factor(payer, levels = c("mdcr", "mdcd", "priv", "oop")))) +
   facet_share(~ sex_name, scales = "free", reverse_num = FALSE) +
   geom_bar(stat = "identity") +
   coord_flip() +
@@ -376,38 +279,39 @@ f2 <- ggplot(data = df_sud, aes(age_name, spend_mean_inverse, fill = factor(paye
   geom_col(color = "black", width = 1, size = 0.3) 
 
 # Save plot
-save_plot(f2, "F2", dir_output_figures_dated)
+save_plot(f2, "F2_SUD_spending_by_insurance", dir_output)
 
 ##----------------------------------------------------------------
-## 3. Figure 3 - HIV
+## 3. Figure 3 - HIV - Spending by TOC
 ## What are the differences in spending for patients with HIV for each age group based on different toc?
 ##
 ## Notes: TODO calculate CI correctly, needs some research for this, exclude NF just for HIV?
 ##----------------------------------------------------------------
 # group by: year_id, toc, cause_name
-df_f3_hiv <- combined_df_hiv %>%
+df_f3 <- df_dex %>%
+  filter(acause == "hiv") %>%
   group_by(toc, age_name, sex_name) %>%
   summarize(
     "spend_mean" = mean(spend_mean)
   )
 
 # Remove spaces from "age_name"
-df_f3_hiv$age_name <- str_replace_all(df_f3_hiv$age_name, " ", "")
+df_f3$age_name <- str_replace_all(df_f3$age_name, " ", "")
 
 # Set male spending as negative
-df_f3_hiv <- df_f3_hiv %>%
+df_f3 <- df_f3 %>%
   mutate(spend_mean_inverse = ifelse(sex_name == "Male", spend_mean*-1, spend_mean))
 
 # Create factors
-df_f3_hiv$age_name <- factor(df_f3_hiv$age_name, levels = age_factor) 
-df_f3_hiv$sex_name <- factor(df_f3_hiv$sex_name, levels = sex_factor) 
-df_f3_hiv$toc <- factor(df_f3_hiv$toc, levels = toc_factor)
+df_f3$age_name <- factor(df_f3$age_name, levels = age_factor) 
+df_f3$sex_name <- factor(df_f3$sex_name, levels = sex_factor) 
+df_f3$toc <- factor(df_f3$toc, levels = toc_factor)
 
 # Make plot 
 # TODO - Have x-axis be the same for both male and female, also fix the age axis labels to make them look more neat
 # basically copy from the original script, they are already typed out
 # https://github.com/ihmeuw/Resource_Tracking_US_DEX/blob/main/DEX_Capstone_2025/04_figures/figure_1.R
-f3 <- ggplot(data = df_f3_hiv, aes(age_name, spend_mean_inverse, fill = toc)) +
+f3 <- ggplot(data = df_f3, aes(age_name, spend_mean_inverse, fill = toc)) +
   facet_share(~ sex_name, scales = "free", reverse_num = FALSE) +
   geom_bar(stat = "identity") +
   coord_flip() +
@@ -431,38 +335,39 @@ f3 <- ggplot(data = df_f3_hiv, aes(age_name, spend_mean_inverse, fill = toc)) +
   geom_col(color = "black", width = 1, size = 0.3) 
 
 # Save plot
-save_plot(f3, "F3", dir_output_figures_dated)
+save_plot(f3, "F3_HIV_spending_by_toc", dir_output)
 
 ##----------------------------------------------------------------
-## 4. Figure 4 - SUD
+## 4. Figure 4 - SUD - Spending by TOC
 ## What are the differences in spending for patients with SUD for each age group based on different toc?
 ##
 ## Notes: TODO calculate CI correctly, needs some research for this
 ##----------------------------------------------------------------
 # group by: year_id, toc, cause_name
-df_f4_sud <- combined_df_sud %>%
+df_f4 <- df_dex %>%
+  filter(acause %in% subs_causes) %>%
   group_by(toc, age_name, sex_name) %>%
   summarize(
     "spend_mean" = mean(spend_mean)
   )
 
 # Remove spaces from "age_name"
-df_f4_sud$age_name <- str_replace_all(df_f4_sud$age_name, " ", "")
+df_f4$age_name <- str_replace_all(df_f4$age_name, " ", "")
 
 # Set male spending as negative
-df_f4_sud <- df_f4_sud %>%
+df_f4 <- df_f4 %>%
   mutate(spend_mean_inverse = ifelse(sex_name == "Male", spend_mean*-1, spend_mean))
 
 # Create factors
-df_f4_sud$age_name <- factor(df_f4_sud$age_name, levels = age_factor) 
-df_f4_sud$sex_name <- factor(df_f4_sud$sex_name, levels = sex_factor) 
-df_f4_sud$toc <- factor(df_f4_sud$toc, levels = toc_factor)
+df_f4$age_name <- factor(df_f4$age_name, levels = age_factor) 
+df_f4$sex_name <- factor(df_f4$sex_name, levels = sex_factor) 
+df_f4$toc <- factor(df_f4$toc, levels = toc_factor)
 
 # Make plot 
 # TODO - Have x-axis be the same for both male and female, also fix the age axis labels to make them look more neat
 # basically copy from the original script, they are already typed out
 # https://github.com/ihmeuw/Resource_Tracking_US_DEX/blob/main/DEX_Capstone_2025/04_figures/figure_1.R
-f4 <- ggplot(data = df_f4_sud, aes(age_name, spend_mean_inverse, fill = toc)) +
+f4 <- ggplot(data = df_f4, aes(age_name, spend_mean_inverse, fill = toc)) +
   facet_share(~ sex_name, scales = "free", reverse_num = FALSE) +
   geom_bar(stat = "identity") +
   coord_flip() +
@@ -486,10 +391,10 @@ f4 <- ggplot(data = df_f4_sud, aes(age_name, spend_mean_inverse, fill = toc)) +
   geom_col(color = "black", width = 1, size = 0.3) 
 
 # Save plot
-save_plot(f4, "F4", dir_output_figures_dated)
+save_plot(f4, "F4_SUD_spending_by_toc", dir_output)
 
 ##----------------------------------------------------------------
-## 5. Figure 5 - HIV
+## 5. Figure 5 - HIV - USA County Plot Per Bene
 ## Visually, how does the spending per beneficiary look like stratified based on 
 ## insurance (medicare, medicaid, private insurance) when plotted by county across
 ## the US, all years, both sexes, all toc, for HIV? (big USA plot)
@@ -497,68 +402,40 @@ save_plot(f4, "F4", dir_output_figures_dated)
 ## Notes: TODO - fix title, possibly change how the data is cut (upper quintile is WAY too big)
 ##----------------------------------------------------------------
 
-# Fix FIPS codes in HIV data
-df_f5_hiv <- combined_df_hiv %>%
-  mutate(
-    fips_chr = as.character(fips),             # step 1: convert to character
-    fips_chr = ifelse(nchar(fips_chr) == 4,    # step 2: pad 4-digit strings
-                  paste0("0", fips_chr),
-                  fips_chr)
-  ) 
+# Prepare data used for mapping
 
-df_f5_hiv <- left_join(x = df_f5_hiv, y = df_fips_lookup, by = c("fips_chr" = "full_fips_code"))
-
-# Payer Strata by County - group by and summarize to get spend_mean
-df_f5_hiv_payer <- df_f5_hiv %>%
-  group_by(payer, state_name, location_name, fips, fips_chr) %>%
+# Payer Strata by County - group by and summarize to get spend_mean (named "value" for plot)
+df_f5_payer <- df_dex %>%
+  filter(acause == "hiv") %>%
+  group_by(payer, state_name, cnty_name, fips_ihme) %>%
   summarize(
-    "spend_mean" = mean(spend_mean)
+    "value" = mean(spend_mean)
   )
 
-# Overall Spending by County - group by and summarize to get spend_mean
-df_f5_hiv_overall <- df_f5_hiv %>%
-  group_by(state_name, location_name, fips, fips_chr) %>%
+# Overall Spending by County - group by and summarize to get spend_mean (named "value" for plot)
+df_f5_overall <- df_dex %>%
+  filter(acause == "hiv") %>%
+  group_by(state_name, cnty_name, fips_ihme) %>%
   summarize(
-    "spend_mean" = mean(spend_mean)
+    "value" = mean(spend_mean)
   )
 
-# add "value" column used by plotting
-df_f5_hiv_payer <- df_f5_hiv_payer %>% 
-  as.data.table() %>%
-  mutate(value = spend_mean)
-df_f5_hiv_overall <- df_f5_hiv_overall %>% 
-  as.data.table() %>%
-  mutate(value = spend_mean)
+# Merge with df_loc_ids to get "mcnty" column, used to merge with shapefile
+df_f5_payer <- left_join(df_f5_payer, df_loc_ids %>% select(mcnty, full_fips_code), by = c("fips_ihme" = "full_fips_code")) # gets "mcnty" column used by shapefile
+df_f5_overall <- left_join(df_f5_overall, df_loc_ids %>% select(mcnty, full_fips_code), by = c("fips_ihme" = "full_fips_code")) # gets "mcnty" column used by shapefile
 
-# read in county_names (mcnty -> fips)
-df_county_names <- fread("/mnt/share/dex/us_county/maps/merged_counties.csv")[, .(mcnty, fips = cnty)]
-
-# fix FIPS
-df_county_names <- df_county_names %>%
-  mutate(
-    fips_chr = as.character(fips),             # step 1: convert to character
-    fips_chr = ifelse(nchar(fips_chr) == 4,    # step 2: pad 4-digit strings
-                  paste0("0", fips_chr),
-                  fips_chr)
-  ) 
-
-# merge with df_f5_hiv
-df_f5_hiv_payer <- left_join(x = df_f5_hiv_payer, y = df_county_names, by = c("fips", "fips_chr"))
-df_f5_hiv_overall <- left_join(x = df_f5_hiv_overall, y = df_county_names, by = c("fips", "fips_chr"))
-
-# Shape files used for large US map plotting by county
-mcnty_shapefile <- readRDS("/ihme/dex/us_county/maps/mcnty_sf_shapefile.rds")
-state_shapefile <- readRDS("/ihme/dex/us_county/maps/state_sf_shapefile.rds")
-
-# Payer Strata by County maps
+# Maps - Payer Strata --------------------
 f5_payer_plot_list <- list()
-for(p in c("mdcr", "mdcd", "priv")){
-  if(length(f5_payer_plot_list) >= 3){
+for(p in c("mdcr", "mdcd", "priv", "oop")){
+  if(length(f5_payer_plot_list) >= 4){
     f5_payer_plot_list = list()
   }
   print(p)
-  map_df <- df_f5_hiv_payer[payer == p]
   
+  # Filter DF by payer
+  map_df <- df_f5_payer %>% filter(payer == p)
+  
+  # Create value breaks
   brks <- c(quantile(map_df$value, .0, na.rm = TRUE),
             quantile(map_df$value, .2, na.rm = TRUE),
             quantile(map_df$value, .4, na.rm = TRUE),
@@ -566,9 +443,9 @@ for(p in c("mdcr", "mdcd", "priv")){
             quantile(map_df$value, .8, na.rm = TRUE),
             quantile(map_df$value, 1, na.rm = TRUE))
   labs <- paste0("$",format(comma(round(brks[-length(brks)]))), " - $", format(comma(round(brks[-1]))))
-  
-  
   map_df$plot_val <- cut(map_df$value, breaks = c(brks), labels = labs)
+  
+  # Colors / labels for plot
   cols = payer_colors_maps[[p]]
   payer_title <- payer_list[[p]]
   if(p == "oop"){
@@ -577,9 +454,10 @@ for(p in c("mdcr", "mdcd", "priv")){
     denom = "beneficiary"
   }
   
-  #make sf object with county shapefile
+  # Merge map_df with the county shapefile
   map_df <- merge(mcnty_shapefile, map_df, by = "mcnty")
   
+  # Create plot
   map <- ggplot(data = map_df)+
     geom_sf(aes(fill = plot_val, geometry = geometry), color = NA)+
     geom_sf(data = state_shapefile, fill = NA, linewidth = .4) +
@@ -599,20 +477,28 @@ for(p in c("mdcr", "mdcd", "priv")){
           axis.ticks = element_blank(),
           axis.text = element_blank(),
           panel.background = element_blank()) 
+  
+  # Append plot to plot list
   f5_payer_plot_list[[length(f5_payer_plot_list) + 1]] <- map
 }
 
-# Overall Spending by County
+
+# Maps - Overall Spending --------------------
+
+# THIS SECTION NEEDS CLEANING UP - BEGINNING  ---------------------------------------------------------------------------
+# Basically the scale for the all TOC map most likely needs to be manually defined, the code in this section
+# is messy and needs to be cleaned up, but maybe can come at a time when we decide on how we want the plot to look
+
 # set breaks and labels for 7 bins
-# f5_overall_brks <- sapply(seq(0, 1, by = 1/10), function(x) quantile(df_f5_hiv_overall$value, x))
+# f5_overall_brks <- sapply(seq(0, 1, by = 1/10), function(x) quantile(df_f5_overall$value, x))
 # f5_overall_brks[1] <- f5_overall_brks[1]-1
 # labs <- paste0("$",format(comma(round(f5_overall_brks[-length(f5_overall_brks)]))), " - $", format(comma(round(f5_overall_brks[-1]))))
 
-manual_brks <- c(0, 1000, 5000, 10000, 20000, 50000, 100000, 500000, ceiling(max(df_f5_hiv_overall$value)))
+manual_brks <- c(0, 1000, 5000, 10000, 20000, 50000, 100000, 500000, ceiling(max(df_f5_overall$value)))
 labs <- paste0("$",format(comma(round(manual_brks[-length(manual_brks)]))), " - $", format(comma(round(manual_brks[-1]))))
 
 # cut data into bins
-df_f5_hiv_overall$plot_val <- cut(df_f5_hiv_overall$value, breaks = manual_brks, labels = labs)
+df_f5_overall$plot_val <- cut(df_f5_overall$value, breaks = manual_brks, labels = labs)
 
 #### COLORS ##############
 # assign colors to bins
@@ -632,17 +518,19 @@ vals <- rescale((1:n)^bias, to = c(0, 1))
 cols_8_biased <- pal_fun(100)[round(vals * 99) + 1]
 #### COLORS ##############
 
+# THIS SECTION NEEDS CLEANING UP - END  ---------------------------------------------------------------------------
+
 # make sf object with county shapefile
-df_f5_hiv_overall_map_object <- merge(mcnty_shapefile, df_f5_hiv_overall, by = "mcnty")
+df_f5_overall_map_object <- merge(mcnty_shapefile, df_f5_overall, by = "mcnty")
 
 # create plot
-f5_hiv_overall_county_map <-  ggplot(data = df_f5_hiv_overall_map_object) +
+f5_hiv_overall_county_map <-  ggplot(data = df_f5_overall_map_object) +
   geom_sf(aes(fill = plot_val, geometry = geometry), color = NA) + # counties w/o border
   geom_sf(data = state_shapefile, fill = NA, linewidth = .4) +
   labs(title = paste0("Estimated HIV Spending by US county, all years"),
        fill = "") +
   scale_fill_manual(values = cols_8_biased,
-                    breaks = levels(factor(df_f5_hiv_overall$plot_val))[levels(factor(df_f5_hiv_overall$plot_val)) != "NA"],
+                    breaks = levels(factor(df_f5_overall$plot_val))[levels(factor(df_f5_overall$plot_val)) != "NA"],
                     na.value = "#838484") +
   theme(legend.position = "bottom",
         legend.justification = "center",
@@ -656,27 +544,24 @@ f5_hiv_overall_county_map <-  ggplot(data = df_f5_hiv_overall_map_object) +
         panel.background = element_blank()) +
   guides(fill = guide_legend(nrow = 1))
 
-f5_hiv_overall_county_map
-
 ## Arranging PDF layout of maps
-payer_maps <- arrangeGrob(grobs = f5_payer_plot_list, nrow = 2, ncol = 2) 
-title_grob <- text_grob("Estimated HIV spending by US county, all years", size = 16)
+f5_payer_maps <- arrangeGrob(grobs = f5_payer_plot_list, nrow = 2, ncol = 2) 
+f5_title_grob <- text_grob("Estimated HIV spending by US county, all years", size = 16)
 
 # make county map a grob object to make compatible with arrangeGrob
-f5_hiv_overall_county_map_grob <- ggplotGrob(f5_hiv_overall_county_map) # used for the average spending one?
+f5_hiv_overall_county_map_grob <- ggplotGrob(f5_hiv_overall_county_map) 
 
-layout <- arrangeGrob(title_grob, f5_hiv_overall_county_map_grob, payer_maps, nrow=3, ncol=1, heights=c(0.05, 1, 1.5))
+# create complete layout
+f5_layout <- arrangeGrob(f5_title_grob, f5_hiv_overall_county_map_grob, f5_payer_maps, nrow=3, ncol=1, heights=c(0.05, 1, 1.5))
 
 # Save out
-file_name <- "F5_HIV.pdf"
-full_path <- file.path(dir_output_figures_dated, file_name)
-
-pdf(file = full_path, width = 14, height = 16)
-grid.draw(layout)
+f5_file_name <- "F5_HIV_spending_by_county_map.pdf"
+pdf(file = file.path(dir_output, f5_file_name), width = 14, height = 16)
+grid.draw(f5_layout)
 dev.off()
 
 ##----------------------------------------------------------------
-## 6. Figure 6 - SUD
+## 6. Figure 6 - SUD - USA County Plot Per Bene
 ## Visually, how does the spending per beneficiary look like stratified based on 
 ## insurance (medicare, medicaid, private insurance) when plotted by county across
 ## the US, all years, both sexes, all toc, for SUD? (big USA plot)
@@ -684,68 +569,40 @@ dev.off()
 ## Notes: TODO - fix title, possibly change how the data is cut (upper quintile is WAY too big)
 ##----------------------------------------------------------------
 
-# Fix FIPS codes in SUD data
-df_f6_sud <- combined_df_sud %>%
-  mutate(
-    fips_chr = as.character(fips),             # step 1: convert to character
-    fips_chr = ifelse(nchar(fips_chr) == 4,    # step 2: pad 4-digit strings
-                  paste0("0", fips_chr),
-                  fips_chr)
-  ) 
+# Prepare data used for mapping
 
-df_f6_sud <- left_join(x = df_f6_sud, y = df_fips_lookup, by = c("fips_chr" = "full_fips_code"))
-
-# Payer Strata by County - group by and summarize to get spend_mean
-df_f6_sud_payer <- df_f6_sud %>%
-  group_by(payer, state_name, location_name, fips, fips_chr) %>%
+# Payer Strata by County - group by and summarize to get spend_mean (named "value" for plot)
+df_f6_payer <- df_dex %>%
+  filter(acause %in% subs_causes) %>%
+  group_by(payer, state_name, cnty_name, fips_ihme) %>%
   summarize(
-    "spend_mean" = mean(spend_mean)
+    "value" = mean(spend_mean)
   )
 
-# Overall Spending by County - group by and summarize to get spend_mean
-df_f6_sud_overall <- df_f6_sud %>%
-  group_by(state_name, location_name, fips, fips_chr) %>%
+# Overall Spending by County - group by and summarize to get spend_mean (named "value" for plot)
+df_f6_overall <- df_dex %>%
+  filter(acause %in% subs_causes) %>%
+  group_by(state_name, cnty_name, fips_ihme) %>%
   summarize(
-    "spend_mean" = mean(spend_mean)
+    "value" = mean(spend_mean)
   )
 
-# add "value" column used by plotting
-df_f6_sud_payer <- df_f6_sud_payer %>% 
-  as.data.table() %>%
-  mutate(value = spend_mean)
-df_f6_sud_overall <- df_f6_sud_overall %>% 
-  as.data.table() %>%
-  mutate(value = spend_mean)
-
-# read in county_names (mcnty -> fips)
-df_county_names <- fread("/mnt/share/dex/us_county/maps/merged_counties.csv")[, .(mcnty, fips = cnty)]
-
-# fix FIPS
-df_county_names <- df_county_names %>%
-  mutate(
-    fips_chr = as.character(fips),             # step 1: convert to character
-    fips_chr = ifelse(nchar(fips_chr) == 4,    # step 2: pad 4-digit strings
-                  paste0("0", fips_chr),
-                  fips_chr)
-  ) 
-
-# merge with df_f6_sud
-df_f6_sud_payer <- left_join(x = df_f6_sud_payer, y = df_county_names, by = c("fips", "fips_chr"))
-df_f6_sud_overall <- left_join(x = df_f6_sud_overall, y = df_county_names, by = c("fips", "fips_chr"))
-
-# Shape files used for large US map plotting by county
-mcnty_shapefile <- readRDS("/ihme/dex/us_county/maps/mcnty_sf_shapefile.rds")
-state_shapefile <- readRDS("/ihme/dex/us_county/maps/state_sf_shapefile.rds")
+# Merge with df_loc_ids to get "mcnty" column, used to merge with shapefile
+df_f6_payer <- left_join(df_f6_payer, df_loc_ids %>% select(mcnty, full_fips_code), by = c("fips_ihme" = "full_fips_code")) # gets "mcnty" column used by shapefile
+df_f6_overall <- left_join(df_f6_overall, df_loc_ids %>% select(mcnty, full_fips_code), by = c("fips_ihme" = "full_fips_code")) # gets "mcnty" column used by shapefile
 
 # Payer Strata by County maps
 f6_payer_plot_list <- list()
-for(p in c("mdcr", "mdcd", "priv")){
-  if(length(f6_payer_plot_list) >= 3){
+for(p in c("mdcr", "mdcd", "priv", "oop")){
+  if(length(f6_payer_plot_list) >= 4){
     f6_payer_plot_list = list()
   }
   print(p)
-  map_df <- df_f6_sud_payer[payer == p]
   
+  # Filter DF by payer
+  map_df <- df_f6_payer %>% filter(payer == p)
+  
+  # Create value breaks
   brks <- c(quantile(map_df$value, .0, na.rm = TRUE),
             quantile(map_df$value, .2, na.rm = TRUE),
             quantile(map_df$value, .4, na.rm = TRUE),
@@ -753,9 +610,9 @@ for(p in c("mdcr", "mdcd", "priv")){
             quantile(map_df$value, .8, na.rm = TRUE),
             quantile(map_df$value, 1, na.rm = TRUE))
   labs <- paste0("$",format(comma(round(brks[-length(brks)]))), " - $", format(comma(round(brks[-1]))))
-  
-  
   map_df$plot_val <- cut(map_df$value, breaks = c(brks), labels = labs)
+  
+  # Colors / labels for plot
   cols = payer_colors_maps[[p]]
   payer_title <- payer_list[[p]]
   if(p == "oop"){
@@ -764,9 +621,10 @@ for(p in c("mdcr", "mdcd", "priv")){
     denom = "beneficiary"
   }
   
-  #make sf object with county shapefile
+  # Merge map_df with the county shapefile
   map_df <- merge(mcnty_shapefile, map_df, by = "mcnty")
   
+  # Create plot
   map <- ggplot(data = map_df)+
     geom_sf(aes(fill = plot_val, geometry = geometry), color = NA)+
     geom_sf(data = state_shapefile, fill = NA, linewidth = .4) +
@@ -789,17 +647,23 @@ for(p in c("mdcr", "mdcd", "priv")){
   f6_payer_plot_list[[length(f6_payer_plot_list) + 1]] <- map
 }
 
+# Maps - Overall Spending --------------------
+
+# THIS SECTION NEEDS CLEANING UP - BEGINNING  ---------------------------------------------------------------------------
+# Basically the scale for the all TOC map most likely needs to be manually defined, the code in this section
+# is messy and needs to be cleaned up, but maybe can come at a time when we decide on how we want the plot to look
+
 # Overall Spending by County
 # set breaks and labels for 7 bins
-# f5_overall_brks <- sapply(seq(0, 1, by = 1/10), function(x) quantile(df_f6_sud_overall$value, x))
+# f5_overall_brks <- sapply(seq(0, 1, by = 1/10), function(x) quantile(df_f6_overall$value, x))
 # f5_overall_brks[1] <- f5_overall_brks[1]-1
 # labs <- paste0("$",format(comma(round(f5_overall_brks[-length(f5_overall_brks)]))), " - $", format(comma(round(f5_overall_brks[-1]))))
 
-manual_brks <- c(0, 1000, 5000, 10000, 20000, 50000, 100000, 250000, ceiling(max(df_f6_sud_overall$value)))
+manual_brks <- c(0, 1000, 5000, 10000, 20000, 50000, 100000, 250000, ceiling(max(df_f6_overall$value)))
 labs <- paste0("$",format(comma(round(manual_brks[-length(manual_brks)]))), " - $", format(comma(round(manual_brks[-1]))))
 
 # cut data into bins
-df_f6_sud_overall$plot_val <- cut(df_f6_sud_overall$value, breaks = manual_brks, labels = labs)
+df_f6_overall$plot_val <- cut(df_f6_overall$value, breaks = manual_brks, labels = labs)
 
 #### COLORS ##############
 # assign colors to bins
@@ -819,17 +683,19 @@ vals <- rescale((1:n)^bias, to = c(0, 1))
 cols_8_biased <- pal_fun(100)[round(vals * 99) + 1]
 #### COLORS ##############
 
-# make sf object with county shapefile
-df_f6_sud_overall_map_object <- merge(mcnty_shapefile, df_f6_sud_overall, by = "mcnty")
+# THIS SECTION NEEDS CLEANING UP - END  ---------------------------------------------------------------------------
+
+# Merge with shapefile
+df_f6_overall_map_object <- merge(mcnty_shapefile, df_f6_overall, by = "mcnty")
 
 # create plot
-f6_sud_overall_county_map <-  ggplot(data = df_f6_sud_overall_map_object) +
+f6_sud_overall_county_map <-  ggplot(data = df_f6_overall_map_object) +
   geom_sf(aes(fill = plot_val, geometry = geometry), color = NA) + # counties w/o border
   geom_sf(data = state_shapefile, fill = NA, linewidth = .4) +
   labs(title = paste0("Estimated SUD Spending by US county, all years"),
        fill = "") +
   scale_fill_manual(values = cols_8_biased,
-                    breaks = levels(factor(df_f6_sud_overall$plot_val))[levels(factor(df_f6_sud_overall$plot_val)) != "NA"],
+                    breaks = levels(factor(df_f6_overall$plot_val))[levels(factor(df_f6_overall$plot_val)) != "NA"],
                     na.value = "#838484") +
   theme(legend.position = "bottom",
         legend.justification = "center",
@@ -843,28 +709,17 @@ f6_sud_overall_county_map <-  ggplot(data = df_f6_sud_overall_map_object) +
         panel.background = element_blank()) +
   guides(fill = guide_legend(nrow = 1))
 
-f6_sud_overall_county_map
-
 ## Arranging PDF layout of maps
-payer_maps <- arrangeGrob(grobs = f6_payer_plot_list, nrow = 2, ncol = 2) 
-title_grob <- text_grob("Estimated SUD spending by US county, all years", size = 16)
+f6_payer_maps <- arrangeGrob(grobs = f6_payer_plot_list, nrow = 2, ncol = 2) 
+f6_title_grob <- text_grob("Estimated SUD spending by US county, all years", size = 16)
 
 # make county map a grob object to make compatible with arrangeGrob
-f6_sud_overall_county_map_grob <- ggplotGrob(f6_sud_overall_county_map) # used for the average spending one?
+f6_sud_overall_county_map_grob <- ggplotGrob(f6_sud_overall_county_map) 
+f6_layout <- arrangeGrob(f6_title_grob, f6_sud_overall_county_map_grob, f6_payer_maps, nrow=3, ncol=1, heights=c(0.05, 1, 1.5))
 
-layout <- arrangeGrob(title_grob, f6_sud_overall_county_map_grob, payer_maps, nrow=3, ncol=1, heights=c(0.05, 1, 1.5))
-
-# Save out
-file_name <- "F6_SUD.pdf"
-full_path <- file.path(dir_output_figures_dated, file_name)
-
-pdf(file = full_path, width = 14, height = 16)
-grid.draw(layout)
+# Save plot
+f6_file_name <- "F6_SUD_spending_by_county_map.pdf"
+pdf(file = file.path(dir_output, f6_file_name), width = 14, height = 16)
+grid.draw(f6_layout)
 dev.off()
 
-
-
-### REFERENCE CODE ### 
-df_high_hiv <- combined_df_hiv %>%
-  filter(age_name == "60 - <65") %>%
-  filter(toc == "NF")

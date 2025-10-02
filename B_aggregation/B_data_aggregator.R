@@ -108,6 +108,9 @@ df_fips_lookup <- df_fips_lookup %>% rename(
 # Merge FIPS & USHD loc_id table
 df_loc_ids <- left_join(x = df_ushd_mapping, y = df_fips_lookup, by = c("state_name", "cnty_name" = "county"))
 
+# Save file for use in C & D
+write.csv(df_loc_ids, "/ihme/homes/idrisov/aim_outputs/Aim2/R_resources/county_fips_locs.csv")
+
 ##----------------------------------------------------------------
 ## 0.4 Read in IHME age & cause metadata for cause ids, age_group_names
 ##----------------------------------------------------------------
