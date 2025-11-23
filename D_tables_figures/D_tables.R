@@ -54,8 +54,11 @@ convert_to_dollars <- function(df, cols_to_convert) {
 ## 0.1 Set directories for DEX estimate data / county estimates
 ##----------------------------------------------------------------
 # Set path for DEX data
-date_dex <- "20251001"
+date_dex <- "20251123"
 fp_dex <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_dex, "/compiled_dex_data_2010_2019.parquet")
+
+date_ushd <- "20251123"
+fp_ushd <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_ushd, "/compiled_ushd_data_2010_2019.parquet")
 
 # Set output directories
 date_today <- format(Sys.time(), "%Y%m%d")
@@ -65,7 +68,11 @@ ensure_dir_exists(dir_output)
 ##----------------------------------------------------------------
 ## 0.2 Read in data
 ##----------------------------------------------------------------
+# DEX data
 df_dex <- read_parquet(fp_dex)
+
+# USHD Data
+#df_ushd <- read_parquet(fp_ushd)
 
 ##----------------------------------------------------------------
 ## 1. Table 1 - HIV

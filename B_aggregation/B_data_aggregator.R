@@ -64,10 +64,10 @@ ensure_dir_exists <- function(dir_path) {
 ## 0.2 Input / Output Directories
 ##----------------------------------------------------------------
 # Input directory
-dex_date_folder <- "20250930"
+dex_date_folder <- "20251123"
 dex_dir <- paste0("/ihme/homes/idrisov/aim_outputs/Aim2/A_data_preparation/", dex_date_folder, "/DEX/")
 
-ushd_date_folder <- "20251001"
+ushd_date_folder <- "20251123"
 ushd_dir <- paste0("/ihme/homes/idrisov/aim_outputs/Aim2/A_data_preparation/", ushd_date_folder, "/USHD/")
 
 # Output directory
@@ -150,7 +150,8 @@ for (i in 1:length(files_list_dex)) {
   # Available columns
   # c("year_id", "geo", "location_name", "fips", "payer", "toc", 
   #   "acause", "cause_name", "age_group_years_start", "age_name", 
-  #   "sex_id", "sex_name", "spend_mean", "spend_lower", "spend_upper", 
+  #   "sex_id", "sex_name", 
+  #   "spend_mean", "spend_lower", "spend_upper", 
   #   "spend_per_capita_mean", "spend_per_capita_lower", "spend_per_capita_upper", 
   #   "spend_per_bene_mean", "spend_per_bene_lower", "spend_per_bene_upper", 
   #   "spend_per_vol_mean", "spend_per_vol_lower", "spend_per_vol_upper", 
@@ -160,13 +161,8 @@ for (i in 1:length(files_list_dex)) {
   
   # read in dataset
   df <- open_dataset(file) %>%
-    filter(geo == "county") %>%
     filter(!is.na(spend_mean)) %>%
     filter(spend_mean > 0) %>%
-    select("year_id", "geo", "location_name", "fips", "payer", "toc", 
-             "acause", "cause_name", "age_group_years_start", "age_name", 
-             "sex_id", "sex_name",
-             "spend_mean", "spend_lower", "spend_upper") %>%
     collect() %>%
     as.data.frame()
   
@@ -187,22 +183,6 @@ df_dex_all <- rbindlist(list_dex_df, use.names = TRUE, fill = TRUE)
 df_dex_all <- left_join(x = df_dex_all, 
                              y = df_loc_ids %>% select(cnty, state_name, location_id, merged_location_id),
                              by = c("fips" = "cnty"))
-
-# Rename location_name -> cnty_name
-df_dex_all <- df_dex_all %>%
-  rename(
-   fips_ihme = fips,
-    cnty_name = location_name
-  )
-
-# Reorder columns
-col_order_dex <- c("state_name", "cnty_name", "fips_ihme", "location_id", "merged_location_id", "geo", 
-                   "acause", "cause_name", "sex_id", "sex_name", "year_id",  
-                   "age_group_years_start", "age_name", "payer", "toc",
-                    "spend_mean", "spend_lower", "spend_upper"
-                    )
-
-df_dex_all <- df_dex_all %>% select(all_of(col_order_dex))
   
 ##----------------------------------------------------------------
 ## 1.1 Save DEX data

@@ -43,10 +43,12 @@ ensure_dir_exists <- function(dir_path) {
 ##----------------------------------------------------------------
 ## 0.1 Set directories for DEX estimate data / county estimates
 ##----------------------------------------------------------------
-# Set path for DEX data
-date_dex <- "20251001"
+# Set path for data
+date_dex <- "20251123"
 fp_dex <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_dex, "/compiled_dex_data_2010_2019.parquet")
-fp_ushd <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_dex, "/compiled_ushd_data_2010_2019.parquet")
+
+date_ushd <- "20251123"
+fp_ushd <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_ushd, "/compiled_ushd_data_2010_2019.parquet")
 
 # Set output directories
 date_today <- format(Sys.time(), "%Y%m%d")
@@ -65,7 +67,7 @@ df_ushd <- read_parquet(fp_ushd)
 
 # DEX - Group by summary DEX data to match USHD data - collapse on TOC and Payer
 df_dex_collapse <- df_dex %>%
-  group_by(state_name, cnty_name, fips_ihme, location_id, merged_location_id,
+  group_by(state_name, location_name, fips_ihme, location_id, merged_location_id,
            acause, cause_name, sex_id, year_id, age_name, age_group_years_start) %>%
   summarize(spend_mean = mean(spend_mean),
             spend_lower = mean(spend_lower),
@@ -77,7 +79,7 @@ df_dex_hiv <- df_dex_collapse %>%
 
 # DEX - _subs data
 df_dex_subs <- df_dex_collapse %>%
-  group_by(state_name, cnty_name, fips_ihme, location_id, merged_location_id,
+  group_by(state_name, location_name, fips_ihme, location_id, merged_location_id,
            sex_id, year_id, age_name, age_group_years_start) %>%
   summarize(spend_mean = mean(spend_mean),
             spend_lower = mean(spend_lower),
@@ -103,7 +105,7 @@ df_ushd$pred_mean <- as.numeric(df_ushd$pred_mean)
 df_dex_ushd <- left_join(
   x = df_ushd,
   y = df_dex_collapse,
-  by = c("state_name", "cnty_name", "fips_ihme", "location_id", "merged_location_id", 
+  by = c("state_name", "cnty_name" = "location_name", "fips_ihme", "location_id", "merged_location_id", 
          "acause", "cause_name", "sex_id", "year_id", 
          "age_group_years_start", "age_name"
          )

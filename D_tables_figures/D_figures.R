@@ -67,9 +67,12 @@ save_plot <- function(ggplot_obj, ggplot_name, output_path, width = 12, height =
 ##----------------------------------------------------------------
 ## 0.2 Set directories for DEX estimate data / county estimates
 ##----------------------------------------------------------------
-# Set path for DEX data
-date_dex <- "20251001"
+# Set path for data
+date_dex <- "20251123"
 fp_dex <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_dex, "/compiled_dex_data_2010_2019.parquet")
+
+date_ushd <- "20251123"
+fp_ushd <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_ushd, "/compiled_ushd_data_2010_2019.parquet")
 
 # Set output directories
 date_today <- format(Sys.time(), "%Y%m%d")
@@ -156,6 +159,9 @@ theme_settings <- theme(
 # Main DEX Data
 df_dex <- read_parquet(fp_dex)
 
+# USHD Data
+#df_ushd <- read_parquet(fp_ushd)
+
 # DEX causes that aggregate to "_subs" cause
 subs_causes <- c("mental_alcohol", "mental_drug_agg", "mental_drug_opioids")
 
@@ -210,7 +216,7 @@ f1 <- ggplot(data = df_f1, aes(age_name, spend_mean_inverse, fill = factor(payer
   theme_classic() +
   labs(y = "Estimated Average Spending (USD)",
        x = "",
-       title = "Estimated HIV spending by insurance type per year, all years, all counties") +
+       title = "Estimated HIV spending per by insurance type per year, all years, all counties") +
   theme_settings +
   guides(
     fill = guide_legend(
@@ -289,6 +295,7 @@ save_plot(f2, "F2_SUD_spending_by_insurance", dir_output)
 ##----------------------------------------------------------------
 # group by: year_id, toc, cause_name
 df_f3 <- df_dex %>%
+  filter(geo == 'national') %>%
   filter(acause == "hiv") %>%
   group_by(toc, age_name, sex_name) %>%
   summarize(
@@ -324,7 +331,7 @@ f3 <- ggplot(data = df_f3, aes(age_name, spend_mean_inverse, fill = toc)) +
   theme_classic() +
   labs(y = "Estimated Average Spending (USD)",
        x = "",
-       title = "Estimated HIV spending by type of care per year, all years, all counties") +
+       title = "Estimated National Average HIV spending per person by type of care per year, all years, all counties") +
   theme_settings +
   guides(
     fill = guide_legend(
@@ -336,6 +343,57 @@ f3 <- ggplot(data = df_f3, aes(age_name, spend_mean_inverse, fill = toc)) +
 
 # Save plot
 save_plot(f3, "F3_HIV_spending_by_toc", dir_output)
+
+
+# Below is code that was trying to look at the differences between the above code written, and what is supplied
+
+# # B's Code #
+# df_test <- df_dex %>%
+#   filter(geo == 'national') %>%
+#   filter(acause == "hiv") %>%
+#   filter(toc == "NF")
+# 
+# df_bulat <- df_test %>%
+#   group_by(age_group_years_start, sex_id, year_id, location_name, geo) %>%
+#   summarise(spend_mean = sum(spend_mean, na.rm = TRUE))
+# 
+# # H's Code #
+# 
+# # HIV spending at the national level (all counties) by age and sex
+# hiv_data <- open_dataset("/mnt/share/dex/us_county/04_final/scaled_version_102/data/geo=national/toc=NF/state=USA/payer=all") %>%
+#   collect() %>% as.data.table()
+# 
+# hiv_data <- hiv_data[acause == 'hiv']
+# 
+# # this is draw level, so take mean across draws first, then sum up by age + sex
+# hiv_data_means <- hiv_data[, .(spend = mean(spend)), by = c('age_group_years_start', 'sex_id', 'year_id','location')]
+# hiv_data_means <- hiv_data_means[, .(spend = sum(spend)), by = c('age_group_years_start', 'sex_id')]
+# 
+# ggplot(hiv_data_means, aes(x = age_group_years_start, y = spend))+
+#   geom_bar(stat = 'identity')+facet_grid(~sex_id)+theme_bw()+labs(x = 'year', y = 'spend', title = 'Nursing facility spend on HIV, national level all years 2010-2019')
+# 
+# ####
+# # B's version 
+# hiv_test_b <- df_dex_all[
+#   geo == "national" & acause == "hiv" & toc == "NF"
+# ] %>%
+#   group_by(age_group_years_start, sex_id) %>%
+#   summarise(spend_mean_total = sum(spend_mean, na.rm = TRUE))
+# 
+# # H's version
+# hiv_test_h <- open_dataset(
+#   "/mnt/share/dex/us_county/04_final/scaled_version_102/data/geo=national/toc=NF/state=USA/payer=all"
+# ) %>%
+#   filter(acause == "hiv") %>%
+#   collect() %>%
+#   as.data.table() %>%
+#   .[, .(spend = mean(spend)), by = .(age_group_years_start, sex_id, year_id, location)] %>%
+#   .[, .(spend = sum(spend)), by = .(age_group_years_start, sex_id)]
+# 
+# 
+# ####
+
+
 
 ##----------------------------------------------------------------
 ## 4. Figure 4 - SUD - Spending by TOC
