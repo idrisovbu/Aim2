@@ -293,7 +293,16 @@ save_plot(f2, "F2_SUD_spending_by_insurance", dir_output)
 ##
 ## Notes: TODO calculate CI correctly, needs some research for this, exclude NF just for HIV?
 ##----------------------------------------------------------------
-# group by: year_id, toc, cause_name
+# # group by: year_id, toc, cause_name - OLD? TESTING NEW BELOW THAT USES payer=all
+# df_f3 <- df_dex %>%
+#   filter(geo == 'national') %>%
+#   filter(acause == "hiv") %>%
+#   group_by(toc, age_name, sex_name) %>%
+#   summarize(
+#     "spend_mean" = mean(spend_mean)
+#   )
+
+# group by: year_id, cause_name
 df_f3 <- df_dex %>%
   filter(geo == 'national') %>%
   filter(acause == "hiv") %>%
@@ -325,7 +334,7 @@ f3 <- ggplot(data = df_f3, aes(age_name, spend_mean_inverse, fill = toc)) +
   scale_fill_manual(values = toc_colors, labels = toc_labels, name = "Type of care") +
   scale_y_continuous(
     #limits = (),
-    breaks = seq(-10000000, 800000, 1000000),
+    #breaks = seq(-10000000, 800000, 1000000),
     labels = function(x) scales::dollar(abs(x))
   ) +
   theme_classic() +
@@ -347,31 +356,34 @@ save_plot(f3, "F3_HIV_spending_by_toc", dir_output)
 
 # Below is code that was trying to look at the differences between the above code written, and what is supplied
 
-# # B's Code #
-# df_test <- df_dex %>%
-#   filter(geo == 'national') %>%
-#   filter(acause == "hiv") %>%
-#   filter(toc == "NF")
-# 
-# df_bulat <- df_test %>%
-#   group_by(age_group_years_start, sex_id, year_id, location_name, geo) %>%
-#   summarise(spend_mean = sum(spend_mean, na.rm = TRUE))
-# 
-# # H's Code #
-# 
-# # HIV spending at the national level (all counties) by age and sex
-# hiv_data <- open_dataset("/mnt/share/dex/us_county/04_final/scaled_version_102/data/geo=national/toc=NF/state=USA/payer=all") %>%
-#   collect() %>% as.data.table()
-# 
-# hiv_data <- hiv_data[acause == 'hiv']
-# 
-# # this is draw level, so take mean across draws first, then sum up by age + sex
-# hiv_data_means <- hiv_data[, .(spend = mean(spend)), by = c('age_group_years_start', 'sex_id', 'year_id','location')]
-# hiv_data_means <- hiv_data_means[, .(spend = sum(spend)), by = c('age_group_years_start', 'sex_id')]
-# 
-# ggplot(hiv_data_means, aes(x = age_group_years_start, y = spend))+
-#   geom_bar(stat = 'identity')+facet_grid(~sex_id)+theme_bw()+labs(x = 'year', y = 'spend', title = 'Nursing facility spend on HIV, national level all years 2010-2019')
-# 
+# B's Code #
+df_test <- df_dex %>%
+  filter(geo == 'national') %>%
+  filter(acause == "hiv") %>%
+  filter(toc == "NF")
+
+df_b <- df_test %>%
+  group_by(age_group_years_start, sex_id, year_id, location_name, geo) %>%
+  summarise(spend_mean = sum(spend_mean, na.rm = TRUE))
+
+# H's Code #
+
+# HIV spending at the national level (all counties) by age and sex
+hiv_data <- open_dataset("/mnt/share/dex/us_county/04_final/scaled_version_102/data/geo=national/toc=NF/state=USA/payer=all") %>%
+  collect() %>% as.data.table()
+
+hiv_data <- hiv_data[acause == 'hiv']
+hiv_data <- hiv_data[year_id == 2019]
+
+# this is draw level, so take mean across draws first, then sum up by age + sex
+hiv_data_means <- hiv_data[, .(spend = mean(spend)), by = c('age_group_years_start', 'sex_id', 'year_id','location')]
+hiv_data_means <- hiv_data_means[, .(spend = sum(spend)), by = c('age_group_years_start', 'sex_id')]
+
+f3_comp <- ggplot(hiv_data_means, aes(x = age_group_years_start, y = spend))+
+  geom_bar(stat = 'identity')+facet_grid(~sex_id)+theme_bw()+labs(x = 'year', y = 'spend', title = 'Nursing facility spend on HIV, national level all years 2010-2019')
+
+f3_comp 
+
 # ####
 # # B's version 
 # hiv_test_b <- df_dex_all[

@@ -41,7 +41,7 @@ y <- c(2010:2019)
 c <- c("hiv", "mental_alcohol", "mental_drug_agg", "mental_drug_opioids") # These are the causes we are running on only
 
 # Payers
-p <- c("mdcr", "mdcd", "priv", "oop")
+p <- c("mdcr", "mdcd", "priv", "oop", "all")
 
 # Create combination table
 combos <- tidyr::crossing(y,c,p) %>% as.data.table()
@@ -72,7 +72,7 @@ SUBMIT_ARRAY_JOB(
     queue = "all.q", # string "all.q" or "long.q"
     memory = "10G", # string "#G"
     threads = "1", # string "#"
-    time = "01:30:00", # string "##:##:##"
+    time = "01:30:00", # string "##:##:##" - takes about 50~ minutes to run all 
     archive = F, # Don't need archive? Maybe only needed if writing to the archive drive?
     throttle = 3000, # Not sure what this does
     n_jobs = nrow(combos),

@@ -30,8 +30,8 @@ scaled_version <- 102
 # Interactive
 if(interactive()) {
   param_template <- data.table(y = 2019,
-                               c = "_oral",
-                               p = "mdcr")
+                               c = "hiv",
+                               p = "all")
 } else {
   # Non-interactive
   args <- commandArgs(trailingOnly = TRUE)
@@ -131,47 +131,79 @@ benes <- open_dataset("/mnt/share/dex/us_county/03_post_model/pop_denom/18/denom
   collect() %>%
   setDT()
 
-dt_final <- merge(dt_cause_names, benes, by = c("year_id", "payer", "geo", "location", "age_group_years_start", "sex_id"))
-
-# Create per capita and per bene rates (round for cleanliness)
-dt_final[, ':='(
-  spend_mean = round(spend_mean,2),
-  spend_lower = round(spend_lower, 2),
-  spend_upper = round(spend_upper, 2),
-  # spending per capita
-  spend_per_capita_mean = round(spend_mean/pop,2),
-  spend_per_capita_lower = round(spend_lower/pop,2),
-  spend_per_capita_upper = round(spend_upper/pop,2),
-  # spending per encounter
-  spend_per_vol_mean = round(spend_mean/vol_mean,2),
-  spend_per_vol_lower = round(spend_lower/vol_lower,2),
-  spend_per_vol_upper = round(spend_upper/vol_upper,2),
-  # spending per beneficiary
-  spend_per_bene_mean = round(spend_mean/denom,2),
-  spend_per_bene_lower = round(spend_lower/denom,2),
-  spend_per_bene_upper = round(spend_upper/denom,2),
-  # encounters per capita (per 1,000)
-  vol_per_capita_mean = round((vol_mean/pop)*1000,2),
-  vol_per_capita_lower = round((vol_lower/pop)*1000,2),
-  vol_per_capita_upper = round((vol_upper/pop)*1000,2),
-  # encounters per beneficiary (per 1,000)
-  vol_per_bene_mean = round((vol_mean/denom)*1000,2),
-  vol_per_bene_lower = round((vol_lower/denom)*1000,2),
-  vol_per_bene_upper = round((vol_upper/denom)*1000,2)
-)]
-
-
-# Masking estimates with large uncertainty
-cols <- c("spend", "spend_per_capita", "spend_per_bene", "spend_per_vol", "vol_per_capita", "vol_per_bene")
-for (col in cols) {
-  mean_col <- paste0(col, "_mean")
-  lower_col <- paste0(col, "_lower")
-  upper_col <- paste0(col, "_upper")
+# Fix for payer=all data where there is no population data
+if (param_template$p != "all") {
+  dt_final <- merge(dt_cause_names, benes, by = c("year_id", "payer", "geo", "location", "age_group_years_start", "sex_id"))
   
-  # Mask if the uncertainty range > mean
-  dt_final[, (c(mean_col, lower_col, upper_col)) := 
-              .SD[, lapply(.SD, function(x) ifelse(get(upper_col) - get(lower_col) > get(mean_col), NA_real_, x)), 
-                  .SDcols = c(mean_col, lower_col, upper_col)]]
+  # Create per capita and per bene rates (round for cleanliness)
+  dt_final[, ':='(
+    spend_mean = round(spend_mean,2),
+    spend_lower = round(spend_lower, 2),
+    spend_upper = round(spend_upper, 2),
+    # spending per capita
+    spend_per_capita_mean = round(spend_mean/pop,2),
+    spend_per_capita_lower = round(spend_lower/pop,2),
+    spend_per_capita_upper = round(spend_upper/pop,2),
+    # spending per encounter
+    spend_per_vol_mean = round(spend_mean/vol_mean,2),
+    spend_per_vol_lower = round(spend_lower/vol_lower,2),
+    spend_per_vol_upper = round(spend_upper/vol_upper,2),
+    # spending per beneficiary
+    spend_per_bene_mean = round(spend_mean/denom,2),
+    spend_per_bene_lower = round(spend_lower/denom,2),
+    spend_per_bene_upper = round(spend_upper/denom,2),
+    # encounters per capita (per 1,000)
+    vol_per_capita_mean = round((vol_mean/pop)*1000,2),
+    vol_per_capita_lower = round((vol_lower/pop)*1000,2),
+    vol_per_capita_upper = round((vol_upper/pop)*1000,2),
+    # encounters per beneficiary (per 1,000)
+    vol_per_bene_mean = round((vol_mean/denom)*1000,2),
+    vol_per_bene_lower = round((vol_lower/denom)*1000,2),
+    vol_per_bene_upper = round((vol_upper/denom)*1000,2)
+  )]
+  
+  # Masking estimates with large uncertainty
+  cols <- c("spend", "spend_per_capita", "spend_per_bene", "spend_per_vol", "vol_per_capita", "vol_per_bene")
+  for (col in cols) {
+    mean_col <- paste0(col, "_mean")
+    lower_col <- paste0(col, "_lower")
+    upper_col <- paste0(col, "_upper")
+    
+    # Mask if the uncertainty range > mean
+    dt_final[, (c(mean_col, lower_col, upper_col)) := 
+               .SD[, lapply(.SD, function(x) ifelse(get(upper_col) - get(lower_col) > get(mean_col), NA_real_, x)), 
+                   .SDcols = c(mean_col, lower_col, upper_col)]]
+  }
+  
+} else { # If payer=all, no population data, then don't create population based estimates, set all to NA, don't mask results
+  dt_final <- copy(dt_cause_names)
+  
+  # Create columns
+  dt_final[, ':='(
+    spend_mean = round(spend_mean,2),
+    spend_lower = round(spend_lower, 2),
+    spend_upper = round(spend_upper, 2),
+    # spending per capita
+    spend_per_capita_mean = NA,
+    spend_per_capita_lower = NA,
+    spend_per_capita_upper = NA,
+    # spending per encounter
+    spend_per_vol_mean = round(spend_mean/vol_mean,2),
+    spend_per_vol_lower = round(spend_lower/vol_lower,2),
+    spend_per_vol_upper = round(spend_upper/vol_upper,2),
+    # spending per beneficiary
+    spend_per_bene_mean = NA,
+    spend_per_bene_lower = NA,
+    spend_per_bene_upper = NA,
+    # encounters per capita (per 1,000)
+    vol_per_capita_mean = NA,
+    vol_per_capita_lower = NA,
+    vol_per_capita_upper = NA,
+    # encounters per beneficiary (per 1,000)
+    vol_per_bene_mean = NA,
+    vol_per_bene_lower = NA,
+    vol_per_bene_upper = NA
+  )]
 }
 
 # We don't produce per beneficiary estimates for out-of-pocket payers
