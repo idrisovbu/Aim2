@@ -60,6 +60,10 @@ fp_dex <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_dex, "/compiled_
 date_ushd <- "20251123"
 fp_ushd <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_ushd, "/compiled_ushd_data_2010_2019.parquet")
 
+date_fa <- "20251201"
+fp_fa_hiv <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_fa, "hiv_data_fa_estimates.parquet")
+fp_fa_sud <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_fa, "sud_data_fa_estimates.parquet")
+
 # Set output directories
 date_today <- format(Sys.time(), "%Y%m%d")
 dir_output <- file.path(h, "/aim_outputs/Aim2/D_tables_figures/", date_today)
@@ -73,6 +77,10 @@ df_dex <- read_parquet(fp_dex)
 
 # USHD Data
 #df_ushd <- read_parquet(fp_ushd)
+
+# Frontier Analysis Data
+df_hiv_fa <- read_parquet(fp_fa_hiv)
+df_sud_fa <- read_parquet(fp_fa_sud)
 
 ##----------------------------------------------------------------
 ## 1. Table 1 - HIV
@@ -126,7 +134,6 @@ df_t1_all <- df_t1_all %>%
 
 # Write to CSV
 write.csv(df_t1_all, file.path(dir_output, "T1_HIV_top_bottom_10.csv"), row.names = FALSE)
-
 
 ##----------------------------------------------------------------
 ## 2. Table 2 - SUD
@@ -188,3 +195,251 @@ write.csv(df_t2_all, file.path(dir_output, "T2_SUD_top_bottom_10.csv"), row.name
 
 
 
+
+
+
+
+
+
+
+##----------------------------------------------------------------
+## 3. Table 3 - HIV & SUD
+## What are the top 10 most efficient and least efficient counties 
+## in terms of spending per case versus deaths per case for patients 
+## with HIV for all years, all ages, all sexes? (These could also be faceted by age*sex)
+##
+## This involves collapsing on year / sex / age group to get a mean efficiency score 
+## per each county, then basically sorting the counties by efficiency score 
+## and picking top 10 / bottom 10, two tables, one for SUD, one for HIV
+##
+## TODO -
+##----------------------------------------------------------------
+
+t3_cols_to_group <- c("state_name", "cnty_name", "fips_ihme", "location_id", "merged_location_id")
+
+# SUD --
+df_t3_sud <- df_sud_fa %>% 
+  group_by(across(all_of(t3_cols_to_group))) %>%
+  summarize(
+    eff_simple = mean(eff_simple),
+    eff_extended = mean(eff_extended)
+  )
+
+# Top 10 SUD
+df_t3_sud_top_10 <- df_t3_sud %>% 
+  arrange(desc(eff_extended)) %>%
+  ungroup() %>%
+  mutate(rank = as.character(row_number())) %>%
+  head(10)
+
+# Bottom 10 SUD
+df_t3_sud_bot_10 <- df_t3_sud %>% 
+  arrange(desc(eff_extended)) %>%
+  ungroup() %>%
+  mutate(rank = as.character(row_number())) %>%
+  tail(10)
+
+# Add ... row to top data
+t3_ellipsis_row <- tibble(
+  state_name   = "...",
+  cnty_name = "...",
+  eff_extended  = "...",
+  rank = "..."
+)
+
+# Bind it in
+df_t3_sud_top_10$eff_extended <- as.character(df_t3_sud_top_10$eff_extended)
+df_t3_sud_bot_10$eff_extended <- as.character(df_t3_sud_bot_10$eff_extended)
+
+df_t3_sud_all <- bind_rows(df_t3_sud_top_10, t3_ellipsis_row, df_t3_sud_bot_10)
+
+# Arrange columns to desired output
+df_t3_sud_all <- df_t3_sud_all %>%
+  select(rank, cnty_name, state_name, eff_extended) %>%
+  setnames(old = c("rank", "cnty_name", "state_name", "eff_extended"), 
+           new = c("Rank", "County", "State", "Efficiency Score"))
+
+# HIV  --
+df_t3_hiv <- df_hiv_fa %>% 
+  group_by(across(all_of(t3_cols_to_group))) %>%
+  summarize(
+    eff_simple = mean(eff_simple),
+    eff_extended = mean(eff_extended)
+  )
+
+# Top 10 HIV
+df_t3_hiv_top_10 <- df_t3_hiv %>% 
+  arrange(desc(eff_extended)) %>%
+  ungroup() %>%
+  mutate(rank = as.character(row_number())) %>%
+  head(10)
+
+# Bottom 10 HIV
+df_t3_hiv_bot_10 <- df_t3_hiv %>% 
+  arrange(desc(eff_extended)) %>%
+  ungroup() %>%
+  mutate(rank = as.character(row_number())) %>%
+  tail(10)
+
+# Add ... row to top data
+t3_ellipsis_row <- tibble(
+  state_name   = "...",
+  cnty_name = "...",
+  eff_extended  = "...",
+  rank = "..."
+)
+
+# Bind it in
+df_t3_hiv_top_10$eff_extended <- as.character(df_t3_hiv_top_10$eff_extended)
+df_t3_hiv_bot_10$eff_extended <- as.character(df_t3_hiv_bot_10$eff_extended)
+
+df_t3_hiv_all <- bind_rows(df_t3_hiv_top_10, t3_ellipsis_row, df_t3_hiv_bot_10)
+
+# Arrange columns to desired output
+df_t3_hiv_all <- df_t3_hiv_all %>%
+  select(rank, cnty_name, state_name, eff_extended) %>%
+  setnames(old = c("rank", "cnty_name", "state_name", "eff_extended"), 
+           new = c("Rank", "County", "State", "Efficiency Score"))
+
+# Write to CSV
+write.csv(df_t3_hiv_all, file.path(dir_output, "T3_HIV_fa_top_bottom_10.csv"), row.names = FALSE)
+write.csv(df_t3_sud_all, file.path(dir_output, "T3_SUD_fa_top_bottom_10.csv"), row.names = FALSE)
+
+# # which are we missing.. (might just be due to the sampling..)
+# df_locs <- read.csv(file.path(h, "aim_outputs/Aim2/R_resources/county_fips_locs.csv"))
+#
+# df_anti <- anti_join(
+#   x = df_t3_sud,
+#   y = df_locs,
+#   by = c("state_name", "cnty_name", "fips_ihme" = "cnty")
+# )
+# 
+# df_anti <- anti_join(
+#   y = df_t3_sud,
+#   x = df_locs,
+#   by = c("state_name", "cnty_name", "cnty" = "fips_ihme")
+# )
+
+##----------------------------------------------------------------
+## 4. Table 4 - HIV & SUD
+## Which counties have shifted the most in an upward and downward trajectory 
+## in terms of their efficiency scores over the 10 year period (2010 ~ 2019)? 
+## (These could also be faceted by age*sex)
+##
+## Maybe look at top 10 that have increased in efficiency the most, along with bottom 10,
+## collapse on age group and sex, then take delta from 
+## 2010 to 2019 (to calculate, take 2019 minus 2010), then rank order, 
+## this tells us biggest + and biggest - delta
+##
+## TODO -
+##----------------------------------------------------------------
+
+t4_cols_to_group <- c("state_name", "cnty_name", "fips_ihme", "location_id", "merged_location_id", "year_id")
+
+# SUD -----------------------------------
+df_t4_sud <- df_sud_fa %>% 
+  group_by(across(all_of(t4_cols_to_group))) %>%
+  summarize(
+    eff_simple = mean(eff_simple),
+    eff_extended = mean(eff_extended)
+  ) %>%
+  filter(year_id %in% c(2010, 2019)) %>%
+  pivot_wider(
+    names_from = year_id,
+    values_from = c(eff_simple, eff_extended),
+    names_sep = "_"
+  ) %>%
+  mutate(
+    delta_eff_extended = eff_extended_2019 - eff_extended_2010,
+    delta_eff_simple   = eff_simple_2019 - eff_simple_2010
+  )
+
+# Top 10 SUD
+df_t4_sud_top_10 <- df_t4_sud %>% 
+  arrange(desc(delta_eff_extended)) %>%
+  ungroup() %>%
+  mutate(rank = as.character(row_number())) %>%
+  head(10)
+
+# Bottom 10 SUD
+df_t4_sud_bot_10 <- df_t4_sud %>% 
+  arrange(desc(delta_eff_extended)) %>%
+  ungroup() %>%
+  mutate(rank = as.character(row_number())) %>%
+  tail(10)
+
+# Add ... row to top data
+t4_ellipsis_row <- tibble(
+  state_name   = "...",
+  cnty_name = "...",
+  delta_eff_extended  = "...",
+  rank = "..."
+)
+
+# Bind it in
+df_t4_sud_top_10$delta_eff_extended <- as.character(df_t4_sud_top_10$delta_eff_extended)
+df_t4_sud_bot_10$delta_eff_extended <- as.character(df_t4_sud_bot_10$delta_eff_extended)
+
+df_t4_sud_all <- bind_rows(df_t4_sud_top_10, t4_ellipsis_row, df_t4_sud_bot_10)
+
+# Arrange columns to desired output
+df_t4_sud_all <- df_t4_sud_all %>%
+  select(rank, cnty_name, state_name, delta_eff_extended) %>%
+  setnames(old = c("rank", "cnty_name", "state_name", "delta_eff_extended"), 
+           new = c("Rank", "County", "State", "Efficiency Score Delta (2010-2019)"))
+
+# HIV  -----------------------------------
+df_t4_hiv <- df_hiv_fa %>% 
+  group_by(across(all_of(t4_cols_to_group))) %>%
+  summarize(
+    eff_simple = mean(eff_simple),
+    eff_extended = mean(eff_extended)
+  ) %>%
+  filter(year_id %in% c(2010, 2019)) %>%
+  pivot_wider(
+    names_from = year_id,
+    values_from = c(eff_simple, eff_extended),
+    names_sep = "_"
+  ) %>%
+  mutate(
+    delta_eff_extended = eff_extended_2019 - eff_extended_2010,
+    delta_eff_simple   = eff_simple_2019 - eff_simple_2010
+  )
+
+# Top 10 HIV
+df_t4_hiv_top_10 <- df_t4_hiv %>% 
+  arrange(desc(delta_eff_extended)) %>%
+  ungroup() %>%
+  mutate(rank = as.character(row_number())) %>%
+  head(10)
+
+# Bottom 10 HIV
+df_t4_hiv_bot_10 <- df_t4_hiv %>% 
+  arrange(desc(delta_eff_extended)) %>%
+  ungroup() %>%
+  mutate(rank = as.character(row_number())) %>%
+  tail(10)
+
+# Add ... row to top data
+t4_ellipsis_row <- tibble(
+  state_name   = "...",
+  cnty_name = "...",
+  delta_eff_extended  = "...",
+  rank = "..."
+)
+
+# Bind it in
+df_t4_hiv_top_10$delta_eff_extended <- as.character(df_t4_hiv_top_10$delta_eff_extended)
+df_t4_hiv_bot_10$delta_eff_extended <- as.character(df_t4_hiv_bot_10$delta_eff_extended)
+
+df_t4_hiv_all <- bind_rows(df_t4_hiv_top_10, t4_ellipsis_row, df_t4_hiv_bot_10)
+
+# Arrange columns to desired output
+df_t4_hiv_all <- df_t4_hiv_all %>%
+  select(rank, cnty_name, state_name, delta_eff_extended) %>%
+  setnames(old = c("rank", "cnty_name", "state_name", "delta_eff_extended"), 
+           new = c("Rank", "County", "State", "Efficiency Score Delta (2010-2019)"))
+
+# Write to CSV
+write.csv(df_t4_hiv_all, file.path(dir_output, "T4_HIV_fa_delta_top_bottom_10.csv"), row.names = FALSE)
+write.csv(df_t4_sud_all, file.path(dir_output, "T4_SUD_fa_delta_top_bottom_10.csv"), row.names = FALSE)
