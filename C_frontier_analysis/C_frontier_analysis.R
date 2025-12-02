@@ -8,6 +8,7 @@
 ## 0. Clear environment and set library paths
 ##----------------------------------------------------------------
 rm(list = ls())
+pacman::p_load(data.table, arrow, tidyverse, glue)
 
 # Set drive paths
 if (Sys.info()["sysname"] == 'Linux'){
@@ -37,6 +38,7 @@ library('frontier')
 if (interactive()) {
   cause <- "hiv" # "_subs"
 } else {
+  args <- commandArgs(trailingOnly = TRUE)
   cause <- as.character(args[1])
 }
 
@@ -166,8 +168,6 @@ write_parquet(df_dex_ushd, fp_data_combo)
 
 }
 
-View(head(df_dex_ushd, 100))
-
 ##----------------------------------------------------------------
 ## 2. Frontier Analysis Model
 ##
@@ -188,29 +188,22 @@ use_sample_data <- F
 
 if (use_sample_data) {
   # Sample our data so model doesn't take all day
-  df_dex_ushd <- df_dex_ushd %>% sample_n(100000)
+  df_dex_ushd <- df_dex_ushd %>% sample_n(50000)
 }
 
-df_dex_ushd_hiv <- df_dex_ushd %>% filter(acause == "hiv")
-df_dex_ushd_subs <- df_dex_ushd %>% filter(acause == "_subs")
+# Filter our data to our desired cause
+df_dex_ushd_acause <- df_dex_ushd %>% filter(acause == cause)
 
-# Model: HIV - MX Ratio ~ spend_mean
-mod_simple_hiv <- sfa(
+# Model: MX Ratio ~ spend_mean
+print(paste0("Starting Simple Model @ ", Sys.time()))
+t1 <- Sys.time()
+mod_simple <- sfa(
   log(pred_mean) ~ log(spend_mean),
-  data          = df_dex_ushd_hiv,
+  data          = df_dex_ushd_acause,
   ineffDecrease = TRUE  # Increased MX Ratio is "bad", so inefficiency = more MX ratio
 )
-
-summary(mod_simple_hiv)
-
-# Model: SUD - MX Ratio ~ spend_mean
-mod_simple_subs <- sfa(
-  log(pred_mean) ~ log(spend_mean),
-  data          = df_dex_ushd_subs,
-  ineffDecrease = TRUE  # Increased MX Ratio is "bad", so inefficiency = more MX ratio
-)
-
-summary(mod_simple_subs)
+t2 <- Sys.time()
+print(paste0("Elapsed time for Simple Model: ", round(t2 - t1, 1), " seconds"))
 
 # --- 2. Extended model: log(MX Ratio) on log(spending mean) + controls -----------------
 ##  * Still frontier of log(pred_mean) vs log(spend_mean),
@@ -223,32 +216,18 @@ summary(mod_simple_subs)
 ##    - factor(sex_id) and factor(age_group_years_start) adjust for case-mix.
 ##    - factor(cnty_name) ~ county fixed effects (optional; remove if too slow).
 
-# HIV
+print(paste0("Starting Extended Model @ ", Sys.time()))
 t1 <- Sys.time()
-mod_extended_hiv <- frontier::sfa(
+mod_extended <- frontier::sfa(
   formula = log(pred_mean) ~ log(spend_mean) +
     factor(year_id) +
     factor(sex_id) +
     factor(age_group_years_start), 
-  data          = df_dex_ushd_hiv,
+  data          = df_dex_ushd_acause,
   ineffDecrease = TRUE
 )
 t2 <- Sys.time()
-t2 - t1
-
-summary(mod_extended_hiv)
-
-# SUD
-mod_extended_subs <- frontier::sfa(
-  formula = log(pred_mean) ~ log(spend_mean) +
-    factor(year_id) +
-    factor(sex_id) +
-    factor(age_group_years_start),
-  data          = df_dex_ushd_subs,
-  ineffDecrease = TRUE
-)
-
-summary(mod_extended_subs)
+print(paste0("Elapsed time for Extended Model: ", round(t2 - t1, 1), " seconds"))
 
 ##----------------------------------------------------------------
 ## 3. Extract efficiencies
@@ -259,36 +238,23 @@ summary(mod_extended_subs)
 ##----------------------------------------------------------------
 
 # Basic Model Efficiency Scores
-df_dex_ushd_hiv$eff_simple <- efficiencies(mod_simple_hiv, 
-                               asInData = TRUE,
-                               logDepVar = TRUE,
-                               minusU = TRUE)
-df_dex_ushd_subs$eff_simple <- efficiencies(mod_simple_subs,
-                                asInData = TRUE,
-                                logDepVar = TRUE,
-                                minusU = TRUE)
+df_dex_ushd_acause$eff_simple <- efficiencies(mod_simple, 
+                             asInData   = TRUE,
+                             logDepVar  = TRUE,
+                             minusU     = TRUE)
 
 # Extended Model Efficiency Scores
-df_dex_ushd_hiv$eff_extended <- efficiencies(
-  mod_extended_hiv,
-  asInData   = TRUE,
-  logDepVar  = TRUE,
-  minusU     = TRUE
-)
-
-df_dex_ushd_subs$eff_extended <- efficiencies(
-  mod_extended_subs,
-  asInData   = TRUE,
-  logDepVar  = TRUE,
-  minusU     = TRUE
-)
+df_dex_ushd_acause$eff_extended <- efficiencies(mod_extended,
+                              asInData   = TRUE,
+                              logDepVar  = TRUE,
+                              minusU     = TRUE)
 
 ##----------------------------------------------------------------
-## 4. Save to Parquet Files (TODO - rerun not using sample for final data)
+## 4. Save to Parquet Files
 ##----------------------------------------------------------------
 
-write_parquet(df_dex_ushd_hiv, file.path(dir_output, "hiv_data_fa_estimates.parquet"))
-write_parquet(df_dex_ushd_subs, file.path(dir_output, "sud_data_fa_estimates.parquet"))
+fn_output <- paste0(cause, "_data_fa_estimates.parquet")
+write_parquet(df_dex_ushd_acause, file.path(dir_output, fn_output))
 
 ##----------------------------------------------------------------
 ## Results - UNUSED ATM

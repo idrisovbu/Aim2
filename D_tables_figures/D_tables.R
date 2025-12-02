@@ -60,9 +60,9 @@ fp_dex <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_dex, "/compiled_
 date_ushd <- "20251123"
 fp_ushd <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_ushd, "/compiled_ushd_data_2010_2019.parquet")
 
-date_fa <- "20251201"
+date_fa <- "20251202"
 fp_fa_hiv <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_fa, "hiv_data_fa_estimates.parquet")
-fp_fa_sud <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_fa, "sud_data_fa_estimates.parquet")
+fp_fa_sud <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_fa, "_subs_data_fa_estimates.parquet")
 
 # Set output directories
 date_today <- format(Sys.time(), "%Y%m%d")
