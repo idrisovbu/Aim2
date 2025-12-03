@@ -9,7 +9,7 @@
 ##----------------------------------------------------------------
 rm(list = ls())
 
-pacman::p_load(dplyr, openxlsx, RMySQL, data.table, ini, DBI, tidyr, openxlsx, reticulate, ggpubr, arrow, grid, gridExtra, scales)
+pacman::p_load(dplyr, openxlsx, RMySQL, data.table, ini, DBI, tidyr, openxlsx, reticulate, ggpubr, arrow, grid, gridExtra, scales, ggplot2, shiny)
 library(lbd.loader, lib.loc = sprintf("/share/geospatial/code/geospatial-libraries/lbd.loader-%s", R.version$major))
 if("dex.dbr"%in% (.packages())) detach("package:dex.dbr", unload=TRUE)
 library(dex.dbr, lib.loc = lbd.loader::pkg_loc("dex.dbr"))
@@ -73,6 +73,10 @@ fp_dex <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_dex, "/compiled_
 
 date_ushd <- "20251123"
 fp_ushd <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_ushd, "/compiled_ushd_data_2010_2019.parquet")
+
+date_fa <- "20251201"
+fp_fa_hiv <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_fa, "/hiv_data_fa_estimates.parquet")
+fp_fa_sud <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_fa, "/_subs_data_fa_estimates.parquet")
 
 # Set output directories
 date_today <- format(Sys.time(), "%Y%m%d")
@@ -161,6 +165,10 @@ df_dex <- read_parquet(fp_dex)
 
 # USHD Data
 #df_ushd <- read_parquet(fp_ushd)
+
+# Frontier Analysis Data
+df_fa_hiv <- read_parquet(fp_fa_hiv)
+df_fa_sud <- read_parquet(fp_fa_sud)
 
 # DEX causes that aggregate to "_subs" cause
 subs_causes <- c("mental_alcohol", "mental_drug_agg", "mental_drug_opioids")
@@ -466,7 +474,7 @@ df_f5_overall <- df_dex %>%
 df_f5_payer <- left_join(df_f5_payer, df_loc_ids %>% select(mcnty, full_fips_code), by = c("fips_ihme" = "full_fips_code")) # gets "mcnty" column used by shapefile
 df_f5_overall <- left_join(df_f5_overall, df_loc_ids %>% select(mcnty, full_fips_code), by = c("fips_ihme" = "full_fips_code")) # gets "mcnty" column used by shapefile
 
-# Maps - Payer Strata --------------------
+# Maps - Payer Strata --
 f5_payer_plot_list <- list()
 for(p in c("mdcr", "mdcd", "priv", "oop")){
   if(length(f5_payer_plot_list) >= 4){
@@ -525,9 +533,9 @@ for(p in c("mdcr", "mdcd", "priv", "oop")){
 }
 
 
-# Maps - Overall Spending --------------------
+# Maps - Overall Spending ---
 
-# THIS SECTION NEEDS CLEANING UP - BEGINNING  ---------------------------------------------------------------------------
+# THIS SECTION NEEDS CLEANING UP - BEGINNING  ---
 # Basically the scale for the all TOC map most likely needs to be manually defined, the code in this section
 # is messy and needs to be cleaned up, but maybe can come at a time when we decide on how we want the plot to look
 
@@ -542,7 +550,7 @@ labs <- paste0("$",format(comma(round(manual_brks[-length(manual_brks)]))), " - 
 # cut data into bins
 df_f5_overall$plot_val <- cut(df_f5_overall$value, breaks = manual_brks, labels = labs)
 
-#### COLORS ##############
+#### COLORS ###
 # assign colors to bins
 # cols = c("#f1f1f1", "#e9d3eb", "#e0b5e4", "#d696de", "#cb77d7", "#be56d0", "#b12bc9") # static 7 colors
 
@@ -558,9 +566,9 @@ vals <- rescale((1:n)^bias, to = c(0, 1))
 
 # Generate colors
 cols_8_biased <- pal_fun(100)[round(vals * 99) + 1]
-#### COLORS ##############
+#### COLORS ###
 
-# THIS SECTION NEEDS CLEANING UP - END  ---------------------------------------------------------------------------
+# THIS SECTION NEEDS CLEANING UP - END  ---
 
 # make sf object with county shapefile
 df_f5_overall_map_object <- merge(mcnty_shapefile, df_f5_overall, by = "mcnty")
@@ -689,9 +697,9 @@ for(p in c("mdcr", "mdcd", "priv", "oop")){
   f6_payer_plot_list[[length(f6_payer_plot_list) + 1]] <- map
 }
 
-# Maps - Overall Spending --------------------
+# Maps - Overall Spending ---
 
-# THIS SECTION NEEDS CLEANING UP - BEGINNING  ---------------------------------------------------------------------------
+# THIS SECTION NEEDS CLEANING UP - BEGINNING  ---
 # Basically the scale for the all TOC map most likely needs to be manually defined, the code in this section
 # is messy and needs to be cleaned up, but maybe can come at a time when we decide on how we want the plot to look
 
@@ -707,7 +715,7 @@ labs <- paste0("$",format(comma(round(manual_brks[-length(manual_brks)]))), " - 
 # cut data into bins
 df_f6_overall$plot_val <- cut(df_f6_overall$value, breaks = manual_brks, labels = labs)
 
-#### COLORS ##############
+#### COLORS ###
 # assign colors to bins
 # cols = c("#f1f1f1", "#e9d3eb", "#e0b5e4", "#d696de", "#cb77d7", "#be56d0", "#b12bc9") # static 7 colors
 
@@ -723,10 +731,9 @@ vals <- rescale((1:n)^bias, to = c(0, 1))
 
 # Generate colors
 cols_8_biased <- pal_fun(100)[round(vals * 99) + 1]
-#### COLORS ##############
+#### COLORS ###
 
-# THIS SECTION NEEDS CLEANING UP - END  ---------------------------------------------------------------------------
-
+# THIS SECTION NEEDS CLEANING UP - END  ---
 # Merge with shapefile
 df_f6_overall_map_object <- merge(mcnty_shapefile, df_f6_overall, by = "mcnty")
 
@@ -764,4 +771,94 @@ f6_file_name <- "F6_SUD_spending_by_county_map.pdf"
 pdf(file = file.path(dir_output, f6_file_name), width = 14, height = 16)
 grid.draw(f6_layout)
 dev.off()
+
+
+##----------------------------------------------------------------
+## 7. Figure 6 - HIV & SUD - Spaghetti Plot
+## Time trend plot year by year showing efficiency values for each county as its own
+## line and tracking changes and general trends over time
+##----------------------------------------------------------------
+
+f6_group_cols <- c(
+  "state_name", "cnty_name", "fips_ihme", "location_id", "merged_location_id",
+  "level", "cause_id", "acause", "cause_name", "area", "measure_id"
+)
+
+# SUD
+
+# Group by summary, collapse to just county*year observations
+df_f6_sud <- df_fa_sud %>%
+  group_by(across(all_of(c(f6_group_cols, "year_id")))) %>%
+  summarize(eff_extended = mean(eff_extended), .groups = "drop")
+
+# Pivot wider
+df_f6_sud <- df_f6_sud %>%
+  filter(year_id >= 2010 & year_id <= 2019) %>%
+  tidyr::pivot_wider(
+    names_from = year_id,
+    values_from = eff_extended,
+    names_prefix = "eff_"
+  )
+
+# Create percentages based on % change from 2010
+df_f6_sud <- df_f6_sud %>%
+  mutate(across(
+    starts_with("eff_20"), 
+    ~ (.x - eff_2010) / eff_2010 * 100,
+    .names = "pct_{col}"
+  ))
+
+# Pivot longer so we can plot
+df_f6_sud_long <- df_f6_sud %>%
+  pivot_longer(
+    cols = starts_with("pct_eff_"),
+    names_to = "year",
+    values_to = "pct_change"
+  ) %>%
+  mutate(
+    year = as.integer(gsub("pct_eff_", "", year))
+  )
+
+# Plot
+ggplot(df_f6_sud_long, aes(x = year, y = pct_change, group = cnty_name)) +
+  geom_line() +
+  theme_minimal()
+
+
+# SHINY APP to quickly compare between states
+ui <- fluidPage(
+  titlePanel("Efficiency % Change vs 2010 by County"),
+  sidebarLayout(
+    sidebarPanel(
+      selectInput("state", "Select state:",
+                  choices = sort(unique(df_f6_sud_long$state_name)))
+    ),
+    mainPanel(
+      plotOutput("eff_plot", height = "600px")
+    )
+  )
+)
+
+server <- function(input, output, session) {
+  
+  df_state <- reactive({
+    df_f6_sud_long %>%
+      filter(state_name == input$state)
+  })
+  
+  output$eff_plot <- renderPlot({
+    ggplot(df_state(), aes(x = year, y = pct_change,
+                           group = cnty_name, color = cnty_name)) +
+      geom_line(alpha = 0.7) +
+      theme_minimal() +
+      theme(legend.position = "none")
+  })
+}
+
+shiny::shinyApp(ui = ui, server = server)
+
+
+
+
+
 
