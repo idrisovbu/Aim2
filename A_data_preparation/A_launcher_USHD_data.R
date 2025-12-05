@@ -44,7 +44,12 @@ ensure_path <- function(filepath) {
 ##----------------------------------------------------------------
 # Location_ids
 df_counties <- fread("/snfs1/Project/us_counties/locations/counties/merged_counties.csv")
-county_loc_ids <- df_counties$location_id %>% unique()
+
+df_counties <- df_counties %>%
+  filter(current == 1)
+
+df_params <- df_counties %>%
+  select(mcnty, location_id)
 
 # Cause_ids
 cause_ids <- list(298, 973) # hiv = 298, _subs = 973
@@ -58,17 +63,12 @@ measure_id <- 5 # prevalence
 # Year ids
 year_ids <- list(2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019) # 2010 ~ 2019
 
-# Create params df
-params <- tibble(
-  location_id = county_loc_ids,
-  cause_id    = list(cause_ids),
-  sex_id      = list(sex_ids),
-  measure_id  = measure_id,
-  years     = list(year_ids),
-  mxratio_model_run_id = 1 # This is retrieved via -> mx_ratio_model_run <- get_mxratio_model_run(measure_id = measure_id)$mxratio_model_run_id 
-)
-
-df_params <- as.data.frame(params)
+# Create full df
+df_params$cause_id             <- list(cause_ids)
+df_params$sex_ids              <- list(sex_ids)
+df_params$measure_id           <- list(measure_id)
+df_params$year_ids             <- list(year_ids)
+df_params$mxratio_model_run_id <- 1
 
 # Write param list
 param_path <- paste0("/ihme/homes/idrisov/aim_outputs/Aim2/R_resources/ushd_parameters.parquet")
@@ -93,7 +93,7 @@ SUBMIT_ARRAY_JOB(
   error_dir = log_dir,
   output_dir = log_dir,
   queue = "all.q", # string "all.q" or "long.q"
-  memory = "30G", # string "#G"
+  memory = "10G", # string "#G"
   threads = "1", # string "#"
   time = "00:5:00", # string "##:##:##"
   n_jobs = nrow(df_params),

@@ -67,7 +67,7 @@ ensure_dir_exists <- function(dir_path) {
 dex_date_folder <- "20251123"
 dex_dir <- paste0("/ihme/homes/idrisov/aim_outputs/Aim2/A_data_preparation/", dex_date_folder, "/DEX/")
 
-ushd_date_folder <- "20251123"
+ushd_date_folder <- "20251204"
 ushd_dir <- paste0("/ihme/homes/idrisov/aim_outputs/Aim2/A_data_preparation/", ushd_date_folder, "/USHD/")
 
 # Output directory
@@ -211,7 +211,7 @@ for (i in 1:length(files_list_ushd)) {
   # Available columns
   # c("cause_id", "year", "sex", "race", "edu", "pred_mean", "pred_lb", 
   #   "pred_median", "pred_ub", "pred_se", "level", "area", "age", 
-  #   "measure_id")
+  #   "measure_id", "pop")
   
   # read in dataset
   df <- open_dataset(file) %>%
@@ -272,8 +272,8 @@ df_ushd_all <- df_ushd_all %>%
 # Reorder columns
 col_order_ushd <- c("state_name", "cnty_name", "fips_ihme", "location_id", "merged_location_id", "level",
                     "cause_id", "acause", "cause_name", "sex", "year_id",
-                    "age_group_years_start", "age_name",  "race", "edu", "area",  "measure_id", 
-                    "pred_mean", "pred_lb","pred_median", "pred_ub", "pred_se"
+                    "age_group_years_start", "age_name", "area",  "measure_id", 
+                    "pred_mean", "pred_lb","pred_median", "pred_ub", "pred_se", "pop"
 )
 
 df_ushd_all <- df_ushd_all %>% select(all_of(col_order_ushd))

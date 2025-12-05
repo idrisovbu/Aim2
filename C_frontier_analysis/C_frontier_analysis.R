@@ -26,23 +26,28 @@ if (Sys.info()["sysname"] == 'Linux'){
 }
 
 library('frontier')
-# source("/ihme/cc_resources/libraries/current/r/get_outputs.R")
-# source("/ihme/cc_resources/libraries/current/r/get_location_metadata.R")
-# source("/ihme/cc_resources/libraries/current/r/get_age_metadata.R")
+source("/ihme/cc_resources/libraries/current/r/get_age_metadata.R")
 
 ##----------------------------------------------------------------
 ## 0 Set Interactive Parameters
 ##
+## Input parameters:
 ## cause : the cause to process, either "hiv" or "_subs"
+## model : the type of model to process, either "simple" or "extended"
 ##----------------------------------------------------------------
 if (interactive()) {
-  cause <- "hiv" # "_subs"
+  cause <- "hiv" 
+  # cause <- "_subs"
+  model <- "simple"
+  # model <- "extended"
 } else {
   args <- commandArgs(trailingOnly = TRUE)
   cause <- as.character(args[1])
+  model <- as.character(args[2])
 }
 
 print(paste0("C_frontier_analysis.R, processing cause: ", cause))
+print(paste0("Model type: ", model))
 
 ##----------------------------------------------------------------
 ## 0.0 Functions
@@ -62,7 +67,7 @@ ensure_dir_exists <- function(dir_path) {
 date_dex <- "20251123"
 fp_dex <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_dex, "/compiled_dex_data_2010_2019.parquet")
 
-date_ushd <- "20251123"
+date_ushd <- "20251204"
 fp_ushd <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_ushd, "/compiled_ushd_data_2010_2019.parquet")
 
 # Set output directories
@@ -71,7 +76,7 @@ dir_output <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_today)
 ensure_dir_exists(dir_output)
 
 # Set directory for DEX + USHD data (if already created)
-date_data_combo <- "20251201"
+date_data_combo <- "20251204_backup"
 dir_data_combo <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_data_combo)
 fp_data_combo <- file.path(dir_data_combo, "compiled_dex_ushd_2010_2019.parquet")
 ensure_dir_exists(dir_data_combo)
@@ -169,65 +174,108 @@ write_parquet(df_dex_ushd, fp_data_combo)
 }
 
 ##----------------------------------------------------------------
+## 1. Filter & group by data
+##
+## This is to reduce the number of variables going into the model since there were
+## too many rows causing the model to take too long to finish.
+##
+## We are collapsing on sex & age groups to drastically reduce the row count
+## by using weighted means based on the population counts, from the USHD data
+##----------------------------------------------------------------
+# Filter our data to our desired cause
+df_dex_ushd_acause <- df_dex_ushd %>% filter(acause == cause)
+
+# # Sample data for testing
+# testing <- F
+# 
+# if (testing) {
+#   df_dex_ushd_acause <- df_dex_ushd_acause %>% sample_n(50000)
+# }
+
+# Drop age groups under 20, and 85+
+df_dex_ushd_acause <- df_dex_ushd_acause %>%
+  filter(!age_name %in% c("0 - <1", "1 - <5", "5 - <10", "10 - <15", "15 - <20", "85+"))
+
+# Collapse into 10 year age binds
+df_dex_ushd_acause <- df_dex_ushd_acause %>%
+  mutate(age_name_10_yr_bin = case_when(
+    age_name %in% c("20 - <25", "25 - <30") ~ "20 - <30",
+    age_name %in% c("30 - <35", "35 - <40") ~ "30 - <40",
+    age_name %in% c("40 - <45", "45 - <50") ~ "40 - <50",
+    age_name %in% c("50 - <55", "55 - <60") ~ "50 - <60",
+    age_name %in% c("60 - <65", "65 - <70") ~ "60 - <70",
+    age_name %in% c("70 - <75", "75 - <80") ~ "70 - <80",
+    age_name %in% c("80 - <85") ~ "80 - <85"
+  ))
+
+# Perform group by 
+df_dex_ushd_acause <- df_dex_ushd_acause %>%
+  group_by(state_name, cnty_name, fips_ihme, location_id, acause, year_id, sex_id, age_name_10_yr_bin) %>%
+  summarize(
+    pred_mean = weighted.mean(pred_mean, pop),
+    spend_mean = weighted.mean(spend_mean, pop)
+  )
+
+##----------------------------------------------------------------
 ## 2. Frontier Analysis Model
 ##
 ## Formula - USHD MX Ratio is the outcome, DEX spend_mean is the predictor (+ other variables)
 ##----------------------------------------------------------------
-
-# --- 1. Baseline model: log(MX Ratio) on log(spending mean) -----------------
-# This is the simplest Cobb–Douglas frontier in log-log form.
-# ineffDecrease = TRUE means inefficiency increases MX Ratio (bad outcome).
-# Try flipping to FALSE if you want to see the difference in orientation.
-
-# Simple Stochastic Frontier Example
-# Outcome: MX Ratio (pred_mean)
-# Predictor: Healthcare spending (spend_mean)
-
-# If we want to use sampled data or not
-use_sample_data <- F
-
-if (use_sample_data) {
-  # Sample our data so model doesn't take all day
-  df_dex_ushd <- df_dex_ushd %>% sample_n(50000)
+if (model == "simple") {
+  # --- Baseline model: log(MX Ratio) on log(spending mean) -----------------
+  # This is the simplest Cobb–Douglas frontier in log-log form.
+  # ineffDecrease = TRUE means inefficiency increases MX Ratio (bad outcome).
+  # Try flipping to FALSE if you want to see the difference in orientation.
+  
+  # Simple Stochastic Frontier Example
+  # Outcome: MX Ratio (pred_mean)
+  # Predictor: Healthcare spending (spend_mean)
+  
+  # Model: MX Ratio ~ spend_mean
+  print(paste0("Starting Simple Model @ ", Sys.time()))
+  t1 <- Sys.time()
+  mod_simple <- sfa(
+    log(pred_mean) ~ log(spend_mean),
+    data          = df_dex_ushd_acause,
+    ineffDecrease = TRUE  # Increased MX Ratio is "bad", so inefficiency = more MX ratio
+  )
+  t2 <- Sys.time()
+  print(paste0("Elapsed time for Simple Model: ", round(t2 - t1, 1), " seconds"))
+  
+  # Save model object
+  model_filename <- paste0("mod_", cause, "_", model, ".rds")
+  saveRDS(mod_simple, file.path(dir_output, model_filename))
+  print(paste0("Saved ", model, " model @ ", dir_output, "/",model_filename))
+  
+} else if (model == "extended") {
+  # --- Extended model: log(MX Ratio) on log(spending mean) + controls -----------------
+  ##  * Still frontier of log(pred_mean) vs log(spend_mean),
+  ##    BUT now controls for composition (age, sex, time, county).
+  ##  * These covariates shift the frontier (what is “expected” given case-mix),
+  ##    so inefficiency is measured after conditioning on them.
+  ##
+  ##  Notes:
+  ##    - factor(sex_id) and factor(age_group_years_start) adjust for case-mix.
+  ##    - factor(age_name_10_yr_bin) ~ county fixed effects (optional; remove if too slow).
+  ##    - factor(year_id) accounts for secular trends in outcomes/spending.
+  print(paste0("Starting Extended Model @ ", Sys.time()))
+  t1 <- Sys.time()
+  mod_extended <- frontier::sfa(
+    formula = log(pred_mean) ~ log(spend_mean) +
+      factor(sex_id) + 
+      factor(age_name_10_yr_bin) +
+      factor(year_id),
+    data          = df_dex_ushd_acause,
+    ineffDecrease = TRUE
+  )
+  t2 <- Sys.time()
+  print(paste0("Elapsed time for Extended Model: ", round(t2 - t1, 1), " seconds"))
+  
+  # Save model object
+  model_filename <- paste0("mod_", cause, "_", model, ".rds")
+  saveRDS(mod_extended, file.path(dir_output, model_filename))
+  print(paste0("Saved ", model, " model @ ", dir_output, "/",model_filename))
 }
-
-# Filter our data to our desired cause
-df_dex_ushd_acause <- df_dex_ushd %>% filter(acause == cause)
-
-# Model: MX Ratio ~ spend_mean
-print(paste0("Starting Simple Model @ ", Sys.time()))
-t1 <- Sys.time()
-mod_simple <- sfa(
-  log(pred_mean) ~ log(spend_mean),
-  data          = df_dex_ushd_acause,
-  ineffDecrease = TRUE  # Increased MX Ratio is "bad", so inefficiency = more MX ratio
-)
-t2 <- Sys.time()
-print(paste0("Elapsed time for Simple Model: ", round(t2 - t1, 1), " seconds"))
-
-# --- 2. Extended model: log(MX Ratio) on log(spending mean) + controls -----------------
-##  * Still frontier of log(pred_mean) vs log(spend_mean),
-##    BUT now controls for composition (age, sex, time, county).
-##  * These covariates shift the frontier (what is “expected” given case-mix),
-##    so inefficiency is measured after conditioning on them.
-##
-##  Notes:
-##    - factor(year_id) accounts for secular trends in outcomes/spending.
-##    - factor(sex_id) and factor(age_group_years_start) adjust for case-mix.
-##    - factor(cnty_name) ~ county fixed effects (optional; remove if too slow).
-
-print(paste0("Starting Extended Model @ ", Sys.time()))
-t1 <- Sys.time()
-mod_extended <- frontier::sfa(
-  formula = log(pred_mean) ~ log(spend_mean) +
-    factor(year_id) +
-    factor(sex_id) +
-    factor(age_group_years_start), 
-  data          = df_dex_ushd_acause,
-  ineffDecrease = TRUE
-)
-t2 <- Sys.time()
-print(paste0("Elapsed time for Extended Model: ", round(t2 - t1, 1), " seconds"))
 
 ##----------------------------------------------------------------
 ## 3. Extract efficiencies
@@ -236,25 +284,50 @@ print(paste0("Elapsed time for Extended Model: ", round(t2 - t1, 1), " seconds")
 ## Because we logged the dependent variable, set logDepVar = TRUE.
 ## minusU = TRUE gives Farrell-type efficiencies (higher = better).
 ##----------------------------------------------------------------
-
-# Basic Model Efficiency Scores
-df_dex_ushd_acause$eff_simple <- efficiencies(mod_simple, 
-                             asInData   = TRUE,
-                             logDepVar  = TRUE,
-                             minusU     = TRUE)
-
-# Extended Model Efficiency Scores
-df_dex_ushd_acause$eff_extended <- efficiencies(mod_extended,
-                              asInData   = TRUE,
-                              logDepVar  = TRUE,
-                              minusU     = TRUE)
+if (model == "simple") {
+  # Basic Model Efficiency Scores
+  df_dex_ushd_acause$eff_simple <- efficiencies(mod_simple, 
+                                                asInData   = TRUE,
+                                                logDepVar  = TRUE,
+                                                minusU     = TRUE)
+} else if (model == "extended") {
+  # Extended Model Efficiency Scores
+  df_dex_ushd_acause$eff_extended <- efficiencies(mod_extended,
+                                                  asInData   = TRUE,
+                                                  logDepVar  = TRUE,
+                                                  minusU     = TRUE)
+}
 
 ##----------------------------------------------------------------
 ## 4. Save to Parquet Files
 ##----------------------------------------------------------------
-
-fn_output <- paste0(cause, "_data_fa_estimates.parquet")
+fn_output <- paste0("fa_estimates_", cause, "_", model, ".parquet")
 write_parquet(df_dex_ushd_acause, file.path(dir_output, fn_output))
+
+##----------------------------------------------------------------
+## TESTING - SAFE TO DELETE
+##----------------------------------------------------------------
+# Seeing how many rows exist if we collapse on age & sex. 30780 remain.
+# df_test <- df_dex_ushd_acause %>%
+#   group_by(state_name, cnty_name, fips_ihme, acause, year_id) %>%
+#   summarize(
+#     pred_mean = mean(pred_mean),
+#     spend_mean= mean(spend_mean)
+#   )
+
+# This has age weights for each age group, but not by sex
+# df_age <- get_age_metadata(release_id = 16, age_group_set_id = 24)
+
+# right now year*age*sex*county
+# desired county*year
+
+# Testing reading in data to make sure it has the columns we expect
+# sud_extended <- "fa_estimates__subs_extended.parquet"
+# sud_simple <- "fa_estimates__subs_simple.parquet"
+# hiv_extended <- "fa_estimates_hiv_extended.parquet"
+# hiv_simple <- "fa_estimates_hiv_simple.parquet"
+# 
+# df_test <- read_parquet(file.path(dir_output, hiv_simple))
 
 ##----------------------------------------------------------------
 ## Results - UNUSED ATM
