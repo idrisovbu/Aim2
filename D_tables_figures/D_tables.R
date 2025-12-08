@@ -112,7 +112,7 @@ rm(df_sud_fa_extended)
 rm(df_sud_fa_simple)
 
 ##----------------------------------------------------------------
-## 1. Table 1 - HIV
+## 1. Table 1 - HIV DEX
 ## What are the top 10 most expensive and least expensive counties
 ## in terms of spending for patients with HIV (all age groups all years all toc combined)?
 ##
@@ -120,11 +120,12 @@ rm(df_sud_fa_simple)
 ##----------------------------------------------------------------
 
 df_t1 <- df_dex %>%
-  filter(acause == "hiv")
+  filter(acause == "hiv") %>%
+  filter(geo == "county")
 
 # Group by then calculate spend_mean
 df_t1 <- df_t1 %>%
-  group_by(state_name, cnty_name) %>%
+  group_by(state_name, location_name) %>%
   summarize("spend_mean" = mean(spend_mean))
 
 # Get top 10 and bottom 10
@@ -147,7 +148,7 @@ df_t1_bot <- convert_to_dollars(df_t1_bot, "spend_mean")
 # Add ... row to top data
 ellipsis_row <- tibble(
   state_name   = "...",
-  cnty_name = "...",
+  location_name = "...",
   spend_mean  = "...",
   rank = "..."
 )
@@ -157,15 +158,15 @@ df_t1_all <- bind_rows(df_t1_top, ellipsis_row, df_t1_bot)
 
 # Arrange columns to desired output
 df_t1_all <- df_t1_all %>%
-  select(rank, state_name, cnty_name, spend_mean) %>%
-  setnames(old = c("rank", "state_name", "cnty_name", "spend_mean"), 
+  select(rank, state_name, location_name, spend_mean) %>%
+  setnames(old = c("rank", "state_name", "location_name", "spend_mean"), 
            new = c("Rank", "State", "County", "Estimated Average Spending HIV (USD)"))
 
 # Write to CSV
 write.csv(df_t1_all, file.path(dir_output, "T1_HIV_top_bottom_10.csv"), row.names = FALSE)
 
 ##----------------------------------------------------------------
-## 2. Table 2 - SUD
+## 2. Table 2 - SUD DEX
 ## What are the top 10 most expensive and least expensive counties
 ## in terms of spending for patients with SUD (all age groups all years all toc combined)?
 ##
@@ -178,9 +179,13 @@ subs_causes <- c("mental_alcohol", "mental_drug_agg", "mental_drug_opioids")
 df_t2 <- df_dex %>%
   filter(acause %in% subs_causes)
 
+# Filter down to just counties
+df_t2 <- df_t2 %>%
+  filter(geo == "county")
+
 # Group by then calculate spend_mean
 df_t2 <- df_t2 %>%
-  group_by(state_name, cnty_name) %>%
+  group_by(state_name, location_name) %>%
   summarize("spend_mean" = mean(spend_mean))
 
 # Get top 10 and bottom 10
@@ -203,7 +208,7 @@ df_t2_bot <- convert_to_dollars(df_t2_bot, "spend_mean")
 # Add ... row to top data
 ellipsis_row <- tibble(
   state_name   = "...",
-  cnty_name = "...",
+  location_name = "...",
   spend_mean  = "...",
   rank = "..."
 )
@@ -213,15 +218,15 @@ df_t2_all <- bind_rows(df_t2_top, ellipsis_row, df_t2_bot)
 
 # Arrange columns to desired output
 df_t2_all <- df_t2_all %>%
-  select(rank, state_name, cnty_name, spend_mean) %>%
-  setnames(old = c("rank", "state_name", "cnty_name", "spend_mean"), 
+  select(rank, state_name, location_name, spend_mean) %>%
+  setnames(old = c("rank", "state_name", "location_name", "spend_mean"), 
            new = c("Rank", "State", "County", "Estimated Average Spending SUD (USD)"))
 
 # Write to CSV
 write.csv(df_t2_all, file.path(dir_output, "T2_SUD_top_bottom_10.csv"), row.names = FALSE)
 
 ##----------------------------------------------------------------
-## 3. Table 3 - HIV & SUD
+## 3. Table 3 - HIV & SUD FA 
 ## What are the top 10 most efficient and least efficient counties 
 ## in terms of spending per case versus deaths per case for patients 
 ## with HIV for all years, all ages, all sexes? (These could also be faceted by age*sex)
@@ -339,7 +344,7 @@ write.csv(df_t3_sud_all, file.path(dir_output, "T3_SUD_fa_top_bottom_10.csv"), r
 # )
 
 ##----------------------------------------------------------------
-## 4. Table 4 - HIV & SUD
+## 4. Table 4 - HIV & SUD FA
 ## Which counties have shifted the most in an upward and downward trajectory 
 ## in terms of their efficiency scores over the 10 year period (2010 ~ 2019)? 
 ## (These could also be faceted by age*sex)
@@ -461,3 +466,36 @@ df_t4_hiv_all <- df_t4_hiv_all %>%
 # Write to CSV
 write.csv(df_t4_hiv_all, file.path(dir_output, "T4_HIV_fa_delta_top_bottom_10.csv"), row.names = FALSE)
 write.csv(df_t4_sud_all, file.path(dir_output, "T4_SUD_fa_delta_top_bottom_10.csv"), row.names = FALSE)
+
+
+# # SCRATCH SPACE, SAFE TO DELETE
+# 
+# # national level, all payers
+# df_national <- df_dex %>%
+#   filter(geo == "national") %>%
+#   filter(acause == "hiv") %>%
+#   filter(age_group_years_start == 50) %>%
+#   filter(sex_id == 1) %>%
+#   filter(year_id == 2010) %>%
+#   filter(payer == "all")
+# 
+# # county level, all payers
+# df_county <- df_dex %>%
+#   filter(geo == "county") %>%
+#   filter(acause == "hiv") %>%
+#   filter(age_group_years_start == 50) %>%
+#   filter(sex_id == 1) %>%
+#   filter(year_id == 2010) %>%
+#   filter(payer == "all")
+# 
+# df_county_nat <- df_county %>%
+#   group_by(toc) %>%
+#   summarize(spend_mean = mean(spend_mean))
+# 
+# # comparing means
+# sum(df_national$spend_mean)
+# sum(df_county$spend_mean)
+
+
+
+

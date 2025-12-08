@@ -30,6 +30,8 @@ if (Sys.info()["sysname"] == 'Linux'){
   l <- 'L:/'
 }
 
+library(plotly)
+
 # # Load in packages stored in repo
 # user_lib <- file.path(h, "/repo/Aim2/Y_Utilities/R_Packages/")
 # .libPaths(c(user_lib, .libPaths()))
@@ -74,9 +76,11 @@ fp_dex <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_dex, "/compiled_
 date_ushd <- "20251123"
 fp_ushd <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_ushd, "/compiled_ushd_data_2010_2019.parquet")
 
-date_fa <- "20251201"
-fp_fa_hiv <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_fa, "/hiv_data_fa_estimates.parquet")
-fp_fa_sud <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_fa, "/_subs_data_fa_estimates.parquet")
+date_fa <- "20251204"
+fp_fa_hiv_simple <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_fa, "fa_estimates_hiv_simple.parquet")
+fp_fa_hiv_extended <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_fa, "fa_estimates_hiv_extended.parquet")
+fp_fa_sud_simple <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_fa, "fa_estimates__subs_simple.parquet")
+fp_fa_sud_extended <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_fa, "fa_estimates__subs_extended.parquet")
 
 # Set output directories
 date_today <- format(Sys.time(), "%Y%m%d")
@@ -167,8 +171,10 @@ df_dex <- read_parquet(fp_dex)
 #df_ushd <- read_parquet(fp_ushd)
 
 # Frontier Analysis Data
-df_fa_hiv <- read_parquet(fp_fa_hiv)
-df_fa_sud <- read_parquet(fp_fa_sud)
+df_hiv_fa_simple <- read_parquet(fp_fa_hiv_simple)
+df_hiv_fa_extended <- read_parquet(fp_fa_hiv_extended)
+df_sud_fa_simple <- read_parquet(fp_fa_sud_simple)
+df_sud_fa_extended <- read_parquet(fp_fa_sud_extended)
 
 # DEX causes that aggregate to "_subs" cause
 subs_causes <- c("mental_alcohol", "mental_drug_agg", "mental_drug_opioids")
@@ -179,6 +185,31 @@ df_loc_ids <- fread("/ihme/homes/idrisov/aim_outputs/Aim2/R_resources/county_fip
 # Shape files used for large US map plotting by county
 mcnty_shapefile <- readRDS("/ihme/dex/us_county/maps/mcnty_sf_shapefile.rds")
 state_shapefile <- readRDS("/ihme/dex/us_county/maps/state_sf_shapefile.rds")
+
+##----------------------------------------------------------------
+## 0.6 Join FA simple to extended data together
+##----------------------------------------------------------------
+# HIV
+df_hiv_fa <- left_join(
+  x = df_hiv_fa_simple,
+  y = df_hiv_fa_extended %>% select(!c("spend_mean", "pred_mean")),
+  by = c("state_name", "cnty_name", "fips_ihme", "location_id", "acause", 
+         "year_id", "sex_id", "age_name_10_yr_bin")
+)
+
+rm(df_hiv_fa_extended)
+rm(df_hiv_fa_simple)
+
+# SUD
+df_sud_fa <- left_join(
+  x = df_sud_fa_simple,
+  y = df_sud_fa_extended %>% select(!c("spend_mean", "pred_mean")),
+  by = c("state_name", "cnty_name", "fips_ihme", "location_id", "acause", 
+         "year_id", "sex_id", "age_name_10_yr_bin")
+)
+
+rm(df_sud_fa_extended)
+rm(df_sud_fa_simple)
 
 ##----------------------------------------------------------------
 ## 1. Figure 1 - HIV - Spending by insurance
@@ -777,17 +808,17 @@ dev.off()
 ## 7. Figure 6 - HIV & SUD - Spaghetti Plot
 ## Time trend plot year by year showing efficiency values for each county as its own
 ## line and tracking changes and general trends over time
+##
+## TODO - add red average line for each state, make all the counties gray so can see the red line easily
 ##----------------------------------------------------------------
 
 f6_group_cols <- c(
-  "state_name", "cnty_name", "fips_ihme", "location_id", "merged_location_id",
-  "level", "cause_id", "acause", "cause_name", "area", "measure_id"
-)
+  "state_name", "cnty_name", "fips_ihme", "location_id", "acause")
 
 # SUD
 
 # Group by summary, collapse to just county*year observations
-df_f6_sud <- df_fa_sud %>%
+df_f6_sud <- df_sud_fa %>%
   group_by(across(all_of(c(f6_group_cols, "year_id")))) %>%
   summarize(eff_extended = mean(eff_extended), .groups = "drop")
 
@@ -819,8 +850,43 @@ df_f6_sud_long <- df_f6_sud %>%
     year = as.integer(gsub("pct_eff_", "", year))
   )
 
+# HIV
+
+# Group by summary, collapse to just county*year observations
+df_f6_hiv <- df_hiv_fa %>%
+  group_by(across(all_of(c(f6_group_cols, "year_id")))) %>%
+  summarize(eff_extended = mean(eff_extended), .groups = "drop")
+
+# Pivot wider
+df_f6_hiv <- df_f6_hiv %>%
+  filter(year_id >= 2010 & year_id <= 2019) %>%
+  tidyr::pivot_wider(
+    names_from = year_id,
+    values_from = eff_extended,
+    names_prefix = "eff_"
+  )
+
+# Create percentages based on % change from 2010
+df_f6_hiv <- df_f6_hiv %>%
+  mutate(across(
+    starts_with("eff_20"), 
+    ~ (.x - eff_2010) / eff_2010 * 100,
+    .names = "pct_{col}"
+  ))
+
+# Pivot longer so we can plot
+df_f6_hiv_long <- df_f6_hiv %>%
+  pivot_longer(
+    cols = starts_with("pct_eff_"),
+    names_to = "year",
+    values_to = "pct_change"
+  ) %>%
+  mutate(
+    year = as.integer(gsub("pct_eff_", "", year))
+  )
+
 # Plot
-ggplot(df_f6_sud_long, aes(x = year, y = pct_change, group = cnty_name)) +
+ggplot(df_f6_hiv_long, aes(x = year, y = pct_change, group = cnty_name)) +
   geom_line() +
   theme_minimal()
 
@@ -857,8 +923,64 @@ server <- function(input, output, session) {
 
 shiny::shinyApp(ui = ui, server = server)
 
+## Plot ##
+
+# SUD
+ggplot(df_f6_sud_long, aes(x = year, y = pct_change, group = cnty_name)) +
+  geom_line(alpha = 0.4, color = "steelblue") +
+  facet_wrap(~ state_name) +
+  theme_minimal() +
+  labs(
+    title = "SUD: % Change in Efficiency vs 2010, by County and State",
+    x = "Year",
+    y = "Percent change vs 2010"
+  ) +
+  theme(
+    strip.text = element_text(size = 7),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+# HIV
+ggplot(df_f6_hiv_long, aes(x = year, y = pct_change, group = cnty_name)) +
+  geom_line(alpha = 0.4, color = "steelblue") +
+  facet_wrap(~ state_name) +
+  theme_minimal() +
+  labs(
+    title = "HIV: % Change in Efficiency vs 2010, by County and State",
+    x = "Year",
+    y = "Percent change vs 2010"
+  ) +
+  theme(
+    strip.text = element_text(size = 7),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
 
 
+plot_state_spaghetti <- function(state_to_plot) {
+  df_plot <- df_f6_sud_long %>%
+    filter(state_name == state_to_plot)
+  
+  plot_ly(
+    data = df_plot,
+    x    = ~year,
+    y    = ~pct_change,
+    split = ~cnty_name,     # one line per county
+    type  = 'scatter',
+    mode  = 'lines',
+    hoverinfo = 'text',
+    text = ~paste0(
+      "County: ", cnty_name, "<br>",
+      "Year: ", year, "<br>",
+      "Δ vs 2010: ", round(pct_change, 2), "%"
+    )
+  ) %>%
+    layout(
+      title = paste0("SUD: % Change in Efficiency vs 2010 (", state_to_plot, ")"),
+      xaxis = list(title = "Year"),
+      yaxis = list(title = "Percent change vs 2010"),
+      showlegend = FALSE
+    )
+}
 
-
+plot_state_spaghetti("West Virginia")
 
