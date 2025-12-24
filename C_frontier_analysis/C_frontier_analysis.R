@@ -159,6 +159,10 @@ df_m <- df_m %>%
 
 ##----------------------------------------------------------------
 ## 3. Format age weights to match DEX age bins
+## 
+## To read more about GBD age weights and where the below values come from, read:
+## https://scicomp-docs.ihme.washington.edu/db_queries/current/get_age_metadata.html
+## under "Age group weight"
 ##----------------------------------------------------------------
 # Pull GBD age weights
 df_age <- get_age_metadata(release_id = 16)
@@ -231,14 +235,16 @@ df_age_weights <- df_age_weights %>%
 ##----------------------------------------------------------------
 ## 4. Apply age-standardization
 ##----------------------------------------------------------------
+# Join age weights to data
 df_as <- left_join(
   x = df_m,
   y = df_age_weights,
   by = c("age_name" = "age_group_name", "age_group_years_start")
 )
 
+# Create age-standardized ratios based on non-sexed GBD age weights
 df_as <- df_as %>%
-  group_by(cause_id, year_id, location_id, location_name, acause, cause_name) %>%
+  group_by(sex_id, cause_id, year_id, location_id, location_name, acause, cause_name) %>%
   summarise(
     as_spend_prev_ratio = sum(spend_prev_ratio * age_group_weight_value, na.rm = TRUE),
     as_mort_prev_ratio  = sum(mort_prev_ratio * age_group_weight_value, na.rm = TRUE),
@@ -252,10 +258,12 @@ df_as <- df_as %>%
 ##----------------------------------------------------------------
 # Loop through our causes, create models for each, extract efficiencies 
 list_dfs <- list()
+
 for (cause in df_as$acause %>% unique()) {
-  print(acause)
+  print(cause)
   
-  # LEFT OFF HERE, NEED LOOP TO WORK TO GET MODEL RESULTS FOR EACH CAUSE
+  # LEFT OFF HERE
+  # Subset to our
   df_loop <- df_as %>% filter(acause == cause)
   
   # --- Baseline model: log(MX Ratio) on log(spending mean) -----------------
