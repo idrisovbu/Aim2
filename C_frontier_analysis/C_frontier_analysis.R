@@ -57,6 +57,11 @@ date_today <- format(Sys.time(), "%Y%m%d")
 dir_output <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_today)
 ensure_dir_exists(dir_output)
 
+#covariates based on Haley's code
+cov_df_path <- "/ihme/resource_tracking/us_value/data/sfa_covars2021_shea.csv"
+
+cov_df <- fread(cov_df_path)
+
 ##----------------------------------------------------------------
 ## 0.2 Read in data
 ##----------------------------------------------------------------
@@ -242,14 +247,17 @@ df_as <- left_join(
   by = c("age_name" = "age_group_name", "age_group_years_start")
 )
 
-# Create age-standardized ratios based on non-sexed GBD age weights
+# Create age-standardized ratios based on non-sexed GBD age weights (collapsing on sex here)
 df_as <- df_as %>%
-  group_by(sex_id, cause_id, year_id, location_id, location_name, acause, cause_name) %>%
+  group_by(cause_id, year_id, location_id, location_name, acause, cause_name) %>%
   summarise(
     as_spend_prev_ratio = sum(spend_prev_ratio * age_group_weight_value, na.rm = TRUE),
     as_mort_prev_ratio  = sum(mort_prev_ratio * age_group_weight_value, na.rm = TRUE),
     .groups = "drop"
   )
+
+# Write out age-standardized data to today's dated folder in C_frontier_analysis
+write.csv(x = df_as, row.names = FALSE, file = file.path(dir_output, "df_as.csv"))
 
 ##----------------------------------------------------------------
 ## 5. Frontier Analysis Model
@@ -257,6 +265,8 @@ df_as <- df_as %>%
 ## Formula - GBD Mortality / Prevalence Ratio is the outcome, DEX spend_mean / prevalence ratio is the predictor (+ other variables)
 ##----------------------------------------------------------------
 # Loop through our causes, create models for each, extract efficiencies 
+
+summary(df_as)
 list_dfs <- list()
 list_models <- list()
 
@@ -279,11 +289,12 @@ for (cause in df_as$acause %>% unique()) {
   # Predictor: Healthcare spending (as_spend_prev_ratio)
   
   # Model: MX Ratio ~ spend_mean
-  mod_simple <- sfa(
+  mod_simple <- frontier::sfa(
     log(as_mort_prev_ratio) ~ log(as_spend_prev_ratio),
     data          = df_loop,
-    ineffDecrease = TRUE  # Increased MX Ratio is "bad", so inefficiency = more MX ratio
+    ineffDecrease = TRUE
   )
+  
   
   # Save model object
   model_filename <- paste0("mod_", cause, "_simple.rds")
@@ -305,8 +316,7 @@ for (cause in df_as$acause %>% unique()) {
   ##  Notes:
   ##    - factor(year_id) accounts for secular trends in outcomes/spending.
   mod_extended <- frontier::sfa(
-    formula = log(as_mort_prev_ratio) ~ log(as_spend_prev_ratio) +
-              factor(year_id) + factor(sex_id),
+    log(as_mort_prev_ratio) ~ log(as_spend_prev_ratio) + factor(year_id) + factor(sex_id),
     data          = df_loop,
     ineffDecrease = TRUE
   )
@@ -449,6 +459,17 @@ ggplot(df_all %>% filter(acause == "_subs"), aes(x = eff_extended)) +
   geom_histogram(bins = 30, fill = "steelblue", color = "white") +
   labs(title = "Distribution of State Efficiency Scores",
        x = "Efficiency Score", y = "Number of Counties")
+
+
+
+
+names(list_models)
+names(list_models[["_subs"]])
+
+mod <- list_models[["_subs"]][["extended"]]
+is.null(mod)
+class(mod)
+inherits(mod, "sfa")
 
 
 
