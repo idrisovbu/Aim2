@@ -253,14 +253,22 @@ df_as <- df_as %>%
   summarise(
     as_spend_prev_ratio = sum(spend_prev_ratio * age_group_weight_value, na.rm = TRUE),
     as_mort_prev_ratio  = sum(mort_prev_ratio * age_group_weight_value, na.rm = TRUE),
+    mortality = sum(mortality),
+    prevalence = sum(prevalence),
     .groups = "drop"
   )
+
+##----------------------------------------------------------------
+## 5. Add variance column from mortality and deaths data
+## Variance column needed for SFMA package 
+##----------------------------------------------------------------
+df_as$variance <- (df_as$mortality / (df_as$prevalence^2))
 
 # Write out age-standardized data to today's dated folder in C_frontier_analysis
 write.csv(x = df_as, row.names = FALSE, file = file.path(dir_output, "df_as.csv"))
 
 ##----------------------------------------------------------------
-## 5. Frontier Analysis Model
+## 6. Frontier Analysis Model
 ##
 ## Formula - GBD Mortality / Prevalence Ratio is the outcome, DEX spend_mean / prevalence ratio is the predictor (+ other variables)
 ##----------------------------------------------------------------
@@ -277,7 +285,7 @@ for (cause in df_as$acause %>% unique()) {
   df_loop <- df_as %>% filter(acause == cause)
   
   ##----------------------------------------------------------------
-  ## 6. Simple FA Model
+  ## 7. Simple FA Model
   ##----------------------------------------------------------------
   # --- Baseline model: log(MX Ratio) on log(spending mean) -----------------
   # This is the simplest Cobb–Douglas frontier in log-log form.
@@ -305,7 +313,7 @@ for (cause in df_as$acause %>% unique()) {
   list_models[[cause]][["simple"]] <- mod_simple
   
   ##----------------------------------------------------------------
-  ## 7. Extended FA Model
+  ## 8. Extended FA Model
   ##----------------------------------------------------------------
   # --- Extended model: log(MX Ratio) on log(spending mean) + controls -----------------
   ##  * Still frontier of log(as_mort_prev_ratio) vs log(as_spend_prev_ratio),
@@ -330,7 +338,7 @@ for (cause in df_as$acause %>% unique()) {
   list_models[[cause]][["extended"]] <- mod_extended
   
   ##----------------------------------------------------------------
-  ## 8. Extract efficiencies
+  ## 9. Extract efficiencies
   ##
   ## Efficiency scores are in [0,1], where 1 = most efficient.
   ## Because we logged the dependent variable, set logDepVar = TRUE.
@@ -348,13 +356,13 @@ for (cause in df_as$acause %>% unique()) {
                                      minusU     = TRUE)
   
   ##----------------------------------------------------------------
-  ## 9. Add df to list
+  ## 10. Add df to list
   ##----------------------------------------------------------------
   list_dfs[[cause]] <- df_loop
 }
   
 ##----------------------------------------------------------------
-## 10. Combine list of dfs and save to Parquet Files
+## 11. Combine list of dfs and save to Parquet Files
 ##----------------------------------------------------------------
 df_all <- bind_rows(list_dfs)
 

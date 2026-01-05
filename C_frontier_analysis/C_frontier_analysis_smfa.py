@@ -4,6 +4,7 @@ Description: Python script for running SFMA for Aim 2, trying to adapt H's code
 """
 
 from pathlib import Path
+from datetime import date
 import numpy as np
 import pandas as pd
 import sys
@@ -14,13 +15,12 @@ from sfma import Data, Variable, SplineVariable, SplineGetter, SplinePriorGetter
 from anml.data.component import Component
 
 # B's
-def runSFA(acause, draw, testplot=False):
+def runSFA(acause='hiv'):
     """
     Docstring for runSFA
     
     :param cause: The cause to process the model for. 
         Either "hiv" or "_subs"
-    :param draw: Description
     :param testplot: Description
     """
 
@@ -35,24 +35,16 @@ def runSFA(acause, draw, testplot=False):
     # Set fp for covariate data
     fp_df_cov = '/ihme/resource_tracking/us_value/data/sfa_covars2021_shea.csv'
     
-    covs = ['obesity', 'age65', 'cig_pc_10', 'phys_act_10', 'edu_yrs']
-    
-    # Setting acause manually
-    acause = "hiv"
-            
-    #pre_selected_covs = ['adj_exp_pc']
-    #no_prior_covs = ['adj_exp_pc']
-    #no_prior_covs = []
-    
-    #draw_column = 'demeaned_draw_{}'.format(draw)
-    #variance_column = 'variance_demeaned'
-    #spline_variable_name = None
-    #spending_var = 'spending_adj_pc'
+    # Set covariates
+    covs = ['obesity', 'age65', 'cig_pc_10', 'phys_act_10', 'edu_yrs', 'as_spend_prev_ratio']
+    pre_selected_covs = ['as_spend_prev_ratio']
+    no_prior_covs = [] # this was the default, only changed if we specified a variant to this function
 
     # Set column names for parameters
     spend_prev_col = 'as_spend_prev_ratio'
     mort_prev_col = 'as_mort_prev_ratio'
     spline_variable_name = None
+    variance_column = 'variance'
 
     # Set model specifications
     test_cov_direction = True # drop covariates that aren't in right direction and rerun
@@ -81,7 +73,8 @@ def runSFA(acause, draw, testplot=False):
     df = pd.merge(df_as, 
               df_cov, 
               on=['location_id', 'year_id'])
-        
+    df.drop(columns=["location_name_y"], inplace=True)
+    df.rename(columns={"location_name_x": "location_name"}, inplace=True)
 
     #df.rename(columns={'year': 'year_id', spending_var: 'adj_exp_pc'}, inplace=True) (skipped this)
 
@@ -95,11 +88,11 @@ def runSFA(acause, draw, testplot=False):
     for cov in np.unique(covs + [spend_prev_col]):
         df[cov] = (df[cov] - df[cov].mean())/df[cov].std()
 
-    # lower envelope of the ratio draw - make it negative
+    # lower envelope of the ratio draw - make it negative (original draw_column)
     df[mort_prev_col] = -df[mort_prev_col]
     
-    # take median of the variance within a draw (JoePT says we can ommit?)
-    # df[variance_column] = np.median(df[variance_column])
+    # take median of the variance within a draw
+    df[variance_column] = np.median(df[variance_column])
     
     # Very important to sort here! Will prevent indexes from getting messed up while plotting and pulling inefficiency
     df.sort_values(spend_prev_col, inplace = True)
@@ -157,9 +150,8 @@ def runSFA(acause, draw, testplot=False):
         
         return model
 
-
     # create model object
-    model = get_model(df, covs, variance_column, draw_column, spline_variable_name)
+    model = get_model(df, covs, variance_column, mort_prev_col, spline_variable_name)
 
     # drop covariates with very low beta under the prior and rerun #
     if test_cov_direction:
@@ -167,7 +159,8 @@ def runSFA(acause, draw, testplot=False):
         model.beta.fill(1.0)
         model.fit(
             verbose=True, max_iter=10, tol=1e-3,
-            beta_options={"solver_type": "ip", "max_iter": 1000, "verbose": False, "xtol": 0.0, "gtol": 1e-6, "update_mu_every": 10}
+            #beta_options={"solver_type": "ip", "max_iter": 1000, "verbose": False, "xtol": 0.0, "gtol": 1e-6, "update_mu_every": 10}
+            beta_options={"max_iter": 1000, "verbose": False, "xtol": 0.0, "gtol": 1e-6} # "solver_type" and "update_mu_every" parameters not accepted? throws error
         )
         
         beta = model.get_beta_dict()
@@ -181,7 +174,7 @@ def runSFA(acause, draw, testplot=False):
                 selected_covs.append(cov)
         print(selected_covs)
 
-        model = get_model(df, selected_covs, variance_column, draw_column, spline_variable_name)
+        model = get_model(df, selected_covs, variance_column, mort_prev_col, spline_variable_name)
 
 
     if trimming:        
@@ -191,25 +184,24 @@ def runSFA(acause, draw, testplot=False):
         model.fit(
             outlier_pct=0.05, trim_max_iter=5,
             verbose=True, max_iter=5, tol=1e-3,
-            beta_options={"solver_type": "ip", "max_iter": 1000, "verbose": False, "xtol": 0.0, "gtol": 1e-6, "update_mu_every": 10}
-        )
-        
-        
+            #beta_options={"solver_type": "ip", "max_iter": 1000, "verbose": False, "xtol": 0.0, "gtol": 1e-6, "update_mu_every": 10}
+            beta_options={"max_iter": 1000, "verbose": False, "xtol": 0.0, "gtol": 1e-6}
+        ) 
     else:
         # fit model without trimming
         model.eta = 0.1
         model.beta.fill(1.0)
         model.fit(
             verbose=True, max_iter=10, tol=1e-3,
-            beta_options={"solver_type": "ip", "max_iter": 1000, "verbose": False, "xtol": 0.0, "gtol": 1e-6, "update_mu_every": 10}
+            #beta_options={"solver_type": "ip", "max_iter": 1000, "verbose": False, "xtol": 0.0, "gtol": 1e-6, "update_mu_every": 10}
+            beta_options={"max_iter": 1000, "verbose": False, "xtol": 0.0, "gtol": 1e-6}
         )     
         
     # return covariate information
     if len(selected_covs) > 0:
         covs_df = pd.DataFrame({
             'selected_covs': selected_covs,
-            'draw': draw,
-            'cause_id': cause
+            'acause': acause
         })
         
         # add beta information
@@ -218,8 +210,7 @@ def runSFA(acause, draw, testplot=False):
     else:
         covs_df = pd.DataFrame({
             'selected_covs': ["no covs selected"],
-            'draw': draw,
-            'cause_id': cause
+            'acause': acause
         })
         
     # Add on betas to cov df
@@ -235,21 +226,20 @@ def runSFA(acause, draw, testplot=False):
         beta = model.get_beta_dict()
 
         # add draw and cause id columns
-        betas['draw'] = draw
-        betas['cause_id'] = cause
+        betas['acause'] = acause
 
     # otherwise output inefficiency & the values needed to make the frontier plot
     else:
 
         ## X values
-        X = df['adj_exp_pc'].values
+        X = df[spend_prev_col].values
         ## Y values
-        Y = df[draw_column].values
+        Y = df[mort_prev_col].values
         ## Predictions
         Y_hat = model.predict(df)
         ## Prediction excluding the impact of the covariates
         df_null_covs = df.copy()
-        df_null_covs[list(set(covs).difference(["adj_exp_pc"]))] = 0.0
+        df_null_covs[list(set(covs).difference([spend_prev_col]))] = 0.0
         Y_hat_adj = model.predict(df_null_covs)
         ## Impact of the covariates
         cov_hat = Y_hat-Y_hat_adj
@@ -260,18 +250,15 @@ def runSFA(acause, draw, testplot=False):
         
         ## make results table
         results = pd.DataFrame({
-            'adj_exp_pc': X, 
+            spend_prev_col: X, 
             'mi_ratio': Y, 
             'ineff': ineff, 
             'y_adj': -Y_adj, 
             'y_adj_hat': -Y_hat_adj
         })
-        results.sort_values('adj_exp_pc', inplace = True)
+        results.sort_values(spend_prev_col, inplace = True)
         # keep the preserved spending column
-        out = df[['location_name', 'year_id', 'adj_exp_pc', 'cause_id', 'adj_exp_pc_c']].merge(results, on='adj_exp_pc')
-
-        # add draw column
-        out['draw'] = draw
+        out = df[['location_name', 'year_id', spend_prev_col, 'cause_id', 'as_spend_prev_ratio_copy']].merge(results, on=spend_prev_col)
     
     # normalize to 0-1 and keep unscaled either way
     if rescale:
@@ -289,7 +276,7 @@ def runSFA(acause, draw, testplot=False):
             
     return out, covs_df
 
-
+"""
 # H's 
 def runSFA(cause, draw, variant, testplot=False):
 
@@ -607,48 +594,23 @@ def runSFA(cause, draw, variant, testplot=False):
             out['ineff_scaled'] = 0
             
     return out, covs_df
-
+"""
 
 if __name__ == '__main__':
-    import argparse
+    # Set output directory
+    today_yyyymmdd = date.today().strftime("%Y%m%d")
+    dir_output = Path('/ihme/homes/idrisov/aim_outputs/Aim2/C_frontier_analysis/')
+    dir_output = dir_output / today_yyyymmdd
+    Path(dir_output).mkdir(parents=True, exist_ok=True)
 
-    out_dir = '/ihme/resource_tracking/us_value/data/sfa_output/sensitivity/'
+    # Specify acause for model run
+    acause = "hiv" # can be "hiv" or "_subs"
 
-    parser = argparse.ArgumentParser(description='This script runs the frontier model for a specified cause')
+    # Run model, return outputs to variables
+    model_output = runSFA(acause)
+    df_output = model_output[0]
+    df_covariates = model_output[1]
 
-    parser.add_argument('-t', '--task', type=int, required=False, default=None)
-    parser.add_argument('-s', '--timestamp', help='timestamp for file save version', required=True)
-    parser.add_argument('-c', '--cause', help='cause id to run', required=True)
-
-    args = vars(parser.parse_args())
-
-    task_number = args['task']
-    timestamp = args['timestamp']
-    cause_id = int(args['cause'])
-
-    if not task_number:
-        try:
-            task_number = int(os.environ['SLURM_ARRAY_TASK_ID'])
-        except (KeyError, ValueError) as e:
-            pass
-
-    print('task: {}'.format(task_number))
-    print('stamp: {}'.format(timestamp))
-    print('cause: {}'.format(cause_id))
-
-    output = []
-    covs = []
-
-    for draw in range(task_number - 1, task_number + 9): # array jobs are 1-indexed, python is 0-indexed
-        print('draw: {}'.format(draw))
-        out = runSFA(cause_id, draw)
-        output.append(out[0])
-        covs.append(out[1])
-
-    df_out = pd.concat(output)
-    df_covs = pd.concat(covs)
-
-    out_path = os.path.join(out_dir, timestamp, 'inefficiency_{}_d{}.csv'.format(cause_id, task_number + 9))
-    
-    df_out.to_csv(out_path)
-    df_covs.to_csv(os.path.join(out_dir, timestamp, 'selected_covs', 'covs_{}_d{}.csv'.format(cause_id, task_number + 9)))
+    # Write to csv    
+    df_output.to_csv(os.path.join(dir_output, '{}_out.csv'.format(acause)), index = False)
+    df_covariates.to_csv(os.path.join(dir_output, '{}_covariates.csv'.format(acause)), index = False)
