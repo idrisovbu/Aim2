@@ -60,11 +60,17 @@ fp_dex <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_dex, "/compiled_
 date_ushd <- "20251123"
 fp_ushd <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_ushd, "/compiled_ushd_data_2010_2019.parquet")
 
+# "frontier" package data
 date_fa <- "20251204"
 fp_fa_hiv_simple <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_fa, "fa_estimates_hiv_simple.parquet")
 fp_fa_hiv_extended <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_fa, "fa_estimates_hiv_extended.parquet")
 fp_fa_sud_simple <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_fa, "fa_estimates__subs_simple.parquet")
 fp_fa_sud_extended <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_fa, "fa_estimates__subs_extended.parquet")
+
+# SFMA python package data
+date_smfa <- "20260105"
+fp_sfma_hiv <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_smfa, "hiv_output.csv")
+fp_sfma_sud <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_smfa, "_subs_output.csv")
 
 # Set output directories
 date_today <- format(Sys.time(), "%Y%m%d")
@@ -85,6 +91,10 @@ df_hiv_fa_simple <- read_parquet(fp_fa_hiv_simple)
 df_hiv_fa_extended <- read_parquet(fp_fa_hiv_extended)
 df_sud_fa_simple <- read_parquet(fp_fa_sud_simple)
 df_sud_fa_extended <- read_parquet(fp_fa_sud_extended)
+
+# SFMA python package data
+df_sfma_hiv <- read.csv(fp_sfma_hiv)
+df_sfma_sud <- read.csv(fp_sfma_sud)
 
 ##----------------------------------------------------------------
 ## 0.3 Join FA simple to extended data together

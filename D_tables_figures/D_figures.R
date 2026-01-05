@@ -76,11 +76,17 @@ fp_dex <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_dex, "/compiled_
 date_ushd <- "20251123"
 fp_ushd <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_ushd, "/compiled_ushd_data_2010_2019.parquet")
 
+# "frontier" package data
 date_fa <- "20251204"
 fp_fa_hiv_simple <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_fa, "fa_estimates_hiv_simple.parquet")
 fp_fa_hiv_extended <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_fa, "fa_estimates_hiv_extended.parquet")
 fp_fa_sud_simple <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_fa, "fa_estimates__subs_simple.parquet")
 fp_fa_sud_extended <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_fa, "fa_estimates__subs_extended.parquet")
+
+# SFMA python package data
+date_smfa <- "20260105"
+fp_sfma_hiv <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_smfa, "hiv_output.csv")
+fp_sfma_sud <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_smfa, "_subs_output.csv")
 
 # Set output directories
 date_today <- format(Sys.time(), "%Y%m%d")
@@ -171,10 +177,15 @@ df_dex <- read_parquet(fp_dex)
 #df_ushd <- read_parquet(fp_ushd)
 
 # Frontier Analysis Data
+# "frontier" package data
 df_hiv_fa_simple <- read_parquet(fp_fa_hiv_simple)
 df_hiv_fa_extended <- read_parquet(fp_fa_hiv_extended)
 df_sud_fa_simple <- read_parquet(fp_fa_sud_simple)
 df_sud_fa_extended <- read_parquet(fp_fa_sud_extended)
+
+# SFMA python package data
+df_sfma_hiv <- read.csv(fp_sfma_hiv)
+df_sfma_sud <- read.csv(fp_sfma_sud)
 
 # DEX causes that aggregate to "_subs" cause
 subs_causes <- c("mental_alcohol", "mental_drug_agg", "mental_drug_opioids")
@@ -805,6 +816,7 @@ dev.off()
 
 
 ##----------------------------------------------------------------
+## *** The data used for these plots uses the original "frontier" package
 ## 7. Figure 6 - HIV & SUD - Spaghetti Plot
 ## Time trend plot year by year showing efficiency values for each county as its own
 ## line and tracking changes and general trends over time
@@ -983,4 +995,32 @@ plot_state_spaghetti <- function(state_to_plot) {
 }
 
 plot_state_spaghetti("West Virginia")
+
+
+
+
+
+
+
+##----------------------------------------------------------------
+## 7. Figure 7 - HIV & SUD - Estimated Value Frontier plots
+## Plots each estimated mort/prev ratio from the model, along with an orange line showing
+## prediction excluding the impact of the covariates. 
+##----------------------------------------------------------------
+f7_hiv <- df_sfma_hiv %>%
+  arrange(as_spend_prev_ratio_copy) %>%
+  ggplot(aes(x = as_spend_prev_ratio_copy)) +
+  geom_point(aes(y = y_adj),  col = '#2678B2') +
+  geom_line(aes(y = y_adj_hat), color = "orange") +
+  labs(y = 'Adjusted mortality/prevalence ratio', x = 'Spending/prevalence ratio', title = 'Observed Outcomes and Estimated Value Frontier, SFMA - HIV')
+
+f7_sud <- df_sfma_sud %>%
+  arrange(as_spend_prev_ratio_copy) %>%
+  ggplot(aes(x = as_spend_prev_ratio_copy)) +
+  geom_point(aes(y = y_adj),  col = '#2678B2') +
+  geom_line(aes(y = y_adj_hat), color = "orange") +
+  labs(y = 'Adjusted mortality/prevalence ratio', x = 'Spending/prevalence ratio', title = 'Observed Outcomes and Estimated Value Frontier, SFMA - Substance use disorder')
+
+save_plot(f7_hiv, "F7_HIV_estimated_frontier", dir_output)
+save_plot(f7_sud, "F7_SUD_estimated_frontier", dir_output)
 

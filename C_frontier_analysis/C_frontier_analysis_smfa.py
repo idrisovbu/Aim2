@@ -1,6 +1,8 @@
 """
 Filename: C_frontier_analysis_smfa
-Description: Python script for running SFMA for Aim 2, trying to adapt H's code
+Description: Python script for running SFMA for Aim 2, adaptation from H's code.
+How to run: Modify the acause and dir_output variable as necessary, then run entire script
+            Outputs to /ihme/homes/idrisov/aim_outputs/Aim2/C_frontier_analysis/<today's date>/<acause>_output.csv & <acause>_covariates.csv
 """
 
 from pathlib import Path
@@ -15,7 +17,7 @@ from sfma import Data, Variable, SplineVariable, SplineGetter, SplinePriorGetter
 from anml.data.component import Component
 
 # B's
-def runSFA(acause='hiv'):
+def runSFA(acause='hiv', as_dated_folder='20260104'):
     """
     Docstring for runSFA
     
@@ -28,9 +30,8 @@ def runSFA(acause='hiv'):
     #---------------------------------------
     
     # Set fp for age-standardized data
-    fp_df_date = '20260104'
     fp_df_base = Path('/ihme/homes/idrisov/aim_outputs/Aim2/C_frontier_analysis/')
-    fp_df_as = fp_df_base / fp_df_date / "df_as.csv"
+    fp_df_as = fp_df_base / as_dated_folder / "df_as.csv"
 
     # Set fp for covariate data
     fp_df_cov = '/ihme/resource_tracking/us_value/data/sfa_covars2021_shea.csv'
@@ -88,10 +89,10 @@ def runSFA(acause='hiv'):
     for cov in np.unique(covs + [spend_prev_col]):
         df[cov] = (df[cov] - df[cov].mean())/df[cov].std()
 
-    # lower envelope of the ratio draw - make it negative (original draw_column)
+    # lower envelope of the ratio - make it negative (original draw_column)
     df[mort_prev_col] = -df[mort_prev_col]
     
-    # take median of the variance within a draw
+    # take median of the variance
     df[variance_column] = np.median(df[variance_column])
     
     # Very important to sort here! Will prevent indexes from getting messed up while plotting and pulling inefficiency
@@ -251,14 +252,16 @@ def runSFA(acause='hiv'):
         ## make results table
         results = pd.DataFrame({
             spend_prev_col: X, 
-            'mi_ratio': Y, 
+            mort_prev_col: Y, 
             'ineff': ineff, 
             'y_adj': -Y_adj, 
             'y_adj_hat': -Y_hat_adj
         })
         results.sort_values(spend_prev_col, inplace = True)
         # keep the preserved spending column
-        out = df[['location_name', 'year_id', spend_prev_col, 'cause_id', 'as_spend_prev_ratio_copy']].merge(results, on=spend_prev_col)
+        out = df[['location_name', 'location_id', 'year_id', spend_prev_col, 'as_spend_prev_ratio_copy',
+                  'cause_id', 'acause', 'cause_name'
+                   ]].merge(results, on=spend_prev_col)
     
     # normalize to 0-1 and keep unscaled either way
     if rescale:
@@ -603,14 +606,17 @@ if __name__ == '__main__':
     dir_output = dir_output / today_yyyymmdd
     Path(dir_output).mkdir(parents=True, exist_ok=True)
 
+    # Set dated folder for age-standardized data from C_frontier_analysis.R
+    as_dated_folder = '20260104'
+
     # Specify acause for model run
-    acause = "hiv" # can be "hiv" or "_subs"
+    acause = "_subs" # can be "hiv" or "_subs"
 
     # Run model, return outputs to variables
-    model_output = runSFA(acause)
+    model_output = runSFA(acause, as_dated_folder)
     df_output = model_output[0]
     df_covariates = model_output[1]
 
     # Write to csv    
-    df_output.to_csv(os.path.join(dir_output, '{}_out.csv'.format(acause)), index = False)
+    df_output.to_csv(os.path.join(dir_output, '{}_output.csv'.format(acause)), index = False)
     df_covariates.to_csv(os.path.join(dir_output, '{}_covariates.csv'.format(acause)), index = False)
