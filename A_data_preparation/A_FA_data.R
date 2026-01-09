@@ -133,6 +133,28 @@ df_population <- get_population(release_id = rel_id,
                                 sex_id = sex_ids
                                 )
 
+# DALYs
+df_dalys <- get_outputs(topic = "cause", 
+                             release_id=rel_id,
+                             location_id=list_state_loc_ids, 
+                             year_id=year_ids, 
+                             age_group_id="all",
+                             sex_id=sex_ids, 
+                             measure_id=2, # 2 = DALYs
+                             metric_id=1, # 1 = Number
+                             cause_id=cause_ids, 
+                             location_set_id=35
+)
+
+df_dalys <- df_dalys %>%
+  select(c("age_group_id", "cause_id", "location_id", "measure_id", "metric_id", 
+           "sex_id", "year_id", "acause", "age_group_name", "cause_name", "location_name", "val"))
+
+df_dalys <- df_dalys %>%
+  rename(
+    "DALYs" = "val"
+  )
+
 # Merge
 df_m <- left_join(
   x = df_prevalence %>% select(!c("measure_id")),
@@ -145,6 +167,13 @@ df_m <- left_join(
   y = df_population %>% select(!("run_id")),
   by = c("age_group_id", "location_id", "year_id", "sex_id")
 )
+
+df_m <- left_join(
+  x = df_m,
+  y = df_dalys %>% select(!c("measure_id")),
+  by = c("age_group_id", "age_group_name", "cause_id", "acause", "cause_name", "location_id", "location_name", "sex_id", "year_id", "metric_id"),
+)
+
 
 # Check where we have NAs
 # View(df_m[!complete.cases(df_m), ]) # Looks like we only have NA data for Early and Late Neonatal for HIV, otherwise all other rows have data
@@ -175,7 +204,8 @@ df_age_collapse <- df_age_collapse %>%
   summarize(
     prevalence = sum(prevalence),
     mortality = sum(mortality, na.rm = TRUE),
-    population = sum(population)
+    population = sum(population),
+    DALYs = sum(DALYs)
   )
 
 df_age_collapse <- df_age_collapse %>%

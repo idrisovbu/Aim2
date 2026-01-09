@@ -46,7 +46,7 @@ ensure_dir_exists <- function(dir_path) {
 date_dex <- "20251123"
 fp_dex <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_dex, "/compiled_dex_data_2010_2019.parquet")
 
-date_pmp <- "20251222"
+date_pmp <- "20260108"
 fp_pmp <- file.path(h, "/aim_outputs/Aim2/A_data_preparation/", date_pmp, "/FA/prev_mort_pop_data.parquet")
 
 # date_ushd <- "20251204"
@@ -247,6 +247,9 @@ df_as <- left_join(
   by = c("age_name" = "age_group_name", "age_group_years_start")
 )
 
+# Write out data before age-standardization
+write.csv(x = df_as, row.names = FALSE, file = file.path(dir_output, "df_non_as.csv"))
+
 # Create age-standardized ratios based on non-sexed GBD age weights (collapsing on sex here)
 df_as <- df_as %>%
   group_by(cause_id, year_id, location_id, location_name, acause, cause_name) %>%
@@ -255,6 +258,7 @@ df_as <- df_as %>%
     as_mort_prev_ratio  = sum(mort_prev_ratio * age_group_weight_value, na.rm = TRUE),
     mortality = sum(mortality),
     prevalence = sum(prevalence),
+    DALYs = sum(DALYs),
     .groups = "drop"
   )
 
