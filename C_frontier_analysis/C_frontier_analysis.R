@@ -5,7 +5,7 @@
 ##----------------------------------------------------------------
 
 ##----------------------------------------------------------------
-## 0. Clear environment and set library paths
+## Clear environment and set library paths
 ##----------------------------------------------------------------
 rm(list = ls())
 pacman::p_load(data.table, arrow, tidyverse, glue)
@@ -46,8 +46,8 @@ ensure_dir_exists <- function(dir_path) {
 date_dex <- "20251123"
 fp_dex <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_dex, "/compiled_dex_data_2010_2019.parquet")
 
-date_pmp <- "20260108"
-fp_pmp <- file.path(h, "/aim_outputs/Aim2/A_data_preparation/", date_pmp, "/FA/prev_mort_pop_data.parquet")
+date_gbd <- "20260113"
+fp_gbd <- file.path(h, "/aim_outputs/Aim2/A_data_preparation/", date_gbd, "/FA/df_gbd.parquet")
 
 # date_ushd <- "20251204"
 # fp_ushd <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_ushd, "/compiled_ushd_data_2010_2019.parquet")
@@ -57,10 +57,10 @@ date_today <- format(Sys.time(), "%Y%m%d")
 dir_output <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_today)
 ensure_dir_exists(dir_output)
 
-#covariates based on Haley's code
-cov_df_path <- "/ihme/resource_tracking/us_value/data/sfa_covars2021_shea.csv"
-
-cov_df <- fread(cov_df_path)
+# #covariates based on Haley's code (UNUSED HERE)
+# cov_df_path <- "/ihme/resource_tracking/us_value/data/sfa_covars2021_shea.csv"
+# 
+# cov_df <- fread(cov_df_path)
 
 ##----------------------------------------------------------------
 ## 0.2 Read in data
@@ -70,8 +70,8 @@ ds_des <- open_dataset(fp_dex)
 
 df_dex <- ds_des %>%
   filter(geo == "state") %>%
-  filter(payer == "all") %>%
-  select(c("year_id", "geo", "location_name", "fips", "toc", 
+  #filter(payer == "all") %>% # Need different payers
+  select(c("year_id", "geo", "location_name", "fips", "toc", "payer",
            "acause", "cause_name", "age_group_years_start", "age_name", 
            "sex_id", "spend_mean", "spend_lower", "spend_upper")) %>%
   collect()
@@ -89,10 +89,10 @@ df_dex <- left_join(
 )
 
 # GBD Prevalence, Mortality, Population data
-df_pmp <- read_parquet(fp_pmp)
+df_gbd <- read_parquet(fp_gbd)
 
 # Modify age group names to match DEX age group names
-df_pmp <- df_pmp %>%
+df_gbd <- df_gbd %>%
   mutate(age_name = case_when(
     age_group_name == "0 - <1"   ~ "0 - <1",
     age_group_name == "1 - <5"   ~ "1 - <5",
@@ -115,7 +115,7 @@ df_pmp <- df_pmp %>%
     age_group_name == "85+"      ~ "85+"
   ))
 
-df_pmp <- df_pmp %>%
+df_gbd <- df_gbd %>%
   ungroup() %>%
   select(!c("age_group_name"))
 
@@ -124,7 +124,7 @@ df_pmp <- df_pmp %>%
 ##----------------------------------------------------------------
 # Collapse on TOC in DEX data
 df_dex <- df_dex %>%
-  group_by(year_id, geo, location_name, location_id, fips, acause, cause_name, age_group_years_start, age_name, sex_id,) %>%
+  group_by(year_id, geo, location_name, location_id, fips, payer, acause, cause_name, age_group_years_start, age_name, sex_id,) %>%
   summarize(spend_mean = sum(spend_mean))
 
 # Create "_subs" acause
@@ -132,7 +132,7 @@ df_dex_sud <- df_dex %>%
   filter(acause != "hiv")
 
 df_dex_sud <- df_dex_sud %>%
-  group_by(year_id, geo, location_name, location_id, fips, age_group_years_start, age_name, sex_id) %>%
+  group_by(year_id, geo, location_name, location_id, fips, payer, age_group_years_start, age_name, sex_id) %>%
   summarize(spend_mean = sum(spend_mean)) %>%
   mutate(
     acause = "_subs",
@@ -146,10 +146,17 @@ df_dex_hiv <- df_dex %>%
 # Rbind back "_subs" & "hiv"
 df_dex <- rbind(df_dex_hiv, df_dex_sud)
 
+# Pivot wider to have columns for all different payer types
+df_dex_pivot <- df_dex %>% pivot_wider(
+  names_from  = payer,
+  values_from = spend_mean,
+  names_prefix = "spend_"
+)
+
 # Merge DEX & GBD data
 df_m <- left_join(
-  x = df_pmp,
-  y = df_dex,
+  x = df_gbd,
+  y = df_dex_pivot,
   by = c("location_id", "sex_id", "year_id", "acause", "cause_name", "location_name", "age_name")
 )
 
@@ -158,8 +165,9 @@ df_m <- left_join(
 ##----------------------------------------------------------------
 df_m <- df_m %>%
   mutate(
-    spend_prev_ratio = (spend_mean / prevalence),
-    mort_prev_ratio = (mortality / prevalence)
+    spend_prev_ratio = (spend_all / prevalence_counts),
+    mort_prev_ratio = (mortality_counts / prevalence_counts),
+    daly_prev_ratio = (daly_counts / prevalence_counts)
   )
 
 ##----------------------------------------------------------------
@@ -247,241 +255,256 @@ df_as <- left_join(
   by = c("age_name" = "age_group_name", "age_group_years_start")
 )
 
-# Write out data before age-standardization
-write.csv(x = df_as, row.names = FALSE, file = file.path(dir_output, "df_non_as.csv"))
+# # Write out data before age-standardization - UNUSED, was in the GUPTA decomp code
+# write.csv(x = df_as, row.names = FALSE, file = file.path(dir_output, "df_non_as.csv"))
 
-# Create age-standardized ratios based on non-sexed GBD age weights (collapsing on sex here)
+# Create age-standardized ratios based on non-sexed GBD age weights (collapsing on sex here) 
 df_as <- df_as %>%
   group_by(cause_id, year_id, location_id, location_name, acause, cause_name) %>%
   summarise(
     as_spend_prev_ratio = sum(spend_prev_ratio * age_group_weight_value, na.rm = TRUE),
     as_mort_prev_ratio  = sum(mort_prev_ratio * age_group_weight_value, na.rm = TRUE),
-    mortality = sum(mortality),
-    prevalence = sum(prevalence),
-    DALYs = sum(DALYs),
+    as_daly_prev_ratio  = sum(daly_prev_ratio * age_group_weight_value, na.rm = TRUE),
+    spend_all = sum(spend_all, na.rm = TRUE),
+    spend_mdcd = sum(spend_mdcd, na.rm = TRUE),
+    spend_mdcr = sum(spend_mdcr, na.rm = TRUE),
+    spend_oop = sum(spend_oop, na.rm = TRUE),
+    mortality_counts = sum(mortality_counts),
+    prevalence_counts = sum(prevalence_counts),
+    daly_counts = sum(daly_counts),
+    incidence_counts = sum(incidence_counts),
+    population = sum(population),
     .groups = "drop"
   )
 
 ##----------------------------------------------------------------
-## 5. Add variance column from mortality and deaths data
+## 5. Add Rate columns
+##----------------------------------------------------------------
+df_as$mortality_rates <- df_as$mortality_counts / df_as$population
+df_as$prevalence_rates <- df_as$prevalence_counts / df_as$population
+df_as$daly_rates <- df_as$daly_counts / df_as$population
+df_as$incidence_rates <- df_as$incidence_counts / df_as$population
+
+##----------------------------------------------------------------
+## 6. Add variance column from mortality and deaths data
 ## Variance column needed for SFMA package 
 ##----------------------------------------------------------------
-df_as$variance <- (df_as$mortality / (df_as$prevalence^2))
+df_as$variance <- (df_as$mortality_counts / (df_as$prevalence_counts^2))
 
 # Write out age-standardized data to today's dated folder in C_frontier_analysis
 write.csv(x = df_as, row.names = FALSE, file = file.path(dir_output, "df_as.csv"))
 
-##----------------------------------------------------------------
-## 6. Frontier Analysis Model
-##
-## Formula - GBD Mortality / Prevalence Ratio is the outcome, DEX spend_mean / prevalence ratio is the predictor (+ other variables)
-##----------------------------------------------------------------
-# Loop through our causes, create models for each, extract efficiencies 
-
-summary(df_as)
-list_dfs <- list()
-list_models <- list()
-
-for (cause in df_as$acause %>% unique()) {
-  print(cause)
-  
-  # Subset to our particular cause
-  df_loop <- df_as %>% filter(acause == cause)
-  
-  ##----------------------------------------------------------------
-  ## 7. Simple FA Model
-  ##----------------------------------------------------------------
-  # --- Baseline model: log(MX Ratio) on log(spending mean) -----------------
-  # This is the simplest Cobb–Douglas frontier in log-log form.
-  # ineffDecrease = TRUE means inefficiency increases MX Ratio (bad outcome).
-  # Try flipping to FALSE if you want to see the difference in orientation.
-  
-  # Simple Stochastic Frontier Example
-  # Outcome: MX Ratio (as_mort_prev_ratio)
-  # Predictor: Healthcare spending (as_spend_prev_ratio)
-  
-  # Model: MX Ratio ~ spend_mean
-  mod_simple <- frontier::sfa(
-    log(as_mort_prev_ratio) ~ log(as_spend_prev_ratio),
-    data          = df_loop,
-    ineffDecrease = TRUE
-  )
-  
-  
-  # Save model object
-  model_filename <- paste0("mod_", cause, "_simple.rds")
-  saveRDS(mod_simple, file.path(dir_output, model_filename))
-  print(paste0("Saved simple model @ ", dir_output, "/",model_filename))
-  
-  # Save model object to list
-  list_models[[cause]][["simple"]] <- mod_simple
-  
-  ##----------------------------------------------------------------
-  ## 8. Extended FA Model
-  ##----------------------------------------------------------------
-  # --- Extended model: log(MX Ratio) on log(spending mean) + controls -----------------
-  ##  * Still frontier of log(as_mort_prev_ratio) vs log(as_spend_prev_ratio),
-  ##    BUT now controls for composition (age, sex, time, county).
-  ##  * These covariates shift the frontier (what is “expected” given case-mix),
-  ##    so inefficiency is measured after conditioning on them.
-  ##
-  ##  Notes:
-  ##    - factor(year_id) accounts for secular trends in outcomes/spending.
-  mod_extended <- frontier::sfa(
-    log(as_mort_prev_ratio) ~ log(as_spend_prev_ratio) + factor(year_id) + factor(sex_id),
-    data          = df_loop,
-    ineffDecrease = TRUE
-  )
-  
-  # Save model object
-  model_filename <- paste0("mod_", cause, "_extended.rds")
-  saveRDS(mod_extended, file.path(dir_output, model_filename))
-  print(paste0("Saved extended model @ ", dir_output, "/",model_filename))
-  
-  # Save model object to list
-  list_models[[cause]][["extended"]] <- mod_extended
-  
-  ##----------------------------------------------------------------
-  ## 9. Extract efficiencies
-  ##
-  ## Efficiency scores are in [0,1], where 1 = most efficient.
-  ## Because we logged the dependent variable, set logDepVar = TRUE.
-  ## minusU = TRUE gives Farrell-type efficiencies (higher = better).
-  ##----------------------------------------------------------------
-  # Basic Model Efficiency Scores
-  df_loop$eff_simple <- efficiencies(mod_simple, 
-                                   asInData   = TRUE,
-                                   logDepVar  = TRUE,
-                                   minusU     = TRUE)
-  # Extended Model Efficiency Scores
-  df_loop$eff_extended <- efficiencies(mod_extended,
-                                     asInData   = TRUE,
-                                     logDepVar  = TRUE,
-                                     minusU     = TRUE)
-  
-  ##----------------------------------------------------------------
-  ## 10. Add df to list
-  ##----------------------------------------------------------------
-  list_dfs[[cause]] <- df_loop
-}
-  
-##----------------------------------------------------------------
-## 11. Combine list of dfs and save to Parquet Files
-##----------------------------------------------------------------
-df_all <- bind_rows(list_dfs)
-
-fn_output <- paste0("fa_estimates.parquet")
-write_parquet(df_all, file.path(dir_output, fn_output))
-
-##----------------------------------------------------------------
-## TESTING - SAFE TO DELETE
-##----------------------------------------------------------------
-##----------------------------------------------------------------
-## Results - UNUSED ATM
-##----------------------------------------------------------------
+# ##----------------------------------------------------------------
+# ## 6. Frontier Analysis Model - CURRENTLY UNUSED, PYTHON SFMA SCRIPT USED INSTEAD
+# ##
+# ## Formula - GBD Mortality / Prevalence Ratio is the outcome, DEX spend_mean / prevalence ratio is the predictor (+ other variables)
+# ##----------------------------------------------------------------
+# # Loop through our causes, create models for each, extract efficiencies 
 # 
-# # Create dollar mx ratio column
-# df_dex_ushd_hiv$dollar_mx_ratio <- df_dex_ushd_hiv$spend_mean / df_dex_ushd_hiv$pred_mean
-# df_dex_ushd_subs$dollar_mx_ratio <- df_dex_ushd_subs$spend_mean / df_dex_ushd_subs$pred_mean
+# summary(df_as)
+# list_dfs <- list()
+# list_models <- list()
 # 
-# View(df_dex_ushd_hiv[, c("state_name", "cnty_name", "acause", "cause_name", "sex_id", "age_name",
-#                       "pred_mean", "spend_mean", "eff_simple", "dollar_mx_ratio")])
-# View(df_dex_ushd_subs[, c("state_name", "cnty_name", "acause", "cause_name", "sex_id", "age_name",
-#                       "pred_mean", "spend_mean", "eff_simple", "dollar_mx_ratio")])
-
-# FA TESTING PLOT NEW CODE
-
-plot_sfa_predicted_line <- function(df_all, list_models, acause, model_type,
-                                    log_axes = TRUE) {
-  
-  df <- df_all %>%
-    filter(acause == !!acause) %>%
-    filter(is.finite(as_spend_prev_ratio), is.finite(as_mort_prev_ratio),
-           as_spend_prev_ratio > 0, as_mort_prev_ratio > 0)
-  
-  mod <- list_models[[acause]][[model_type]]
-  
-  # Predict at observed data points (avoids factor-level headaches)
-  # logDepVar = TRUE because your dependent variable is log(y) in the model
-  # IMPORTANT: predict() returns fitted values on the scale controlled by logDepVar
-  df$yhat <- predict(mod, newdata = df, logDepVar = TRUE)
-  
-  # If predict() returns log-scale, exponentiate to get back to level scale
-  # In frontier, logDepVar=TRUE typically returns predictions in original y scale,
-  # but this can vary. Quick check: compare range of yhat to y.
-  # If yhat looks like ~(-10 to 2), it's log-scale and you need exp().
-  if (all(df$yhat < 10) && all(df$yhat > -50)) {
-    # heuristic: looks like log-scale
-    df$yhat <- exp(df$yhat)
-  }
-  
-  df <- df %>% arrange(as_spend_prev_ratio)
-  
-  p <- ggplot(df, aes(x = as_spend_prev_ratio, y = as_mort_prev_ratio)) +
-    geom_point(alpha = 0.25, size = 0.8) +
-    geom_line(aes(y = yhat), color = "orange", linewidth = 1.1) +
-    theme_minimal() +
-    labs(
-      title = paste0("Observed vs Model-Predicted: ", acause, " (", model_type, ")"),
-      x = "Spending per case (age-standardized)",
-      y = "Mortality–prevalence ratio (age-standardized)"
-    )
-  
-  if (log_axes) {
-    p <- p + scale_x_log10() + scale_y_log10()
-  }
-  
-  p
-}
-
-# Example:
-plot_sfa_predicted_line(df_all, list_models, "hiv", "simple")
-plot_sfa_predicted_line(df_all, list_models, "hiv", "extended")
-plot_sfa_predicted_line(df_all, list_models, "_subs", "simple")
-plot_sfa_predicted_line(df_all, list_models, "_subs", "extended")
-
-
-##----------------------------------------------------------------
-## Plots - TO BE MOVED TO D_FIGURES SCRIPT
-## BELOW IS JUST FOR LOOKING AT DATA
-##----------------------------------------------------------------
-
-# Efficiency Score Distribution
-
-# HIV - Basic
-ggplot(df_all %>% filter(acause == "hiv"), aes(x = eff_simple)) +
-  geom_histogram(bins = 30, fill = "steelblue", color = "white") +
-  labs(title = "Distribution of State Efficiency Scores",
-       x = "Efficiency Score", y = "Number of Counties")
-
-# HIV - Extended
-ggplot(df_all %>% filter(acause == "hiv"), aes(x = eff_extended)) +
-  geom_histogram(bins = 30, fill = "steelblue", color = "white") +
-  labs(title = "Distribution of State Efficiency Scores",
-       x = "Efficiency Score", y = "Number of Counties")
-
-# SUD - Basic
-ggplot(df_all %>% filter(acause == "_subs"), aes(x = eff_simple)) +
-  geom_histogram(bins = 30, fill = "steelblue", color = "white") +
-  labs(title = "Distribution of State Efficiency Scores",
-       x = "Efficiency Score", y = "Number of Counties")
-
-# SUD - Extended
-ggplot(df_all %>% filter(acause == "_subs"), aes(x = eff_extended)) +
-  geom_histogram(bins = 30, fill = "steelblue", color = "white") +
-  labs(title = "Distribution of State Efficiency Scores",
-       x = "Efficiency Score", y = "Number of Counties")
-
-
-
-
-names(list_models)
-names(list_models[["_subs"]])
-
-mod <- list_models[["_subs"]][["extended"]]
-is.null(mod)
-class(mod)
-inherits(mod, "sfa")
+# for (cause in df_as$acause %>% unique()) {
+#   print(cause)
+#   
+#   # Subset to our particular cause
+#   df_loop <- df_as %>% filter(acause == cause)
+#   
+#   ##----------------------------------------------------------------
+#   ## 7. Simple FA Model
+#   ##----------------------------------------------------------------
+#   # --- Baseline model: log(MX Ratio) on log(spending mean) -----------------
+#   # This is the simplest Cobb–Douglas frontier in log-log form.
+#   # ineffDecrease = TRUE means inefficiency increases MX Ratio (bad outcome).
+#   # Try flipping to FALSE if you want to see the difference in orientation.
+#   
+#   # Simple Stochastic Frontier Example
+#   # Outcome: MX Ratio (as_mort_prev_ratio)
+#   # Predictor: Healthcare spending (as_spend_prev_ratio)
+#   
+#   # Model: MX Ratio ~ spend_mean
+#   mod_simple <- frontier::sfa(
+#     log(as_mort_prev_ratio) ~ log(as_spend_prev_ratio),
+#     data          = df_loop,
+#     ineffDecrease = TRUE
+#   )
+#   
+#   
+#   # Save model object
+#   model_filename <- paste0("mod_", cause, "_simple.rds")
+#   saveRDS(mod_simple, file.path(dir_output, model_filename))
+#   print(paste0("Saved simple model @ ", dir_output, "/",model_filename))
+#   
+#   # Save model object to list
+#   list_models[[cause]][["simple"]] <- mod_simple
+#   
+#   ##----------------------------------------------------------------
+#   ## 8. Extended FA Model
+#   ##----------------------------------------------------------------
+#   # --- Extended model: log(MX Ratio) on log(spending mean) + controls -----------------
+#   ##  * Still frontier of log(as_mort_prev_ratio) vs log(as_spend_prev_ratio),
+#   ##    BUT now controls for composition (age, sex, time, county).
+#   ##  * These covariates shift the frontier (what is “expected” given case-mix),
+#   ##    so inefficiency is measured after conditioning on them.
+#   ##
+#   ##  Notes:
+#   ##    - factor(year_id) accounts for secular trends in outcomes/spending.
+#   mod_extended <- frontier::sfa(
+#     log(as_mort_prev_ratio) ~ log(as_spend_prev_ratio) + factor(year_id) + factor(sex_id),
+#     data          = df_loop,
+#     ineffDecrease = TRUE
+#   )
+#   
+#   # Save model object
+#   model_filename <- paste0("mod_", cause, "_extended.rds")
+#   saveRDS(mod_extended, file.path(dir_output, model_filename))
+#   print(paste0("Saved extended model @ ", dir_output, "/",model_filename))
+#   
+#   # Save model object to list
+#   list_models[[cause]][["extended"]] <- mod_extended
+#   
+#   ##----------------------------------------------------------------
+#   ## 9. Extract efficiencies
+#   ##
+#   ## Efficiency scores are in [0,1], where 1 = most efficient.
+#   ## Because we logged the dependent variable, set logDepVar = TRUE.
+#   ## minusU = TRUE gives Farrell-type efficiencies (higher = better).
+#   ##----------------------------------------------------------------
+#   # Basic Model Efficiency Scores
+#   df_loop$eff_simple <- efficiencies(mod_simple, 
+#                                    asInData   = TRUE,
+#                                    logDepVar  = TRUE,
+#                                    minusU     = TRUE)
+#   # Extended Model Efficiency Scores
+#   df_loop$eff_extended <- efficiencies(mod_extended,
+#                                      asInData   = TRUE,
+#                                      logDepVar  = TRUE,
+#                                      minusU     = TRUE)
+#   
+#   ##----------------------------------------------------------------
+#   ## 10. Add df to list
+#   ##----------------------------------------------------------------
+#   list_dfs[[cause]] <- df_loop
+# }
+#   
+# ##----------------------------------------------------------------
+# ## 11. Combine list of dfs and save to Parquet Files
+# ##----------------------------------------------------------------
+# df_all <- bind_rows(list_dfs)
+# 
+# fn_output <- paste0("fa_estimates.parquet")
+# write_parquet(df_all, file.path(dir_output, fn_output))
+# 
+# ##----------------------------------------------------------------
+# ## TESTING - SAFE TO DELETE
+# ##----------------------------------------------------------------
+# ##----------------------------------------------------------------
+# ## Results - UNUSED ATM
+# ##----------------------------------------------------------------
+# # 
+# # # Create dollar mx ratio column
+# # df_dex_ushd_hiv$dollar_mx_ratio <- df_dex_ushd_hiv$spend_mean / df_dex_ushd_hiv$pred_mean
+# # df_dex_ushd_subs$dollar_mx_ratio <- df_dex_ushd_subs$spend_mean / df_dex_ushd_subs$pred_mean
+# # 
+# # View(df_dex_ushd_hiv[, c("state_name", "cnty_name", "acause", "cause_name", "sex_id", "age_name",
+# #                       "pred_mean", "spend_mean", "eff_simple", "dollar_mx_ratio")])
+# # View(df_dex_ushd_subs[, c("state_name", "cnty_name", "acause", "cause_name", "sex_id", "age_name",
+# #                       "pred_mean", "spend_mean", "eff_simple", "dollar_mx_ratio")])
+# 
+# # FA TESTING PLOT NEW CODE
+# 
+# plot_sfa_predicted_line <- function(df_all, list_models, acause, model_type,
+#                                     log_axes = TRUE) {
+#   
+#   df <- df_all %>%
+#     filter(acause == !!acause) %>%
+#     filter(is.finite(as_spend_prev_ratio), is.finite(as_mort_prev_ratio),
+#            as_spend_prev_ratio > 0, as_mort_prev_ratio > 0)
+#   
+#   mod <- list_models[[acause]][[model_type]]
+#   
+#   # Predict at observed data points (avoids factor-level headaches)
+#   # logDepVar = TRUE because your dependent variable is log(y) in the model
+#   # IMPORTANT: predict() returns fitted values on the scale controlled by logDepVar
+#   df$yhat <- predict(mod, newdata = df, logDepVar = TRUE)
+#   
+#   # If predict() returns log-scale, exponentiate to get back to level scale
+#   # In frontier, logDepVar=TRUE typically returns predictions in original y scale,
+#   # but this can vary. Quick check: compare range of yhat to y.
+#   # If yhat looks like ~(-10 to 2), it's log-scale and you need exp().
+#   if (all(df$yhat < 10) && all(df$yhat > -50)) {
+#     # heuristic: looks like log-scale
+#     df$yhat <- exp(df$yhat)
+#   }
+#   
+#   df <- df %>% arrange(as_spend_prev_ratio)
+#   
+#   p <- ggplot(df, aes(x = as_spend_prev_ratio, y = as_mort_prev_ratio)) +
+#     geom_point(alpha = 0.25, size = 0.8) +
+#     geom_line(aes(y = yhat), color = "orange", linewidth = 1.1) +
+#     theme_minimal() +
+#     labs(
+#       title = paste0("Observed vs Model-Predicted: ", acause, " (", model_type, ")"),
+#       x = "Spending per case (age-standardized)",
+#       y = "Mortality–prevalence ratio (age-standardized)"
+#     )
+#   
+#   if (log_axes) {
+#     p <- p + scale_x_log10() + scale_y_log10()
+#   }
+#   
+#   p
+# }
+# 
+# # Example:
+# plot_sfa_predicted_line(df_all, list_models, "hiv", "simple")
+# plot_sfa_predicted_line(df_all, list_models, "hiv", "extended")
+# plot_sfa_predicted_line(df_all, list_models, "_subs", "simple")
+# plot_sfa_predicted_line(df_all, list_models, "_subs", "extended")
+# 
+# 
+# ##----------------------------------------------------------------
+# ## Plots - TO BE MOVED TO D_FIGURES SCRIPT
+# ## BELOW IS JUST FOR LOOKING AT DATA
+# ##----------------------------------------------------------------
+# 
+# # Efficiency Score Distribution
+# 
+# # HIV - Basic
+# ggplot(df_all %>% filter(acause == "hiv"), aes(x = eff_simple)) +
+#   geom_histogram(bins = 30, fill = "steelblue", color = "white") +
+#   labs(title = "Distribution of State Efficiency Scores",
+#        x = "Efficiency Score", y = "Number of Counties")
+# 
+# # HIV - Extended
+# ggplot(df_all %>% filter(acause == "hiv"), aes(x = eff_extended)) +
+#   geom_histogram(bins = 30, fill = "steelblue", color = "white") +
+#   labs(title = "Distribution of State Efficiency Scores",
+#        x = "Efficiency Score", y = "Number of Counties")
+# 
+# # SUD - Basic
+# ggplot(df_all %>% filter(acause == "_subs"), aes(x = eff_simple)) +
+#   geom_histogram(bins = 30, fill = "steelblue", color = "white") +
+#   labs(title = "Distribution of State Efficiency Scores",
+#        x = "Efficiency Score", y = "Number of Counties")
+# 
+# # SUD - Extended
+# ggplot(df_all %>% filter(acause == "_subs"), aes(x = eff_extended)) +
+#   geom_histogram(bins = 30, fill = "steelblue", color = "white") +
+#   labs(title = "Distribution of State Efficiency Scores",
+#        x = "Efficiency Score", y = "Number of Counties")
+# 
+# 
+# 
+# 
+# names(list_models)
+# names(list_models[["_subs"]])
+# 
+# mod <- list_models[["_subs"]][["extended"]]
+# is.null(mod)
+# class(mod)
+# inherits(mod, "sfa")
 
 
 
