@@ -41,7 +41,7 @@ ensure_dir_exists <- function(dir_path) {
 ## 1. Set directories
 ##----------------------------------------------------------------
 # Set fp for age-standardized data
-as_date <- "20260104"
+as_date <- "20260113"
 fp_as <- file.path(h, '/aim_outputs/Aim2/C_frontier_analysis/', as_date, "df_as.csv")
 
 # Set output directories
@@ -75,10 +75,13 @@ df_as <- left_join(
 ## 4. Specify Models
 ##----------------------------------------------------------------
 # Basic Model
-model_basic <- "as_mort_prev_ratio ~ as_spend_prev_ratio"
+model_basic_mort <- "as_mort_prev_ratio ~ as_spend_prev_ratio"
+model_basic_daly <- "as_daly_prev_ratio ~ as_spend_prev_ratio"
 
 # Covariate combinations
 cov_h <- c('obesity', 'age65', 'cig_pc_10', 'phys_act_10', 'edu_yrs', 'as_spend_prev_ratio')
+
+cov_incidence <- c("incidence_counts")
 
 cov_age  <- c("age65")
 
@@ -98,22 +101,40 @@ cov_density <- c(
   "density_g.1000"
 )
 
-# Formulas
-f0 <- as.formula(model_basic)
-f1 <- as.formula(paste(model_basic, "+", paste(cov_age, collapse = " + ")))
-f2 <- as.formula(paste(model_basic, "+", paste(c(cov_age, cov_risk), collapse = " + ")))
-f3 <- as.formula(paste(model_basic, "+", paste(c(cov_age, cov_risk, cov_ses), collapse = " + ")))
-f4 <- as.formula(paste(model_basic, "+", paste(c(cov_age, cov_risk, cov_ses, cov_density), collapse = " + ")))
-f5 <- as.formula(paste(model_basic, "+", paste(c(cov_h), collapse = " + ")))
+# Mort / prev - Formulas
+f0 <- as.formula(model_basic_mort)
+f1 <- as.formula(paste(model_basic_mort, "+", paste(cov_incidence, collapse = " + ")))
+f2 <- as.formula(paste(model_basic_mort, "+", paste(c(cov_incidence, cov_age), collapse = " + ")))
+f3 <- as.formula(paste(model_basic_mort, "+", paste(c(cov_incidence, cov_age, cov_risk), collapse = " + ")))
+f4 <- as.formula(paste(model_basic_mort, "+", paste(c(cov_incidence, cov_age, cov_risk, cov_ses), collapse = " + ")))
+f5 <- as.formula(paste(model_basic_mort, "+", paste(c(cov_incidence, cov_age, cov_risk, cov_ses, cov_density), collapse = " + ")))
+f6 <- as.formula(paste(model_basic_mort, "+", paste(c(cov_h), collapse = " + ")))
+
+# DALY / prev - Formulas
+f7 <- as.formula(model_basic_mort)
+f8 <- as.formula(paste(model_basic_daly, "+", paste(cov_incidence, collapse = " + ")))
+f9 <- as.formula(paste(model_basic_daly, "+", paste(c(cov_incidence, cov_age), collapse = " + ")))
+f10 <- as.formula(paste(model_basic_daly, "+", paste(c(cov_incidence, cov_age, cov_risk), collapse = " + ")))
+f11 <- as.formula(paste(model_basic_daly, "+", paste(c(cov_incidence, cov_age, cov_risk, cov_ses), collapse = " + ")))
+f12 <- as.formula(paste(model_basic_daly, "+", paste(c(cov_incidence, cov_age, cov_risk, cov_ses, cov_density), collapse = " + ")))
+f13 <- as.formula(paste(model_basic_daly, "+", paste(c(cov_h), collapse = " + ")))
 
 # Formula List
 list_formulas <- list(
-  m0_unadj                     = f0,
-  m1_age65                     = f1,
-  m2_plus_obesity_cig_phys_ac  = f2,
-  m3_plus_edu_ldi              = f3,
-  m4_plus_density              = f4,
-  m5_haley                     = f5
+  m0_mort_unadj                     = f0,
+  m1_mort_inc                       = f1,
+  m2_mort_age65                     = f2,
+  m3_mort_plus_obesity_cig_phys_ac  = f3,
+  m4_mort_plus_edu_ldi              = f4,
+  m5_mort_plus_density              = f5,
+  m6_mort_haley                     = f6,
+  m7_daly_unadj                     = f7,
+  m8_daly_inc                       = f8,
+  m9_daly_age65                     = f9,
+  m10_daly_plus_obesity_cig_phys_ac  = f10,
+  m11_daly_plus_edu_ldi              = f11,
+  m12_daly_plus_density              = f12,
+  m13_daly_haley                     = f13
 )
 
 ##----------------------------------------------------------------
