@@ -269,6 +269,7 @@ df_as <- df_as %>%
     spend_mdcd = sum(spend_mdcd, na.rm = TRUE),
     spend_mdcr = sum(spend_mdcr, na.rm = TRUE),
     spend_oop = sum(spend_oop, na.rm = TRUE),
+    spend_priv = sum(spend_priv, na.rm = TRUE),
     mortality_counts = sum(mortality_counts),
     prevalence_counts = sum(prevalence_counts),
     daly_counts = sum(daly_counts),
@@ -293,6 +294,38 @@ df_as$variance <- (df_as$mortality_counts / (df_as$prevalence_counts^2))
 
 # Write out age-standardized data to today's dated folder in C_frontier_analysis
 write.csv(x = df_as, row.names = FALSE, file = file.path(dir_output, "df_as.csv"))
+
+##----------------------------------------------------------------
+## 7. Collapse on year_id
+##----------------------------------------------------------------
+# Collapse on year_id
+df_as_no_year <- df_as %>%
+  group_by(cause_id, location_id, location_name, acause, cause_name) %>%
+  summarise(
+    spend_all = sum(spend_all, na.rm = TRUE),
+    spend_mdcd = sum(spend_mdcd, na.rm = TRUE),
+    spend_mdcr = sum(spend_mdcr, na.rm = TRUE),
+    spend_oop = sum(spend_oop, na.rm = TRUE),
+    spend_priv = sum(spend_priv, na.rm = TRUE),
+    mortality_counts = sum(mortality_counts),
+    prevalence_counts = sum(prevalence_counts),
+    daly_counts = sum(daly_counts),
+    incidence_counts = sum(incidence_counts),
+    population = sum(population),
+    
+    spend_prev_ratio = spend_all / prevalence_counts,
+    mort_prev_ratio  = mortality_counts / prevalence_counts,
+    daly_prev_ratio  = daly_counts / prevalence_counts,
+    .groups = "drop"
+  )
+
+df_as_no_year$mortality_rates <- df_as_no_year$mortality_counts / df_as_no_year$population
+df_as_no_year$prevalence_rates <- df_as_no_year$prevalence_counts / df_as_no_year$population
+df_as_no_year$daly_rates <- df_as_no_year$daly_counts / df_as_no_year$population
+df_as_no_year$incidence_rates <- df_as_no_year$incidence_counts / df_as_no_year$population
+
+# Save
+write.csv(x = df_as_no_year, row.names = FALSE, file = file.path(dir_output, "df_as_no_year.csv"))
 
 # ##----------------------------------------------------------------
 # ## 6. Frontier Analysis Model - CURRENTLY UNUSED, PYTHON SFMA SCRIPT USED INSTEAD

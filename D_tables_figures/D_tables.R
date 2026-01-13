@@ -60,14 +60,22 @@ fp_dex <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_dex, "/compiled_
 date_ushd <- "20251123"
 fp_ushd <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_ushd, "/compiled_ushd_data_2010_2019.parquet")
 
-# "frontier" package data
+# Age-standardized State level GBD + Dex data
+date_as <- "20260113"
+fp_as <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_as, "/df_as.csv")
+
+# State level GBD + Dex data - No years
+date_as_no_year <- "20260113"
+fp_as_no_year <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_as_no_year, "/df_as_no_year.csv")
+
+# "frontier" package data - OLD INEFFICIENCY DATA
 date_fa <- "20251204"
 fp_fa_hiv_simple <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_fa, "fa_estimates_hiv_simple.parquet")
 fp_fa_hiv_extended <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_fa, "fa_estimates_hiv_extended.parquet")
 fp_fa_sud_simple <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_fa, "fa_estimates__subs_simple.parquet")
 fp_fa_sud_extended <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_fa, "fa_estimates__subs_extended.parquet")
 
-# SFMA python package data
+# SFMA python package data - UNUSED ATM
 date_smfa <- "20260105"
 fp_sfma_hiv <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_smfa, "hiv_output.csv")
 fp_sfma_sud <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_smfa, "_subs_output.csv")
@@ -85,6 +93,12 @@ df_dex <- read_parquet(fp_dex)
 
 # USHD Data
 #df_ushd <- read_parquet(fp_ushd)
+
+# Age-standardized State level GBD + Dex data
+df_as <- read.csv(fp_as)
+
+# Age-standardized State level GBD + Dex data
+df_as_no_year <- read.csv(fp_as_no_year)
 
 # Frontier Analysis Data
 df_hiv_fa_simple <- read_parquet(fp_fa_hiv_simple)
@@ -476,6 +490,146 @@ df_t4_hiv_all <- df_t4_hiv_all %>%
 # Write to CSV
 write.csv(df_t4_hiv_all, file.path(dir_output, "T4_HIV_fa_delta_top_bottom_10.csv"), row.names = FALSE)
 write.csv(df_t4_sud_all, file.path(dir_output, "T4_SUD_fa_delta_top_bottom_10.csv"), row.names = FALSE)
+
+##----------------------------------------------------------------
+## 5. Table 5 - HIV & SUD 2010 ~ 2019
+# 
+# T5 - ALL State level table, HIV & SUD separate tables, states are ordered alphabetically
+# 
+# Columns: State, Spending per prevalence (total spending for state / total summed prevalence count),
+# Total spending (cumulative total state spending), 
+# 4 total spending by payer (medicaid, medicare, private, oop), 
+# prevalence count, 
+# prevalence rate, 
+# mortality per case (mortality count / prevalence count),
+# incidence count, 
+# incidence rate
+##----------------------------------------------------------------
+acauses <- c("hiv", "_subs")
+
+t5_cols <- c("cause_name", "location_name", "spend_per_prev", "spend_all", 
+  "spend_mdcd", "spend_mdcr", "spend_oop", "spend_priv", "prevalence_counts", 
+  "prevalence_rates", "mort_prev_ratio", "incidence_counts", "incidence_rates"
+)
+
+t5_dol_cols <-  c("spend_per_prev", "spend_all", 
+                  "spend_mdcd", "spend_mdcr", "spend_oop", "spend_priv")
+
+for (a in acauses) {
+  
+  df_tmp <- df_as_no_year %>%
+    filter(acause == a)
+  
+  # Create columns
+  df_tmp$spend_per_prev <- df_tmp$spend_all / df_tmp$prevalence_counts
+  
+  # Select columns
+  df_tmp <- df_tmp %>%
+    select(all_of(t5_cols))
+  
+  # Convert to dollars
+  df_tmp <- convert_to_dollars(df_tmp, t5_dol_cols)
+  
+  # Rename columns
+  df_tmp <- df_tmp %>%
+    rename(
+      Cause = cause_name,
+      State = location_name,
+      `Spending per prevalence` = spend_per_prev,
+      `Total spending - All` = spend_all,
+      `Total spending - Medicare` = spend_mdcr,
+      `Total spending - Medicaid` = spend_mdcd,
+      `Total spending - Out of pocket` = spend_oop,
+      `Total spending - Private` = spend_priv,
+      `Prevalence Count` = prevalence_counts,
+      `Prevalence Rate` = prevalence_rates,
+      `Mortality per case` = mort_prev_ratio,
+      `Incidence Count` = incidence_counts,
+      `Incidence Rate` = incidence_rates
+    )
+  
+  # Assign to df_t5_hiv or df_t5_subs
+  assign(paste0("df_t5_", gsub("^_", "", a)), df_tmp, envir = .GlobalEnv)
+}
+
+# Write to CSV
+write.csv(df_t5_hiv, file.path(dir_output, "T5_HIV.csv"), row.names = FALSE)
+write.csv(df_t5_subs, file.path(dir_output, "T5_SUD.csv"), row.names = FALSE)
+
+##----------------------------------------------------------------
+## 6. Table 6 - HIV & SUD 
+# 
+# T6 - ALL State level table, HIV & SUD separate tables, order by state name
+# 
+# Columns: State, Spending (total spending per state), 
+# Spending per case (total spending per state / prevalence count), 
+# DALYs count (total count by state), 
+# DALYs per case (DALYs count / prevalence count), 
+# Spending effectiveness (Spending in year 2019 - Spending in year 2010) / (DALYs in 2019 - DALY in 2010)
+##----------------------------------------------------------------
+t6_cols <- c("cause_name", "location_name", "spend_all",
+             "spend_prev_ratio", 
+             "daly_counts",
+             "daly_prev_ratio")
+
+t6_dol_cols <-  c("spend_all", "spend_prev_ratio")
+
+# Create Spending Effectiveness Column
+df_t6_year <- df_as %>%
+  filter(year_id %in% c(2010, 2019))
+
+df_t6_year <- df_t6_year %>%
+  select(c("cause_id", "year_id", "location_id", "location_name", "acause", 
+           "cause_name", "spend_all", "daly_counts"))
+
+# Pivot wider to have columns for all different payer types
+df_t6_year <- df_t6_year %>% pivot_wider(
+  names_from  = year_id,
+  values_from = c(spend_all, daly_counts)
+)
+
+# Create deltas
+df_t6_year$spend_eff <- (df_t6_year$spend_all_2019 - df_t6_year$spend_all_2010) / (df_t6_year$daly_counts_2019 - df_t6_year$daly_counts_2010)
+
+
+# Create table with other columns to join to
+df_t6 <- copy(df_as_no_year)
+
+# Select columns
+df_t6 <- df_t6 %>%
+  select(all_of(t6_cols))
+
+# Join w/ delta table
+df_t6 <- left_join(
+  x = df_t6,
+  y = df_t6_year,
+  by = c("cause_name", "location_name")
+) %>%
+  select(!c("spend_all_2010", "spend_all_2019", "daly_counts_2010", "daly_counts_2019", "acause", "cause_id", "location_id"))
+
+# Convert to dollars
+df_t6 <- convert_to_dollars(df_t6, t6_dol_cols)
+
+# Rename columns
+df_t6 <- df_t6 %>%
+  rename(
+    Cause = cause_name,
+    State = location_name,
+    `Total spending - All` = spend_all,
+    `Spending per case` = spend_prev_ratio,
+    `DALY Count` = daly_counts,
+    `DALYs per case` = daly_prev_ratio,
+    `Spending effectiveness` = spend_eff
+  )
+
+# Split by cause
+df_t6_hiv <- df_t6 %>% filter(Cause == "HIV/AIDS")
+df_t6_subs <- df_t6 %>% filter(Cause == "Substance use disorders")
+
+# Write to CSV
+write.csv(df_t6_hiv, file.path(dir_output, "T6_HIV.csv"), row.names = FALSE)
+write.csv(df_t6_subs, file.path(dir_output, "T6_SUD.csv"), row.names = FALSE)
+
 
 
 # # SCRATCH SPACE, SAFE TO DELETE
