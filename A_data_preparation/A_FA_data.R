@@ -215,3 +215,28 @@ fn_main <- file.path(dir_out, "df_gbd.parquet")
 
 write_parquet(df_final, fn_main)
 
+##----------------------------------------------------------------
+## SCRATCH SPACE - SAFE TO DELETE
+##----------------------------------------------------------------
+# # Testing pulling covariates
+# source("/ihme/cc_resources/libraries/current/r/get_covariate_estimates.R")
+# 
+# 
+# 
+# df_cov <- get_covariate_estimates(covariate_id = 2604, # HIV ART coverage
+#                                    location_id = list_state_loc_ids,
+#                                    location_set_id=35,
+#                                    year_id =  year_ids,
+#                                    release_id = 3,
+#                                    sex_id=sex_ids,
+#                                    age_group_id="all",
+#                                    status = 'best') 
+
+
+
+
+
+
+
+
+
