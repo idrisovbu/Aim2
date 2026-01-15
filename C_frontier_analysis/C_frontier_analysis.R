@@ -161,7 +161,26 @@ df_m <- left_join(
 )
 
 ##----------------------------------------------------------------
-## 2. Create spend_prev_ratio & mort_prev_ratio columns
+## 2. Collapse on sex_id
+##----------------------------------------------------------------
+df_m <- df_m %>%
+  group_by(cause_id, year_id, location_id, location_name, acause, cause_name, age_name, age_group_years_start) %>%
+  summarise(
+    spend_all = sum(spend_all, na.rm = TRUE),
+    spend_mdcd = sum(spend_mdcd, na.rm = TRUE),
+    spend_mdcr = sum(spend_mdcr, na.rm = TRUE),
+    spend_oop = sum(spend_oop, na.rm = TRUE),
+    spend_priv = sum(spend_priv, na.rm = TRUE),
+    mortality_counts = sum(mortality_counts),
+    prevalence_counts = sum(prevalence_counts),
+    daly_counts = sum(daly_counts),
+    incidence_counts = sum(incidence_counts),
+    population = sum(population),
+    .groups = "drop"
+  )
+
+##----------------------------------------------------------------
+## 3. Create spend_prev_ratio & mort_prev_ratio columns
 ##----------------------------------------------------------------
 df_m <- df_m %>%
   mutate(
@@ -171,7 +190,7 @@ df_m <- df_m %>%
   )
 
 ##----------------------------------------------------------------
-## 3. Format age weights to match DEX age bins
+## 4. Format age weights to match DEX age bins
 ## 
 ## To read more about GBD age weights and where the below values come from, read:
 ## https://scicomp-docs.ihme.washington.edu/db_queries/current/get_age_metadata.html
@@ -246,7 +265,7 @@ df_age_weights <- df_age_weights %>%
   select(c("age_group_name", "age_group_years_start", "age_group_weight_value"))
 
 ##----------------------------------------------------------------
-## 4. Apply age-standardization
+## 5. Apply age-standardization
 ##----------------------------------------------------------------
 # Join age weights to data
 df_as <- left_join(
@@ -255,10 +274,7 @@ df_as <- left_join(
   by = c("age_name" = "age_group_name", "age_group_years_start")
 )
 
-# # Write out data before age-standardization - UNUSED, was in the GUPTA decomp code
-# write.csv(x = df_as, row.names = FALSE, file = file.path(dir_output, "df_non_as.csv"))
-
-# Create age-standardized ratios based on non-sexed GBD age weights (collapsing on sex here) 
+# Create age-standardized ratios based on non-sexed GBD age weights (collapsing age groups here) 
 df_as <- df_as %>%
   group_by(cause_id, year_id, location_id, location_name, acause, cause_name) %>%
   summarise(
@@ -279,7 +295,7 @@ df_as <- df_as %>%
   )
 
 ##----------------------------------------------------------------
-## 5. Add Rate columns
+## 6. Add Rate columns
 ##----------------------------------------------------------------
 df_as$mortality_rates <- df_as$mortality_counts / df_as$population
 df_as$prevalence_rates <- df_as$prevalence_counts / df_as$population
@@ -287,7 +303,7 @@ df_as$daly_rates <- df_as$daly_counts / df_as$population
 df_as$incidence_rates <- df_as$incidence_counts / df_as$population
 
 ##----------------------------------------------------------------
-## 6. Add variance column from mortality and deaths data
+## 7. Add variance column from mortality and deaths data
 ## Variance column needed for SFMA package 
 ##----------------------------------------------------------------
 df_as$variance <- (df_as$mortality_counts / (df_as$prevalence_counts^2))

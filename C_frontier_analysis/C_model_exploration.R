@@ -71,19 +71,38 @@ df_as <- left_join(
   y = df_cov,
   by = c("year_id", "location_id", "location_name")
 )
+
 ##----------------------------------------------------------------
-## 4. Specify Models
+## 4. Create SUD "high_prev" variable to use as an interactive term in HIV models
+##----------------------------------------------------------------
+# Create sud_prevalence_counts column
+df_sud_prev_count <- df_as %>% 
+  filter(acause == "_subs") %>%
+  select(c("cause_id", "year_id", "location_id", "location_name", "acause", 
+           "cause_name", "prevalence_counts")) %>%
+  setnames(old = "prevalence_counts", new = "sud_prevalence_counts")
+
+df_sud_prev_count <- df_sud_prev_count %>%
+  mutate(high_sud_prev = ifelse(sud_prevalence_counts >= median(sud_prevalence_counts), 1, 0))
+
+# Join back to HIV data
+df_as <- left_join(
+  x = df_as,
+  y = df_sud_prev_count %>% select(!c("acause", "cause_id", "cause_name")),
+  by = c("year_id", "location_id", "location_name")
+)
+
+##----------------------------------------------------------------
+## 5. Specify Models
 ##----------------------------------------------------------------
 # Basic Model
 model_basic_mort <- "as_mort_prev_ratio ~ as_spend_prev_ratio"
-model_basic_daly <- "as_daly_prev_ratio ~ as_spend_prev_ratio"
+model_basic_mort_interactive <- "as_mort_prev_ratio ~ as_spend_prev_ratio * high_sud_prev"
 
 # Covariate combinations
 cov_h <- c('obesity', 'age65', 'cig_pc_10', 'phys_act_10', 'edu_yrs', 'as_spend_prev_ratio')
 
-cov_incidence <- c("incidence_counts")
-
-cov_age  <- c("age65")
+cov_sud <- c("prevalence_counts")
 
 cov_risk <- c(
   "obesity",
@@ -101,55 +120,82 @@ cov_density <- c(
   "density_g.1000"
 )
 
-# Mort / prev - Formulas
-f0 <- as.formula(model_basic_mort)
-f1 <- as.formula(paste(model_basic_mort, "+", paste(cov_incidence, collapse = " + ")))
-f2 <- as.formula(paste(model_basic_mort, "+", paste(c(cov_incidence, cov_age), collapse = " + ")))
-f3 <- as.formula(paste(model_basic_mort, "+", paste(c(cov_incidence, cov_age, cov_risk), collapse = " + ")))
-f4 <- as.formula(paste(model_basic_mort, "+", paste(c(cov_incidence, cov_age, cov_risk, cov_ses), collapse = " + ")))
-f5 <- as.formula(paste(model_basic_mort, "+", paste(c(cov_incidence, cov_age, cov_risk, cov_ses, cov_density), collapse = " + ")))
-f6 <- as.formula(paste(model_basic_mort, "+", paste(c(cov_h), collapse = " + ")))
+# HIV - Mort / prev - Formulas
+f0_hiv <- as.formula(model_basic_mort)
+f1_hiv <- as.formula(paste(model_basic_mort, "+", paste(cov_sud, collapse = " + ")))
+f2_hiv <- as.formula(paste(model_basic_mort, "+", paste(c(cov_sud, cov_risk), collapse = " + ")))
+f3_hiv <- as.formula(paste(model_basic_mort, "+", paste(c(cov_sud, cov_risk, cov_ses), collapse = " + ")))
+f4_hiv <- as.formula(paste(model_basic_mort, "+", paste(c(cov_sud, cov_risk, cov_ses, cov_density), collapse = " + ")))
+f5_hiv <- as.formula(paste(model_basic_mort, "+", paste(c(cov_h), collapse = " + ")))
 
-# DALY / prev - Formulas
-f7 <- as.formula(model_basic_mort)
-f8 <- as.formula(paste(model_basic_daly, "+", paste(cov_incidence, collapse = " + ")))
-f9 <- as.formula(paste(model_basic_daly, "+", paste(c(cov_incidence, cov_age), collapse = " + ")))
-f10 <- as.formula(paste(model_basic_daly, "+", paste(c(cov_incidence, cov_age, cov_risk), collapse = " + ")))
-f11 <- as.formula(paste(model_basic_daly, "+", paste(c(cov_incidence, cov_age, cov_risk, cov_ses), collapse = " + ")))
-f12 <- as.formula(paste(model_basic_daly, "+", paste(c(cov_incidence, cov_age, cov_risk, cov_ses, cov_density), collapse = " + ")))
-f13 <- as.formula(paste(model_basic_daly, "+", paste(c(cov_h), collapse = " + ")))
+# HIV - Mort / prev w/ interaction term - Formulas
+f0_hiv_interact <- as.formula(model_basic_mort_interactive)
+f1_hiv_interact <- as.formula(paste(model_basic_mort_interactive, "+", paste(cov_sud, collapse = " + ")))
+f2_hiv_interact <- as.formula(paste(model_basic_mort_interactive, "+", paste(c(cov_sud, cov_risk), collapse = " + ")))
+f3_hiv_interact <- as.formula(paste(model_basic_mort_interactive, "+", paste(c(cov_sud, cov_risk, cov_ses), collapse = " + ")))
+f4_hiv_interact <- as.formula(paste(model_basic_mort_interactive, "+", paste(c(cov_sud, cov_risk, cov_ses, cov_density), collapse = " + ")))
+f5_hiv_interact <- as.formula(paste(model_basic_mort_interactive, "+", paste(c(cov_h), collapse = " + ")))
+
+# SUD - Mort / prev - Formulas
+f0_sud <- as.formula(model_basic_mort)
+f1_sud <- as.formula(paste(model_basic_mort, "+", paste(cov_risk, collapse = " + ")))
+f2_sud <- as.formula(paste(model_basic_mort, "+", paste(c(cov_risk, cov_ses), collapse = " + ")))
+f3_sud <- as.formula(paste(model_basic_mort, "+", paste(c(cov_risk, cov_ses, cov_density), collapse = " + ")))
+f4_sud <- as.formula(paste(model_basic_mort, "+", paste(c(cov_h), collapse = " + ")))
+
+# SUD - Mort / prev w/ interaction term - Formulas
+f0_sud_interact <- as.formula(model_basic_mort_interactive)
+f1_sud_interact <- as.formula(paste(model_basic_mort_interactive, "+", paste(cov_risk, collapse = " + ")))
+f2_sud_interact <- as.formula(paste(model_basic_mort_interactive, "+", paste(c(cov_risk, cov_ses), collapse = " + ")))
+f3_sud_interact <- as.formula(paste(model_basic_mort_interactive, "+", paste(c(cov_risk, cov_ses, cov_density), collapse = " + ")))
+f4_sud_interact <- as.formula(paste(model_basic_mort_interactive, "+", paste(c(cov_h), collapse = " + ")))
 
 # Formula List
-list_formulas <- list(
-  m0_mort_unadj                     = f0,
-  m1_mort_inc                       = f1,
-  m2_mort_age65                     = f2,
-  m3_mort_plus_obesity_cig_phys_ac  = f3,
-  m4_mort_plus_edu_ldi              = f4,
-  m5_mort_plus_density              = f5,
-  m6_mort_haley                     = f6,
-  m7_daly_unadj                     = f7,
-  m8_daly_inc                       = f8,
-  m9_daly_age65                     = f9,
-  m10_daly_plus_obesity_cig_phys_ac  = f10,
-  m11_daly_plus_edu_ldi              = f11,
-  m12_daly_plus_density              = f12,
-  m13_daly_haley                     = f13
+list_formulas_hiv <- list(
+  m0_mort_unadj                               = f0_hiv,
+  m1_mort_plus_sud                            = f1_hiv,
+  m2_mort_plus_obesity_cig_phys_ac            = f2_hiv,
+  m3_mort_plus_edu_ldi                        = f3_hiv,
+  m4_mort_plus_density                        = f4_hiv,
+  m5_mort_haley                               = f5_hiv,
+  m6_mort_int_unadj                           = f0_hiv_interact,
+  m7_mort_int_plus_sud                        = f1_hiv_interact,
+  m8_mort_int_plus_obesity_cig_phys_ac        = f2_hiv_interact,
+  m9_mort_int_plus_edu_ldi                    = f3_hiv_interact,
+  m10_mort_int_plus_density                   = f4_hiv_interact,
+  m11_mort_int_haley                          = f5_hiv_interact
+)
+
+list_formulas_sud <- list(
+  m0_mort_unadj                               = f0_sud,
+  m1_mort_plus_obesity_cig_phys_ac            = f1_sud,
+  m2_mort_plus_edu_ldi                        = f2_sud,
+  m3_mort_plus_density                        = f3_sud,
+  m4_mort_haley                               = f4_sud,
+  m5_mort_int_unadj                           = f0_sud_interact,
+  m6_mort_int_plus_obesity_cig_phys_ac        = f1_sud_interact,
+  m7_mort_int_plus_edu_ldi                    = f2_sud_interact,
+  m8_mort_int_plus_density                    = f3_sud_interact,
+  m9_mort_int_haley                           = f4_sud_interact
 )
 
 ##----------------------------------------------------------------
-## 5. Run Models
+## 6. Run Models
 ##----------------------------------------------------------------
-acauses <- c("hiv", "_subs")
-
 list_models <- list()
 
-for (a in acauses) {
-  df_a <- df_as %>% filter(acause == a)
-  
-  for (nm in names(list_formulas)) {
-    list_models[[paste(a, nm, sep = "__")]] <- lm(list_formulas[[nm]], data = df_a)
-  }
+# HIV 
+df_hiv <- df_as %>% filter(acause == "hiv")
+
+for (nm in names(list_formulas_hiv)) {
+  list_models[[paste("hiv", nm, sep = "__")]] <- lm(list_formulas_hiv[[nm]], data = df_hiv)
+}
+
+# SUD 
+df_sud <- df_as %>% filter(acause == "_subs")
+
+for (nm in names(list_formulas_sud)) {
+  list_models[[paste("_subs", nm, sep = "__")]] <- lm(list_formulas_sud[[nm]], data = df_sud)
 }
 
 ##----------------------------------------------------------------
