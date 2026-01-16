@@ -32,12 +32,6 @@ if (Sys.info()["sysname"] == 'Linux'){
 
 library(plotly)
 
-# # Load in packages stored in repo
-# user_lib <- file.path(h, "/repo/Aim2/Y_Utilities/R_Packages/")
-# .libPaths(c(user_lib, .libPaths()))
-# library(ggpol)
-# library(tidycensus)
-
 ##----------------------------------------------------------------
 ## 0.1 Functions
 ##----------------------------------------------------------------
@@ -75,18 +69,6 @@ fp_dex <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_dex, "/compiled_
 
 date_ushd <- "20251123"
 fp_ushd <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_ushd, "/compiled_ushd_data_2010_2019.parquet")
-
-# "frontier" package data
-date_fa <- "20251204"
-fp_fa_hiv_simple <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_fa, "fa_estimates_hiv_simple.parquet")
-fp_fa_hiv_extended <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_fa, "fa_estimates_hiv_extended.parquet")
-fp_fa_sud_simple <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_fa, "fa_estimates__subs_simple.parquet")
-fp_fa_sud_extended <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_fa, "fa_estimates__subs_extended.parquet")
-
-# SFMA python package data
-date_smfa <- "20260105"
-fp_sfma_hiv <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_smfa, "hiv_output.csv")
-fp_sfma_sud <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_smfa, "_subs_output.csv")
 
 # Set output directories
 date_today <- format(Sys.time(), "%Y%m%d")
@@ -176,17 +158,6 @@ df_dex <- read_parquet(fp_dex)
 # USHD Data
 #df_ushd <- read_parquet(fp_ushd)
 
-# Frontier Analysis Data
-# "frontier" package data
-df_hiv_fa_simple <- read_parquet(fp_fa_hiv_simple)
-df_hiv_fa_extended <- read_parquet(fp_fa_hiv_extended)
-df_sud_fa_simple <- read_parquet(fp_fa_sud_simple)
-df_sud_fa_extended <- read_parquet(fp_fa_sud_extended)
-
-# SFMA python package data
-df_sfma_hiv <- read.csv(fp_sfma_hiv)
-df_sfma_sud <- read.csv(fp_sfma_sud)
-
 # DEX causes that aggregate to "_subs" cause
 subs_causes <- c("mental_alcohol", "mental_drug_agg", "mental_drug_opioids")
 
@@ -196,31 +167,6 @@ df_loc_ids <- fread("/ihme/homes/idrisov/aim_outputs/Aim2/R_resources/county_fip
 # Shape files used for large US map plotting by county
 mcnty_shapefile <- readRDS("/ihme/dex/us_county/maps/mcnty_sf_shapefile.rds")
 state_shapefile <- readRDS("/ihme/dex/us_county/maps/state_sf_shapefile.rds")
-
-##----------------------------------------------------------------
-## 0.6 Join FA simple to extended data together
-##----------------------------------------------------------------
-# HIV
-df_hiv_fa <- left_join(
-  x = df_hiv_fa_simple,
-  y = df_hiv_fa_extended %>% select(!c("spend_mean", "pred_mean")),
-  by = c("state_name", "cnty_name", "fips_ihme", "location_id", "acause", 
-         "year_id", "sex_id", "age_name_10_yr_bin")
-)
-
-rm(df_hiv_fa_extended)
-rm(df_hiv_fa_simple)
-
-# SUD
-df_sud_fa <- left_join(
-  x = df_sud_fa_simple,
-  y = df_sud_fa_extended %>% select(!c("spend_mean", "pred_mean")),
-  by = c("state_name", "cnty_name", "fips_ihme", "location_id", "acause", 
-         "year_id", "sex_id", "age_name_10_yr_bin")
-)
-
-rm(df_sud_fa_extended)
-rm(df_sud_fa_simple)
 
 ##----------------------------------------------------------------
 ## 1. Figure 1 - HIV - Spending by insurance
@@ -499,7 +445,7 @@ save_plot(f4, "F4_SUD_spending_by_toc", dir_output)
 # Payer Strata by County - group by and summarize to get spend_mean (named "value" for plot)
 df_f5_payer <- df_dex %>%
   filter(acause == "hiv") %>%
-  group_by(payer, state_name, cnty_name, fips_ihme) %>%
+  group_by(payer, state_name, location_name, fips) %>%
   summarize(
     "value" = mean(spend_mean)
   )
@@ -507,14 +453,14 @@ df_f5_payer <- df_dex %>%
 # Overall Spending by County - group by and summarize to get spend_mean (named "value" for plot)
 df_f5_overall <- df_dex %>%
   filter(acause == "hiv") %>%
-  group_by(state_name, cnty_name, fips_ihme) %>%
+  group_by(state_name, location_name, fips) %>%
   summarize(
     "value" = mean(spend_mean)
   )
 
 # Merge with df_loc_ids to get "mcnty" column, used to merge with shapefile
-df_f5_payer <- left_join(df_f5_payer, df_loc_ids %>% select(mcnty, full_fips_code), by = c("fips_ihme" = "full_fips_code")) # gets "mcnty" column used by shapefile
-df_f5_overall <- left_join(df_f5_overall, df_loc_ids %>% select(mcnty, full_fips_code), by = c("fips_ihme" = "full_fips_code")) # gets "mcnty" column used by shapefile
+df_f5_payer <- left_join(df_f5_payer, df_loc_ids %>% select(mcnty, full_fips_code), by = c("fips" = "full_fips_code")) # gets "mcnty" column used by shapefile
+df_f5_overall <- left_join(df_f5_overall, df_loc_ids %>% select(mcnty, full_fips_code), by = c("fips" = "full_fips_code")) # gets "mcnty" column used by shapefile
 
 # Maps - Payer Strata --
 f5_payer_plot_list <- list()
@@ -666,7 +612,7 @@ dev.off()
 # Payer Strata by County - group by and summarize to get spend_mean (named "value" for plot)
 df_f6_payer <- df_dex %>%
   filter(acause %in% subs_causes) %>%
-  group_by(payer, state_name, cnty_name, fips_ihme) %>%
+  group_by(payer, state_name, location_name, fips) %>%
   summarize(
     "value" = mean(spend_mean)
   )
@@ -674,14 +620,14 @@ df_f6_payer <- df_dex %>%
 # Overall Spending by County - group by and summarize to get spend_mean (named "value" for plot)
 df_f6_overall <- df_dex %>%
   filter(acause %in% subs_causes) %>%
-  group_by(state_name, cnty_name, fips_ihme) %>%
+  group_by(state_name, location_name, fips) %>%
   summarize(
     "value" = mean(spend_mean)
   )
 
 # Merge with df_loc_ids to get "mcnty" column, used to merge with shapefile
-df_f6_payer <- left_join(df_f6_payer, df_loc_ids %>% select(mcnty, full_fips_code), by = c("fips_ihme" = "full_fips_code")) # gets "mcnty" column used by shapefile
-df_f6_overall <- left_join(df_f6_overall, df_loc_ids %>% select(mcnty, full_fips_code), by = c("fips_ihme" = "full_fips_code")) # gets "mcnty" column used by shapefile
+df_f6_payer <- left_join(df_f6_payer, df_loc_ids %>% select(mcnty, full_fips_code), by = c("fips" = "full_fips_code")) # gets "mcnty" column used by shapefile
+df_f6_overall <- left_join(df_f6_overall, df_loc_ids %>% select(mcnty, full_fips_code), by = c("fips" = "full_fips_code")) # gets "mcnty" column used by shapefile
 
 # Payer Strata by County maps
 f6_payer_plot_list <- list()
@@ -813,214 +759,4 @@ f6_file_name <- "F6_SUD_spending_by_county_map.pdf"
 pdf(file = file.path(dir_output, f6_file_name), width = 14, height = 16)
 grid.draw(f6_layout)
 dev.off()
-
-
-##----------------------------------------------------------------
-## *** The data used for these plots uses the original "frontier" package
-## 7. Figure 6 - HIV & SUD - Spaghetti Plot
-## Time trend plot year by year showing efficiency values for each county as its own
-## line and tracking changes and general trends over time
-##
-## TODO - add red average line for each state, make all the counties gray so can see the red line easily
-##----------------------------------------------------------------
-
-f6_group_cols <- c(
-  "state_name", "cnty_name", "fips_ihme", "location_id", "acause")
-
-# SUD
-
-# Group by summary, collapse to just county*year observations
-df_f6_sud <- df_sud_fa %>%
-  group_by(across(all_of(c(f6_group_cols, "year_id")))) %>%
-  summarize(eff_extended = mean(eff_extended), .groups = "drop")
-
-# Pivot wider
-df_f6_sud <- df_f6_sud %>%
-  filter(year_id >= 2010 & year_id <= 2019) %>%
-  tidyr::pivot_wider(
-    names_from = year_id,
-    values_from = eff_extended,
-    names_prefix = "eff_"
-  )
-
-# Create percentages based on % change from 2010
-df_f6_sud <- df_f6_sud %>%
-  mutate(across(
-    starts_with("eff_20"), 
-    ~ (.x - eff_2010) / eff_2010 * 100,
-    .names = "pct_{col}"
-  ))
-
-# Pivot longer so we can plot
-df_f6_sud_long <- df_f6_sud %>%
-  pivot_longer(
-    cols = starts_with("pct_eff_"),
-    names_to = "year",
-    values_to = "pct_change"
-  ) %>%
-  mutate(
-    year = as.integer(gsub("pct_eff_", "", year))
-  )
-
-# HIV
-
-# Group by summary, collapse to just county*year observations
-df_f6_hiv <- df_hiv_fa %>%
-  group_by(across(all_of(c(f6_group_cols, "year_id")))) %>%
-  summarize(eff_extended = mean(eff_extended), .groups = "drop")
-
-# Pivot wider
-df_f6_hiv <- df_f6_hiv %>%
-  filter(year_id >= 2010 & year_id <= 2019) %>%
-  tidyr::pivot_wider(
-    names_from = year_id,
-    values_from = eff_extended,
-    names_prefix = "eff_"
-  )
-
-# Create percentages based on % change from 2010
-df_f6_hiv <- df_f6_hiv %>%
-  mutate(across(
-    starts_with("eff_20"), 
-    ~ (.x - eff_2010) / eff_2010 * 100,
-    .names = "pct_{col}"
-  ))
-
-# Pivot longer so we can plot
-df_f6_hiv_long <- df_f6_hiv %>%
-  pivot_longer(
-    cols = starts_with("pct_eff_"),
-    names_to = "year",
-    values_to = "pct_change"
-  ) %>%
-  mutate(
-    year = as.integer(gsub("pct_eff_", "", year))
-  )
-
-# Plot
-ggplot(df_f6_hiv_long, aes(x = year, y = pct_change, group = cnty_name)) +
-  geom_line() +
-  theme_minimal()
-
-
-# SHINY APP to quickly compare between states
-ui <- fluidPage(
-  titlePanel("Efficiency % Change vs 2010 by County"),
-  sidebarLayout(
-    sidebarPanel(
-      selectInput("state", "Select state:",
-                  choices = sort(unique(df_f6_sud_long$state_name)))
-    ),
-    mainPanel(
-      plotOutput("eff_plot", height = "600px")
-    )
-  )
-)
-
-server <- function(input, output, session) {
-  
-  df_state <- reactive({
-    df_f6_sud_long %>%
-      filter(state_name == input$state)
-  })
-  
-  output$eff_plot <- renderPlot({
-    ggplot(df_state(), aes(x = year, y = pct_change,
-                           group = cnty_name, color = cnty_name)) +
-      geom_line(alpha = 0.7) +
-      theme_minimal() +
-      theme(legend.position = "none")
-  })
-}
-
-shiny::shinyApp(ui = ui, server = server)
-
-## Plot ##
-
-# SUD
-ggplot(df_f6_sud_long, aes(x = year, y = pct_change, group = cnty_name)) +
-  geom_line(alpha = 0.4, color = "steelblue") +
-  facet_wrap(~ state_name) +
-  theme_minimal() +
-  labs(
-    title = "SUD: % Change in Efficiency vs 2010, by County and State",
-    x = "Year",
-    y = "Percent change vs 2010"
-  ) +
-  theme(
-    strip.text = element_text(size = 7),
-    axis.text.x = element_text(angle = 45, hjust = 1)
-  )
-
-# HIV
-ggplot(df_f6_hiv_long, aes(x = year, y = pct_change, group = cnty_name)) +
-  geom_line(alpha = 0.4, color = "steelblue") +
-  facet_wrap(~ state_name) +
-  theme_minimal() +
-  labs(
-    title = "HIV: % Change in Efficiency vs 2010, by County and State",
-    x = "Year",
-    y = "Percent change vs 2010"
-  ) +
-  theme(
-    strip.text = element_text(size = 7),
-    axis.text.x = element_text(angle = 45, hjust = 1)
-  )
-
-
-plot_state_spaghetti <- function(state_to_plot) {
-  df_plot <- df_f6_sud_long %>%
-    filter(state_name == state_to_plot)
-  
-  plot_ly(
-    data = df_plot,
-    x    = ~year,
-    y    = ~pct_change,
-    split = ~cnty_name,     # one line per county
-    type  = 'scatter',
-    mode  = 'lines',
-    hoverinfo = 'text',
-    text = ~paste0(
-      "County: ", cnty_name, "<br>",
-      "Year: ", year, "<br>",
-      "Δ vs 2010: ", round(pct_change, 2), "%"
-    )
-  ) %>%
-    layout(
-      title = paste0("SUD: % Change in Efficiency vs 2010 (", state_to_plot, ")"),
-      xaxis = list(title = "Year"),
-      yaxis = list(title = "Percent change vs 2010"),
-      showlegend = FALSE
-    )
-}
-
-plot_state_spaghetti("West Virginia")
-
-
-
-
-
-
-
-##----------------------------------------------------------------
-## 7. Figure 7 - HIV & SUD - Estimated Value Frontier plots
-## Plots each estimated mort/prev ratio from the model, along with an orange line showing
-## prediction excluding the impact of the covariates. 
-##----------------------------------------------------------------
-f7_hiv <- df_sfma_hiv %>%
-  arrange(as_spend_prev_ratio_copy) %>%
-  ggplot(aes(x = as_spend_prev_ratio_copy)) +
-  geom_point(aes(y = y_adj),  col = '#2678B2') +
-  geom_line(aes(y = y_adj_hat), color = "orange") +
-  labs(y = 'Adjusted mortality/prevalence ratio', x = 'Spending/prevalence ratio', title = 'Observed Outcomes and Estimated Value Frontier, SFMA - HIV')
-
-f7_sud <- df_sfma_sud %>%
-  arrange(as_spend_prev_ratio_copy) %>%
-  ggplot(aes(x = as_spend_prev_ratio_copy)) +
-  geom_point(aes(y = y_adj),  col = '#2678B2') +
-  geom_line(aes(y = y_adj_hat), color = "orange") +
-  labs(y = 'Adjusted mortality/prevalence ratio', x = 'Spending/prevalence ratio', title = 'Observed Outcomes and Estimated Value Frontier, SFMA - Substance use disorder')
-
-save_plot(f7_hiv, "F7_HIV_estimated_frontier", dir_output)
-save_plot(f7_sud, "F7_SUD_estimated_frontier", dir_output)
 

@@ -57,11 +57,6 @@ date_today <- format(Sys.time(), "%Y%m%d")
 dir_output <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_today)
 ensure_dir_exists(dir_output)
 
-# #covariates based on Haley's code (UNUSED HERE)
-# cov_df_path <- "/ihme/resource_tracking/us_value/data/sfa_covars2021_shea.csv"
-# 
-# cov_df <- fread(cov_df_path)
-
 ##----------------------------------------------------------------
 ## 0.2 Read in data
 ##----------------------------------------------------------------
