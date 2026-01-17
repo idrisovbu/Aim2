@@ -41,7 +41,7 @@ ensure_dir_exists <- function(dir_path) {
   }
 }
 
-save_plot <- function(ggplot_obj, ggplot_name, output_path, width = 12, height = 10, dpi = 500, path = ".") {
+save_plot <- function(ggplot_obj, ggplot_name, output_path, width = 14, height = 10, dpi = 500, path = ".") {
   
   # Build full file path
   file_path <- file.path(output_path, paste0(ggplot_name, ".png"))
@@ -67,7 +67,7 @@ save_plot <- function(ggplot_obj, ggplot_name, output_path, width = 12, height =
 date_dex <- "20251123"
 fp_dex <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_dex, "/compiled_dex_data_2010_2019.parquet")
 
-date_ushd <- "20251123"
+date_ushd <- "20251204"
 fp_ushd <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_ushd, "/compiled_ushd_data_2010_2019.parquet")
 
 # Set output directories
@@ -155,7 +155,7 @@ theme_settings <- theme(
 # Main DEX Data
 df_dex <- read_parquet(fp_dex)
 
-# USHD Data
+# USHD Data - UNUSED ATM
 #df_ushd <- read_parquet(fp_ushd)
 
 # DEX causes that aggregate to "_subs" cause
@@ -169,50 +169,54 @@ mcnty_shapefile <- readRDS("/ihme/dex/us_county/maps/mcnty_sf_shapefile.rds")
 state_shapefile <- readRDS("/ihme/dex/us_county/maps/state_sf_shapefile.rds")
 
 ##----------------------------------------------------------------
-## 1. Figure 1 - HIV - Spending by insurance
-## What are the differences in spending for patients with HIV for each age group
+## 1. Figure 1 - Spending by insurance
+## What are the differences in spending for patients with HIV / SUD for each age group
 ## based on different types of insurance (Medicare, Medicaid, Private)? (all years, all counties)
 ##
 ## Notes: TODO calculate CI correctly, needs some research for this
 ##----------------------------------------------------------------
 
-# group by: year_id, payer, cause_name
-df_f1 <- df_dex %>%
+# HIV #
+
+# Collapse on TOC, location (which is all national), year
+df_f1_hiv <- df_dex %>%
+  filter(geo == "national") %>%
   filter(acause == "hiv") %>%
+  filter(payer != "all") %>%
   group_by(payer, age_name, sex_name) %>%
   summarize(
     "spend_mean" = mean(spend_mean)
   )
 
 # Remove spaces from "age_name"
-df_f1$age_name <- str_replace_all(df_f1$age_name, " ", "")
+df_f1_hiv$age_name <- str_replace_all(df_f1_hiv$age_name, " ", "")
 
 # Set male spending as negative
-df_f1 <- df_f1 %>%
+df_f1_hiv <- df_f1_hiv %>%
   mutate(spend_mean_inverse = ifelse(sex_name == "Male", spend_mean*-1, spend_mean))
 
 # Create factors
-df_f1$age_name <- factor(df_f1$age_name, levels = age_factor) 
-df_f1$sex_name <- factor(df_f1$sex_name, levels = sex_factor) 
+df_f1_hiv$age_name <- factor(df_f1_hiv$age_name, levels = age_factor) 
+df_f1_hiv$sex_name <- factor(df_f1_hiv$sex_name, levels = sex_factor) 
 
 # Make plot 
 # TODO - Have x-axis be the same for both male and female, also fix the age axis labels to make them look more neat
 # basically copy from the original script, they are already typed out
 # https://github.com/ihmeuw/Resource_Tracking_US_DEX/blob/main/DEX_Capstone_2025/04_figures/figure_1.R
-f1 <- ggplot(data = df_f1, aes(age_name, spend_mean_inverse, fill = factor(payer, levels = c("mdcr", "mdcd", "priv", "oop")))) +
+f1_hiv <- ggplot(data = df_f1_hiv, aes(age_name, spend_mean_inverse, fill = factor(payer, levels = c("mdcr", "mdcd", "priv", "oop")))) +
   facet_share(~ sex_name, scales = "free", reverse_num = FALSE) +
   geom_bar(stat = "identity") +
   coord_flip() +
   scale_fill_manual(values = payer_colors, labels = payer_list, name = "Payer") +
   scale_y_continuous(
     #limits = (),
-    breaks = seq(-800000, 800000, 200000),
+    #breaks = seq(-800000, 800000, 200000),
     labels = function(x) scales::dollar(abs(x))
     ) +
   theme_classic() +
-  labs(y = "Estimated Average Spending (USD)",
+  labs(y = "Inflation Adjusted Spending (2019 USD)",
        x = "",
-       title = "Estimated HIV spending per by insurance type per year, all years, all counties") +
+       title = "Mean annual HIV spending for each insurance type by sex and age group, 2010 - 2019") +
   theme_settings +
   guides(
     fill = guide_legend(
@@ -223,54 +227,49 @@ f1 <- ggplot(data = df_f1, aes(age_name, spend_mean_inverse, fill = factor(payer
   geom_col(color = "black", width = 1, size = 0.3) 
 
 # Save plot
-save_plot(f1, "F1_HIV_spending_by_insurance", dir_output)
+save_plot(f1_hiv, "F1_HIV_spending_by_insurance", dir_output)
 
+# SUD #
 
-##----------------------------------------------------------------
-## 2. Figure 2 - SUD - Spending by insurance
-## What are the differences in spending for patients with SUD for each age group
-## based on different types of insurance (Medicare, Medicaid, Private)? (all years, all counties)
-##
-## Notes: TODO calculate CI correctly, needs some research for this
-##----------------------------------------------------------------
-
-# group by: year_id, payer, cause_name
-df_f2 <- df_dex %>%
+# Collapse on TOC, location (which is all national), year
+df_f1_sud <- df_dex %>%
+  filter(geo == "national") %>%
   filter(acause %in% subs_causes) %>%
+  filter(payer != "all") %>%
   group_by(payer, age_name, sex_name) %>%
   summarize(
     "spend_mean" = mean(spend_mean)
   )
 
 # Remove spaces from "age_name"
-df_f2$age_name <- str_replace_all(df_f2$age_name, " ", "")
+df_f1_sud$age_name <- str_replace_all(df_f1_sud$age_name, " ", "")
 
 # Set male spending as negative
-df_f2 <- df_f2 %>%
+df_f1_sud <- df_f1_sud %>%
   mutate(spend_mean_inverse = ifelse(sex_name == "Male", spend_mean*-1, spend_mean))
 
 # Create factors
-df_f2$age_name <- factor(df_f2$age_name, levels = age_factor) 
-df_f2$sex_name <- factor(df_f2$sex_name, levels = sex_factor) 
+df_f1_sud$age_name <- factor(df_f1_sud$age_name, levels = age_factor) 
+df_f1_sud$sex_name <- factor(df_f1_sud$sex_name, levels = sex_factor) 
 
 # Make plot 
 # TODO - Have x-axis be the same for both male and female, also fix the age axis labels to make them look more neat
 # basically copy from the original script, they are already typed out
 # https://github.com/ihmeuw/Resource_Tracking_US_DEX/blob/main/DEX_Capstone_2025/04_figures/figure_1.R
-f2 <- ggplot(data = df_f2, aes(age_name, spend_mean_inverse, fill = factor(payer, levels = c("mdcr", "mdcd", "priv", "oop")))) +
+f1_sud <- ggplot(data = df_f1_sud, aes(age_name, spend_mean_inverse, fill = factor(payer, levels = c("mdcr", "mdcd", "priv", "oop")))) +
   facet_share(~ sex_name, scales = "free", reverse_num = FALSE) +
   geom_bar(stat = "identity") +
   coord_flip() +
   scale_fill_manual(values = payer_colors, labels = payer_list, name = "Payer") +
   scale_y_continuous(
     #limits = (),
-    breaks = seq(-400000, 400000, 50000),
+    #breaks = seq(-400000, 400000, 50000),
     labels = function(x) scales::dollar(abs(x))
   ) +
   theme_classic() +
-  labs(y = "Estimated Average Spending (USD)",
+  labs(y = "Inflation Adjusted Spending (2019 USD)",
        x = "",
-       title = "Estimated SUD spending by insurance type per year, all years, all counties") +
+       title = "Mean annual SUD spending for each insurance type by sex and age group, 2010 - 2019") +
   theme_settings +
   guides(
     fill = guide_legend(
@@ -281,16 +280,18 @@ f2 <- ggplot(data = df_f2, aes(age_name, spend_mean_inverse, fill = factor(payer
   geom_col(color = "black", width = 1, size = 0.3) 
 
 # Save plot
-save_plot(f2, "F2_SUD_spending_by_insurance", dir_output)
+save_plot(f1_sud, "F1_SUD_spending_by_insurance", dir_output)
 
 ##----------------------------------------------------------------
-## 3. Figure 3 - HIV - Spending by TOC using payer=all
+## 1. Figure 2 - Spending by TOC using payer=all
 ## What are the differences in spending for patients with HIV for each age group based on different toc?
 ##
 ## Notes: TODO calculate CI correctly, needs some research for this, exclude NF just for HIV?
 ##----------------------------------------------------------------
-# group by: year_id, cause_name
-df_f3 <- df_dex %>%
+# HIV #
+
+# Collapse on payer, location (which is all national), year
+df_f2_hiv <- df_dex %>%
   filter(geo == 'national') %>%
   filter(acause == "hiv") %>%
   filter(payer == "all") %>%
@@ -300,22 +301,22 @@ df_f3 <- df_dex %>%
   )
 
 # Remove spaces from "age_name"
-df_f3$age_name <- str_replace_all(df_f3$age_name, " ", "")
+df_f2_hiv$age_name <- str_replace_all(df_f2_hiv$age_name, " ", "")
 
 # Set male spending as negative
-df_f3 <- df_f3 %>%
+df_f2_hiv <- df_f2_hiv %>%
   mutate(spend_mean_inverse = ifelse(sex_name == "Male", spend_mean*-1, spend_mean))
 
 # Create factors
-df_f3$age_name <- factor(df_f3$age_name, levels = age_factor) 
-df_f3$sex_name <- factor(df_f3$sex_name, levels = sex_factor) 
-df_f3$toc <- factor(df_f3$toc, levels = toc_factor)
+df_f2_hiv$age_name <- factor(df_f2_hiv$age_name, levels = age_factor) 
+df_f2_hiv$sex_name <- factor(df_f2_hiv$sex_name, levels = sex_factor) 
+df_f2_hiv$toc <- factor(df_f2_hiv$toc, levels = toc_factor)
 
 # Make plot 
 # TODO - Have x-axis be the same for both male and female, also fix the age axis labels to make them look more neat
 # basically copy from the original script, they are already typed out
 # https://github.com/ihmeuw/Resource_Tracking_US_DEX/blob/main/DEX_Capstone_2025/04_figures/figure_1.R
-f3 <- ggplot(data = df_f3, aes(age_name, spend_mean_inverse, fill = toc)) +
+f2_hiv <- ggplot(data = df_f2_hiv, aes(age_name, spend_mean_inverse, fill = toc)) +
   facet_share(~ sex_name, scales = "free", reverse_num = FALSE) +
   geom_bar(stat = "identity") +
   coord_flip() +
@@ -326,9 +327,9 @@ f3 <- ggplot(data = df_f3, aes(age_name, spend_mean_inverse, fill = toc)) +
     labels = function(x) scales::dollar(abs(x))
   ) +
   theme_classic() +
-  labs(y = "Estimated Average Spending (USD)",
+  labs(y = "Inflation Adjusted Spending (2019 USD)",
        x = "",
-       title = "Estimated National Average HIV spending per person by type of care per year, all years, all counties") +
+       title = "Mean annual HIV spending for each type of care by sex and age group, 2010 - 2019") +
   theme_settings +
   guides(
     fill = guide_legend(
@@ -339,97 +340,63 @@ f3 <- ggplot(data = df_f3, aes(age_name, spend_mean_inverse, fill = toc)) +
   geom_col(color = "black", width = 1, size = 0.3) 
 
 # Save plot
-save_plot(f3, "F3_HIV_spending_by_toc", dir_output)
+save_plot(f2_hiv, "F2_HIV_spending_by_toc", dir_output)
 
+# SUD #
 
-# Below is code that was trying to look at the differences between the above code written, and what is supplied
-
-# # B's Code #
-# df_test <- df_dex %>%
-#   filter(geo == 'national') %>%
-#   filter(acause == "hiv") %>%
-#   filter(toc == "NF") %>%
-#   filter(payer == "all") %>%
-# 
-# df_b <- df_test %>%
-#   group_by(age_group_years_start, sex_id, year_id, location_name, geo) %>%
-#   summarise(spend_mean = sum(spend_mean, na.rm = TRUE))
-# 
-# # H's Code #
-# 
-# # HIV spending at the national level (all counties) by age and sex
-# hiv_data <- open_dataset("/mnt/share/dex/us_county/04_final/scaled_version_102/data/geo=national/toc=NF/state=USA/payer=all") %>%
-#   collect() %>% as.data.table()
-# 
-# hiv_data <- hiv_data[acause == 'hiv']
-# #hiv_data <- hiv_data[year_id == 2019]
-# 
-# # this is draw level, so take mean across draws first, then TAKE MEAN up by age + sex
-# hiv_data_means <- hiv_data[, .(spend = mean(spend)), by = c('age_group_years_start', 'sex_id', 'year_id','location')]
-# hiv_data_means <- hiv_data_means[, .(spend = mean(spend)), by = c('age_group_years_start', 'sex_id')]
-# 
-# f3_comp <- ggplot(hiv_data_means, aes(x = age_group_years_start, y = spend))+
-#   geom_bar(stat = 'identity')+facet_grid(~sex_id)+theme_bw()+labs(x = 'year', y = 'spend', title = 'Nursing facility spend on HIV, national level all years 2010-2019')
-# 
-# f3_comp 
-
-
-
-##----------------------------------------------------------------
-## 4. Figure 4 - SUD - Spending by TOC
-## What are the differences in spending for patients with SUD for each age group based on different toc?
-##
-## Notes: TODO calculate CI correctly, needs some research for this
-##----------------------------------------------------------------
-# group by: year_id, toc, cause_name
-df_f4 <- df_dex %>%
+# Collapse on payer, location (which is all national), year
+df_f2_sud <- df_dex %>%
+  filter(geo == 'national') %>%
   filter(acause %in% subs_causes) %>%
+  filter(payer == "all") %>%
   group_by(toc, age_name, sex_name) %>%
   summarize(
     "spend_mean" = mean(spend_mean)
   )
 
 # Remove spaces from "age_name"
-df_f4$age_name <- str_replace_all(df_f4$age_name, " ", "")
+df_f2_sud$age_name <- str_replace_all(df_f2_sud$age_name, " ", "")
 
 # Set male spending as negative
-df_f4 <- df_f4 %>%
+df_f2_sud <- df_f2_sud %>%
   mutate(spend_mean_inverse = ifelse(sex_name == "Male", spend_mean*-1, spend_mean))
 
 # Create factors
-df_f4$age_name <- factor(df_f4$age_name, levels = age_factor) 
-df_f4$sex_name <- factor(df_f4$sex_name, levels = sex_factor) 
-df_f4$toc <- factor(df_f4$toc, levels = toc_factor)
+df_f2_sud$age_name <- factor(df_f2_sud$age_name, levels = age_factor) 
+df_f2_sud$sex_name <- factor(df_f2_sud$sex_name, levels = sex_factor) 
+df_f2_sud$toc <- factor(df_f2_sud$toc, levels = toc_factor)
 
 # Make plot 
 # TODO - Have x-axis be the same for both male and female, also fix the age axis labels to make them look more neat
 # basically copy from the original script, they are already typed out
 # https://github.com/ihmeuw/Resource_Tracking_US_DEX/blob/main/DEX_Capstone_2025/04_figures/figure_1.R
-f4 <- ggplot(data = df_f4, aes(age_name, spend_mean_inverse, fill = toc)) +
+max_male <- max(abs(df_f2_sud$spend_mean_inverse[df_f2_sud$sex_name == "Male"]))
+max_female <- max(abs(df_f2_sud$spend_mean_inverse[df_f2_sud$sex_name == "Female"]))
+
+f2_sud <- ggplot(data = df_f2_sud, aes(age_name, spend_mean_inverse, fill = toc)) +
   facet_share(~ sex_name, scales = "free", reverse_num = FALSE) +
   geom_bar(stat = "identity") +
   coord_flip() +
   scale_fill_manual(values = toc_colors, labels = toc_labels, name = "Type of care") +
   scale_y_continuous(
-    #limits = (),
-    breaks = seq(-500000, 500000, 100000),
+    expand = expansion(mult = c(0.15, 0.1)),  # Add 10% padding
     labels = function(x) scales::dollar(abs(x))
   ) +
   theme_classic() +
-  labs(y = "Estimated Average Spending (USD)",
+  labs(y = "Inflation Adjusted Spending (2019 USD)",
        x = "",
-       title = "Estimated SUD spending by type of care per year, all years, all counties") +
+       title = "Mean annual SUD spending for each type of care by sex and age group, 2010 - 2019") +
   theme_settings +
   guides(
     fill = guide_legend(
-      title.position = "top",  # put title above the keys
-      title.hjust = 0.5,       # center the title
-      nrow = 1                 # keep items in one row
+      title.position = "top",
+      title.hjust = 0.5,
+      nrow = 1
     )) +
-  geom_col(color = "black", width = 1, size = 0.3) 
+  geom_col(color = "black", width = 1, size = 0.3)
 
 # Save plot
-save_plot(f4, "F4_SUD_spending_by_toc", dir_output)
+save_plot(f2_sud, "F2_SUD_spending_by_toc", dir_output)
 
 ##----------------------------------------------------------------
 ## 5. Figure 5 - HIV - USA County Plot Per Bene
