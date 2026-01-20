@@ -741,25 +741,64 @@ dev.off()
 
 # Code used to look at the difference between individual payer groups summed up vs. payer = all
 # There seems to be a pretty big delta
-# df_test <- df_dex %>%
-#   filter(geo == "county") %>%
-#   filter(acause == "hiv") %>%
-#   filter(year_id == 2015) %>%
-#   filter(location_name == "King County") %>%
-#   filter(fips == 53033) %>%
-#   filter(age_name == "55 - <60")
-# 
+df_test <- df_dex %>%
+  filter(geo == "county") %>%
+  filter(acause == "hiv") %>%
+  filter(year_id == 2015) %>%
+  filter(location_name == "King County") %>%
+  filter(fips == 53033) %>%
+  filter(age_name == "55 - <60")
+
 # df_test_sex <- df_test %>%
 #   group_by(year_id, location_name, fips, payer) %>%
 #   summarise(
 #     spend_mean = sum(spend_mean)
 #   )
-# 
-# df_test_pivot <- df_test_sex %>%
-#   pivot_wider(
-#     names_from  = payer,
-#     values_from = spend_mean
-#   )
-# 
-# df_test_pivot$payer_sum <- df_test_pivot$mdcd + df_test_pivot$mdcr + df_test_pivot$oop + df_test_pivot$priv
-# df_test_pivot$payer_delta <- df_test_pivot$all - df_test_pivot$payer_sum
+
+df_test_rc <- df_test %>%
+  select(c("year_id", "geo", "location_name", "fips", "payer", "toc",
+           "acause", "cause_name", "age_group_years_start", "age_name",
+           "sex_id", "sex_name", "spend_mean",
+           "state_name", "location_id", "merged_location_id"))
+
+df_test_pivot <- df_test_rc %>%
+  pivot_wider(
+    names_from  = payer,
+    values_from = spend_mean
+  )
+
+df_test_pivot <- df_test_pivot %>%
+  mutate(
+    payer_sum = rowSums(cbind(mdcd, mdcr, oop, priv), na.rm = TRUE),
+    payer_delta = (all - payer_sum)
+  )
+
+
+df_test_pivot$payer_sum <- df_test_pivot$mdcd + df_test_pivot$mdcr + df_test_pivot$oop + df_test_pivot$priv
+df_test_pivot$payer_delta <- df_test_pivot$all - df_test_pivot$payer_sum
+
+
+# CHecking national level
+df_test_nat <- df_dex %>%
+  filter(geo == "national") %>%
+  filter(acause == "hiv") %>%
+  filter(year_id == 2015) %>%
+  filter(age_name == "55 - <60") %>%
+  select(c("year_id", "geo", "location_name", "fips", "payer", "toc",
+           "acause", "cause_name", "age_group_years_start", "age_name",
+           "sex_id", "sex_name", "spend_mean",
+           "state_name", "location_id", "merged_location_id")) %>%
+  pivot_wider(
+    names_from  = payer,
+    values_from = spend_mean
+  ) %>%
+  mutate(
+    payer_sum = rowSums(cbind(mdcd, mdcr, oop, priv), na.rm = TRUE),
+    payer_delta = (all - payer_sum)
+  )
+
+View(df_test_nat %>% select(c("year_id", "geo", "location_name", "toc", "acause", 
+                               "cause_name", "age_group_years_start", "age_name", "sex_id", 
+                               "all", "mdcd", "mdcr", "oop", "priv", "payer_sum", "payer_delta"
+)))
+

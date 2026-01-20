@@ -29,9 +29,9 @@ scaled_version <- 102
 
 # Interactive
 if(interactive()) {
-  param_template <- data.table(y = 2019,
+  param_template <- data.table(y = 2015,
                                c = "hiv",
-                               p = "all")
+                               p = "mdcr")
 } else {
   # Non-interactive
   args <- commandArgs(trailingOnly = TRUE)
@@ -60,7 +60,7 @@ county_names <- fread("/ihme/dex/us_county/maps/merged_counties1.csv")[current =
 state_names <- fread("/ihme/dex/us_county/maps/states.csv")[, .(fips = state, location = abbreviation, location_name = state_name)]
 state_names <- rbind(state_names, data.table(fips = 0, location = "USA", location_name = "United States"))
 location_names <- rbind(county_names, state_names)
-causelist <- fread("/ihme/dex/us_county/maps/causelist_figures.csv")[, .(acause, cause_name)]
+causelist <- fread("/ihme/dex/us_county/maps/causelist_figures_archive.csv")[, .(acause, cause_name)]
 
 ##----------------------------------------------------------------
 ## 3. Read in DEX data
@@ -162,18 +162,18 @@ if (param_template$p != "all") {
     vol_per_bene_upper = round((vol_upper/denom)*1000,2)
   )]
   
-  # Masking estimates with large uncertainty
-  cols <- c("spend", "spend_per_capita", "spend_per_bene", "spend_per_vol", "vol_per_capita", "vol_per_bene")
-  for (col in cols) {
-    mean_col <- paste0(col, "_mean")
-    lower_col <- paste0(col, "_lower")
-    upper_col <- paste0(col, "_upper")
-    
-    # Mask if the uncertainty range > mean
-    dt_final[, (c(mean_col, lower_col, upper_col)) := 
-               .SD[, lapply(.SD, function(x) ifelse(get(upper_col) - get(lower_col) > get(mean_col), NA_real_, x)), 
-                   .SDcols = c(mean_col, lower_col, upper_col)]]
-  }
+  # # Masking estimates with large uncertainty - COMMENTED OUT - MASKING RESULTS IN NA VALUES, SAFE TO USE UNMASKED DATA
+  # cols <- c("spend", "spend_per_capita", "spend_per_bene", "spend_per_vol", "vol_per_capita", "vol_per_bene")
+  # for (col in cols) {
+  #   mean_col <- paste0(col, "_mean")
+  #   lower_col <- paste0(col, "_lower")
+  #   upper_col <- paste0(col, "_upper")
+  #   
+  #   # Mask if the uncertainty range > mean
+  #   dt_final[, (c(mean_col, lower_col, upper_col)) := 
+  #              .SD[, lapply(.SD, function(x) ifelse(get(upper_col) - get(lower_col) > get(mean_col), NA_real_, x)), 
+  #                  .SDcols = c(mean_col, lower_col, upper_col)]]
+  # }
   
 } else { # If payer=all, no population data, then don't create population based estimates, set all to NA, don't mask results
   dt_final <- copy(dt_cause_names)
