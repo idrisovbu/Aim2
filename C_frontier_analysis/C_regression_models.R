@@ -1,15 +1,15 @@
 ##----------------------------------------------------------------
-##' Title: C_model_exploration.R
+##' Title: C_regression_models.R
 ##'
-##' Purpose: Explores which models have covariates that are statistically significant
-##'          for the frontier analysis
+##' Purpose: Runs regression models to help explore which models have covariates 
+##'          that are statistically significant for the frontier analysis
 ##----------------------------------------------------------------
 
 ##----------------------------------------------------------------
-## 0. Clear environment and set library paths
+## Clear environment and set library paths
 ##----------------------------------------------------------------
 rm(list = ls())
-pacman::p_load(data.table, arrow, tidyverse, glue, broom, purrr, readr, lubridate)
+pacman::p_load(data.table, arrow, tidyverse, glue, broom, purrr, readr, lubridate, readxl)
 
 # Set drive paths
 if (Sys.info()["sysname"] == 'Linux'){
@@ -26,6 +26,8 @@ if (Sys.info()["sysname"] == 'Linux'){
   l <- 'L:/'
 }
 
+source(file.path(h, "/repo/Aim1/aim1_scripts/Z_utilities/deflate.R"))
+
 ##----------------------------------------------------------------
 ## 0. Functions
 ##----------------------------------------------------------------
@@ -41,7 +43,7 @@ ensure_dir_exists <- function(dir_path) {
 ## 1. Set directories
 ##----------------------------------------------------------------
 # Set fp for age-standardized data
-as_date <- "20260115"
+as_date <- "20260119"
 fp_as <- file.path(h, '/aim_outputs/Aim2/C_frontier_analysis/', as_date, "df_as.csv")
 
 # Set output directories
@@ -53,7 +55,13 @@ ensure_dir_exists(dir_output)
 fp_df_cov <- "/ihme/resource_tracking/us_value/data/sfa_covars2021_shea.csv"
 fp_df_race_cov <- "/ihme/resource_tracking/us_value/data/sfa_covars_w_race_fractions.csv"
 fp_aca_expansion <- file.path(h, "/aim_outputs/Aim2/R_resources/aca_expansion_formatted.csv")
-fp_rw <- file.path(h, "/aim_outputs/Aim2/R_resources/ryan_white_data.csv")
+fp_rw_t1 <- file.path(h, "/aim_outputs/Aim2/R_resources/ryan_white_data/rw_title1.xls")
+fp_rw_t2 <- file.path(h, "/aim_outputs/Aim2/R_resources/ryan_white_data/rw_title2.xls")
+fp_rw_2016_2019 <- file.path(h, "aim_outputs/Aim2/R_resources/ryan_white_data/ryan_white_data_2016-2019.csv")
+
+# FIPS table
+fp_fips <- file.path(h, "/aim_outputs/Aim2/R_resources/state_county_city_fips.csv")
+fp_cityfips <- file.path(h, "/aim_outputs/Aim2/R_resources/ryan_white_data/t1years.xlsx")
 
 ##----------------------------------------------------------------
 ## 2. Read in data
@@ -62,7 +70,13 @@ df_as <- read.csv(fp_as)
 df_cov <- read.csv(fp_df_cov)
 df_race_cov <- read.csv(fp_df_race_cov)
 df_aca_expansion <- read.csv(fp_aca_expansion)
-df_rw <- read.csv(fp_rw)
+
+df_rw_t1 <- read_excel(fp_rw_t1)
+df_rw_t2 <- read_excel(fp_rw_t2)
+df_rw_cityfips <- read_excel(fp_cityfips)
+df_rw_2016_2019 <- read.csv(fp_rw_2016_2019)
+
+df_fips <- read.csv(fp_fips)
 
 ##----------------------------------------------------------------
 ## 3. Format ACA Expansion data
@@ -110,20 +124,145 @@ df_aca_expansion_f <- df_aca_expansion_f %>%
 ##----------------------------------------------------------------
 ## 4. Format Ryan White data
 ##----------------------------------------------------------------
-df_rw_g <- df_rw %>%
+# Title1 City level Ryan White Data #
+# Add padded 0 to cityfip column
+df_rw_t1$cityfip <- sprintf("%04d", df_rw_t1$cityfip)
+
+# Cityfip codes
+# Remove padded spaces from cityfip
+df_rw_cityfips$cityfip <- str_trim(df_rw_cityfips$cityfip)
+
+# Merge w/ Ryan White title1 (city)
+df_rw_t1_m <- left_join(
+  x = df_rw_t1,
+  y = df_rw_cityfips,
+  by = "cityfip"
+)
+
+# Extract state name
+df_rw_t1_m$state_abbr <- substr(df_rw_t1_m$city, nchar(df_rw_t1_m$city) - 1, nchar(df_rw_t1_m$city))
+
+# Create full state names
+state_lookup <- setNames(state.name, state.abb)
+df_rw_t1_m$state_name <- state_lookup[df_rw_t1_m$state_abbr]
+df_rw_t1_m$state_name <- if_else(df_rw_t1_m$state_abbr == "DC", "District of Columbia", df_rw_t1_m$state_name)
+
+# Group by summary for whole state
+df_rw_t1_m <- df_rw_t1_m %>%
+  group_by(year, state_name) %>%
+  summarise(
+    rw_title1_funding = sum(title1_funding, na.rm = TRUE)
+  )
+
+# Filter on 2010 ~ 2019
+df_rw_t1_m <- df_rw_t1_m %>%
+  filter(year %in% (2010:2019))
+
+df_rw_t1_m <- df_rw_t1_m %>%
+  setnames(
+    old = c("year", "state_name"),
+    new = c("year_id", "location_name")
+  )
+
+
+# Title2 State level Ryan White Data #
+# Format FIPS data
+df_fips$State.Name <- str_to_title(tolower(df_fips$State.Name))
+df_fips_state <- df_fips %>% select(c("State.Name", "State.Code", "State.FIPS.Code")) %>% unique()
+
+df_rw_t2_m <- left_join(
+  x = df_rw_t2,
+  y = df_fips_state,
+  by = c("statefip" = "State.FIPS.Code")
+)
+
+df_rw_t2_m <- df_rw_t2_m %>%
+  select(c(year, State.Name, title2_funding_annual)) %>%
+  filter(year %in% c(2010:2019))
+
+df_rw_t2_m <- df_rw_t2_m %>%
+  setnames(
+    old = c("year", "State.Name", "title2_funding_annual"),
+    new = c("year_id", "location_name", "rw_title2_funding")
+  )
+
+
+# Merge Title1 and Title2 data #
+df_rw_t1_m <- df_rw_t1_m %>%
+  ungroup() %>%
+  mutate(
+    year_id = as.integer(year_id),
+    location_name = unname(as.character(location_name)),
+    location_name = trimws(location_name)
+  )
+
+df_rw_t2_m <- df_rw_t2_m %>%
+  mutate(
+    year_id = as.integer(year_id),
+    location_name = as.character(location_name),
+    location_name = trimws(location_name)
+  )
+
+# Fix naming issue
+df_rw_t2_m$location_name <- if_else(df_rw_t2_m$location_name == "District Of Columbia", "District of Columbia", df_rw_t2_m$location_name)
+
+# Join
+df_rw_m <- full_join(
+  x = df_rw_t1_m,
+  y = df_rw_t2_m,
+  by = c("year_id", "location_name")
+)
+
+# Combine title1 and title2 grant sums
+df_rw_m <- df_rw_m %>%
+  mutate(
+    rw_funding = rowSums(cbind(rw_title1_funding, rw_title2_funding), na.rm = TRUE)
+  )
+
+
+# 2016 - 2019 Ryan White data
+df_rw_2016_2019_f <- df_rw_2016_2019 %>%
+  filter(HRSA.Program.Area.Name == "HIV/AIDS") %>%
+  filter(Grant.Program.Name %in% c("Ryan White Part A HIV Emergency Relief Grant Program (H89)",
+                                   "Ryan White Part B HIV Care Grant Program (X07)",
+                                   "Ryan White Part B Supplemental (X08)",
+                                   "ADAP Shortfall Relief (X09)"
+                                )) %>%
   group_by(Award.Year, State.Name) %>%
   summarise(
     `Financial.Assistance` = sum(Financial.Assistance)
   )
 
-df_rw_g <- df_rw_g %>%
+df_rw_2016_2019_f <- df_rw_2016_2019_f %>%
   filter(Award.Year %in% c(2016:2019))
 
-df_rw_g <- df_rw_g %>%
+df_rw_2016_2019_f <- df_rw_2016_2019_f %>%
   setnames(
     old = c("Award.Year", "State.Name", "Financial.Assistance"),
     new = c("year_id", "location_name", "ryan_white_grant")
   )
+
+# Join to title1 and title2 summed data
+df_rw_total <- full_join(
+  x = df_rw_m,
+  y = df_rw_2016_2019_f,
+  by = c("year_id", "location_name")
+)
+
+df_rw_total$delta <- (df_rw_total$rw_funding - df_rw_total$ryan_white_grant)
+
+# View(df_rw_total %>% filter(year_id %in% c(2016:2019))) # Checking deltas, it seems some are matching perfectly against Marcus's data, whereas we are off in some rows but unknow why we are off
+
+# Using <=2018 data from Marcus's dataset, 2019 data will come from the official Ryan White grant data
+df_rw_total$ryan_white_funding_final <- if_else(df_rw_total$year_id <= 2018, df_rw_total$rw_funding, df_rw_total$ryan_white_grant)
+
+# Inflation adjust RW data before creating (RW Spend + DEX spend_all) / prevalence → RWspend ratio
+df_rw_total <- deflate(
+  data = df_rw_total,
+  val_columns = "ryan_white_funding_final",
+  old_year = "year_id",
+  new_year = 2019
+)
 
 ##----------------------------------------------------------------
 ## 5. Filter & Merge data
@@ -146,9 +285,11 @@ df_cov <- left_join(
   y = df_aca_expansion_f
 )
 
+# Adds in Ryan White Data
 df_cov <- left_join(
   x = df_cov,
-  y = df_rw_g
+  y = df_rw_total %>% select(c("year_id", "location_name", "ryan_white_funding_final")),
+  by = c("year_id", "location_name")
 )
 
 # Merge covariate data w/ age-standardized data
@@ -195,11 +336,15 @@ df_as <- left_join(
 )
 
 ##----------------------------------------------------------------
-## 7. Create Ryan White HIV prevalence ratio 
+## 7. Create Ryan White HIV prevalence ratios
 ## # HIV - ryan_white_grant / HIV prevalence count
+## # HIV - ryan_white_grant + (spend_all from DEX data) / HIV prevalence count
 ## # ONLY used in HIV models
 ##----------------------------------------------------------------
-df_as$rw_hiv_prev_ratio <- df_as$ryan_white_grant / df_as$hiv_prevalence_counts
+# Create ratios
+df_as$rw_hiv_prev_ratio <- df_as$ryan_white_funding_final / df_as$hiv_prevalence_counts
+
+df_as$rw_dex_hiv_prev_ratio <- (df_as$ryan_white_funding_final + df_as$spend_all) / df_as$hiv_prevalence_counts
 
 ##----------------------------------------------------------------
 ## 8. Factor location_id and year_id to add as covariates
@@ -210,10 +355,18 @@ df_as$location_id <- as.factor(df_as$location_id)
 ##----------------------------------------------------------------
 ## 9. Specify Models
 ##----------------------------------------------------------------
+rw <- FALSE # Set TRUE if desire RW + DEX / prevalence counts to be the predictor variable, FALSE if just spend / prev count ratio as predictor
+
+if (rw) {
+  model_basic_mort <- "as_mort_prev_ratio ~ rw_dex_hiv_prev_ratio"
+  model_basic_mort_interactive_hiv <- "as_mort_prev_ratio ~ rw_dex_hiv_prev_ratio * high_hiv_prev"
+} else {
+  model_basic_mort <- "as_mort_prev_ratio ~ as_spend_prev_ratio"
+  model_basic_mort_interactive_hiv <- "as_mort_prev_ratio ~ as_spend_prev_ratio * high_hiv_prev"
+}
+
 # Basic Model
-model_basic_mort <- "as_mort_prev_ratio ~ as_spend_prev_ratio"
 model_basic_mort_interactive_sud <- "as_mort_prev_ratio ~ as_spend_prev_ratio * high_sud_prev"
-model_basic_mort_interactive_hiv <- "as_mort_prev_ratio ~ as_spend_prev_ratio * high_hiv_prev"
 
 # Covariate combinations
 cov_h <- c('obesity', 'age65', 'cig_pc_10', 'phys_act_10', 'edu_yrs', 'as_spend_prev_ratio')
@@ -242,8 +395,6 @@ cov_density <- c(
   "density_g.1000"
 )
 
-cov_rw <- c("rw_hiv_prev_ratio")
-
 # HIV - Mort / prev - Formulas
 f0_hiv <- as.formula(model_basic_mort)
 f1_hiv <- as.formula(paste(model_basic_mort, "+", paste(cov_sud, collapse = " + ")))
@@ -253,7 +404,7 @@ f4_hiv <- as.formula(paste(model_basic_mort, "+", paste(c(cov_sud, cov_aca_expan
 f5_hiv <- as.formula(paste(model_basic_mort, "+", paste(c(cov_sud, cov_aca_expansion, cov_year_loc, cov_race, cov_risk), collapse = " + ")))
 f6_hiv <- as.formula(paste(model_basic_mort, "+", paste(c(cov_sud, cov_aca_expansion, cov_year_loc, cov_race, cov_risk, cov_ses), collapse = " + ")))
 f7_hiv <- as.formula(paste(model_basic_mort, "+", paste(c(cov_sud, cov_aca_expansion, cov_year_loc, cov_race, cov_risk, cov_ses, cov_density), collapse = " + ")))
-f8_hiv <- as.formula(paste(model_basic_mort, "+", paste(c(cov_sud, cov_aca_expansion, cov_year_loc, cov_race, cov_risk, cov_ses, cov_density, cov_rw), collapse = " + ")))
+# f8_hiv <- as.formula(paste(model_basic_mort, "+", paste(c(cov_sud, cov_aca_expansion, cov_year_loc, cov_race, cov_risk, cov_ses, cov_density, cov_rw), collapse = " + "))) # Ryan White
 f9_hiv <- as.formula(paste(model_basic_mort, "+", paste(c(cov_h), collapse = " + ")))
 
 # HIV - Mort / prev w/ interaction term - Formulas
@@ -265,7 +416,7 @@ f4_hiv_interact <- as.formula(paste(model_basic_mort_interactive_hiv, "+", paste
 f5_hiv_interact <- as.formula(paste(model_basic_mort_interactive_hiv, "+", paste(c(cov_sud, cov_aca_expansion, cov_year_loc, cov_race, cov_risk), collapse = " + ")))
 f6_hiv_interact <- as.formula(paste(model_basic_mort_interactive_hiv, "+", paste(c(cov_sud, cov_aca_expansion, cov_year_loc, cov_race, cov_risk, cov_ses), collapse = " + ")))
 f7_hiv_interact <- as.formula(paste(model_basic_mort_interactive_hiv, "+", paste(c(cov_sud, cov_aca_expansion, cov_year_loc, cov_race, cov_risk, cov_ses, cov_density), collapse = " + ")))
-f8_hiv_interact <- as.formula(paste(model_basic_mort_interactive_hiv, "+", paste(c(cov_sud, cov_aca_expansion, cov_year_loc, cov_race, cov_risk, cov_ses, cov_density, cov_rw), collapse = " + ")))
+# f8_hiv_interact <- as.formula(paste(model_basic_mort_interactive_hiv, "+", paste(c(cov_sud, cov_aca_expansion, cov_year_loc, cov_race, cov_risk, cov_ses, cov_density, cov_rw), collapse = " + "))) # Ryan White
 f9_hiv_interact <- as.formula(paste(model_basic_mort_interactive_hiv, "+", paste(c(cov_h), collapse = " + ")))
 
 # SUD - Mort / prev - Formulas
@@ -298,7 +449,7 @@ list_formulas_hiv <- list(
   m_mort_plus_diab_cig_phys_ac               = f5_hiv,
   m_mort_plus_edu_ldi                        = f6_hiv,
   m_mort_plus_density                        = f7_hiv,
-  m_mort_plus_rw                             = f8_hiv,
+  #m_mort_plus_rw                             = f8_hiv,
   m_mort_haley                               = f9_hiv,
   m_mort_int_unadj                           = f0_hiv_interact,
   m_mort_int_plus_sud                        = f1_hiv_interact,
@@ -308,7 +459,7 @@ list_formulas_hiv <- list(
   m_mort_int_plus_diab_cig_phys_ac           = f5_hiv_interact,
   m_mort_int_plus_edu_ldi                    = f6_hiv_interact,
   m_mort_int_plus_density                    = f7_hiv_interact,
-  m_mort_int_plus_rw                         = f8_hiv_interact,
+  #m_mort_int_plus_rw                         = f8_hiv_interact,
   m_mort_int_haley                           = f9_hiv_interact
 )
 
@@ -338,14 +489,14 @@ list_formulas_sud <- list(
 list_models <- list()
 
 # HIV 
-df_hiv <- df_as %>% filter(acause == "hiv") %>% filter(year_id %in% c(2016:2019))
+df_hiv <- df_as %>% filter(acause == "hiv")
 
 for (nm in names(list_formulas_hiv)) {
   list_models[[paste("hiv", nm, sep = "__")]] <- lm(list_formulas_hiv[[nm]], data = df_hiv)
 }
 
 # SUD 
-df_sud <- df_as %>% filter(acause == "_subs") %>% filter(year_id %in% c(2016:2019))
+df_sud <- df_as %>% filter(acause == "_subs")
 
 for (nm in names(list_formulas_sud)) {
   list_models[[paste("_subs", nm, sep = "__")]] <- lm(list_formulas_sud[[nm]], data = df_sud)
@@ -389,17 +540,17 @@ metrics_tbl <- imap_dfr(list_models, ~{
 ##----------------------------------------------------------------
 ## 12. Save Outputs
 ##----------------------------------------------------------------
-# Model Outputs
-write.csv(coef_tbl, file.path(dir_output, "model_coefficients_rw.csv"))
-write.csv(metrics_tbl, file.path(dir_output, "model_metrics_rw.csv"))
+if (rw) {
+  # Model Outputs
+  write.csv(coef_tbl, file.path(dir_output, "model_coefficients_rw.csv"))
+  write.csv(metrics_tbl, file.path(dir_output, "model_metrics_rw.csv"))
+  
+} else {
+  # Model Outputs
+  write.csv(coef_tbl, file.path(dir_output, "model_coefficients.csv"))
+  write.csv(metrics_tbl, file.path(dir_output, "model_metrics.csv"))
+}
 
 # DF w/ all covariates
-write.csv(df_as, file.path(dir_output, "df_as_covariates_rw.csv"))
-
-
-
-
-
-
-
+write.csv(df_as, file.path(dir_output, "df_as_covariates.csv"))
 

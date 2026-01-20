@@ -5,7 +5,7 @@
 ##----------------------------------------------------------------
 
 ##----------------------------------------------------------------
-## 0. Clear environment and set library paths
+## Clear environment and set library paths
 ##----------------------------------------------------------------
 rm(list = ls())
 
@@ -61,11 +61,11 @@ date_ushd <- "20251123"
 fp_ushd <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_ushd, "/compiled_ushd_data_2010_2019.parquet")
 
 # Age-standardized State level GBD + Dex data
-date_as <- "20260115"
+date_as <- "20260119"
 fp_as <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_as, "/df_as.csv")
 
 # State level GBD + Dex data - No years
-date_as_no_year <- "20260115"
+date_as_no_year <- "20260119"
 fp_as_no_year <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_as_no_year, "/df_as_no_year.csv")
 
 # Set output directories
@@ -85,42 +85,43 @@ df_dex <- read_parquet(fp_dex)
 # Age-standardized State level GBD + Dex data
 df_as <- read.csv(fp_as)
 
-# Age-standardized State level GBD + Dex data
+# Age-standardized State level GBD + Dex data, years collapsed
 df_as_no_year <- read.csv(fp_as_no_year)
 
 ##----------------------------------------------------------------
-## 1. Table 1 - HIV DEX
+## 1. Table 1 - HIV & SUD DEX data
 ## What are the top 10 most expensive and least expensive counties
 ## in terms of spending for patients with HIV (all age groups all years all toc combined)?
 ##
 ## TODO - needs age standardizing
 ##----------------------------------------------------------------
-
-df_t1 <- df_dex %>%
+# HIV #
+df_t1_hiv <- df_dex %>%
   filter(acause == "hiv") %>%
-  filter(geo == "county")
+  filter(geo == "county") %>%
+  filter(payer == "all")
 
 # Group by then calculate spend_mean
-df_t1 <- df_t1 %>%
+df_t1_hiv <- df_t1_hiv %>%
   group_by(state_name, location_name) %>%
   summarize("spend_mean" = mean(spend_mean))
 
 # Get top 10 and bottom 10
-df_t1_top <- df_t1 %>% 
+df_t1_hiv_top <- df_t1_hiv %>% 
   arrange(desc(spend_mean)) %>%
   ungroup() %>%
   mutate(rank = as.character(row_number())) %>%
   head(10)
 
-df_t1_bot <- df_t1 %>% 
+df_t1_hiv_bot <- df_t1_hiv %>% 
   arrange(desc(spend_mean)) %>%
   ungroup() %>%
   mutate(rank = as.character(row_number())) %>%
   tail(10)
 
 # Convert to dollars
-df_t1_top <- convert_to_dollars(df_t1_top, "spend_mean")
-df_t1_bot <- convert_to_dollars(df_t1_bot, "spend_mean")
+df_t1_hiv_top <- convert_to_dollars(df_t1_hiv_top, "spend_mean")
+df_t1_hiv_bot <- convert_to_dollars(df_t1_hiv_bot, "spend_mean")
 
 # Add ... row to top data
 ellipsis_row <- tibble(
@@ -131,56 +132,49 @@ ellipsis_row <- tibble(
 )
 
 # Bind it in
-df_t1_all <- bind_rows(df_t1_top, ellipsis_row, df_t1_bot)
+df_t1_hiv_all <- bind_rows(df_t1_hiv_top, ellipsis_row, df_t1_hiv_bot)
 
 # Arrange columns to desired output
-df_t1_all <- df_t1_all %>%
+df_t1_hiv_all <- df_t1_hiv_all %>%
   select(rank, state_name, location_name, spend_mean) %>%
   setnames(old = c("rank", "state_name", "location_name", "spend_mean"), 
-           new = c("Rank", "State", "County", "Estimated Average Spending HIV (USD)"))
+           new = c("Rank", "State", "County", "Estimated Average Spending HIV (2019 USD)"))
 
 # Write to CSV
-write.csv(df_t1_all, file.path(dir_output, "T1_HIV_top_bottom_10.csv"), row.names = FALSE)
+write.csv(df_t1_hiv_all, file.path(dir_output, "T1_HIV.csv"), row.names = FALSE)
 
-##----------------------------------------------------------------
-## 2. Table 2 - SUD DEX
-## What are the top 10 most expensive and least expensive counties
-## in terms of spending for patients with SUD (all age groups all years all toc combined)?
-##
-## TODO - needs age standardizing
-##----------------------------------------------------------------
 
+
+# SUD #
 subs_causes <- c("mental_alcohol", "mental_drug_agg", "mental_drug_opioids")
 
 # Fix FIPS codes 
-df_t2 <- df_dex %>%
-  filter(acause %in% subs_causes)
-
-# Filter down to just counties
-df_t2 <- df_t2 %>%
-  filter(geo == "county")
+df_t1_sud <- df_dex %>%
+  filter(acause %in% subs_causes) %>%
+  filter(geo == "county") %>%
+  filter(payer == "all")
 
 # Group by then calculate spend_mean
-df_t2 <- df_t2 %>%
+df_t1_sud <- df_t1_sud %>%
   group_by(state_name, location_name) %>%
   summarize("spend_mean" = mean(spend_mean))
 
 # Get top 10 and bottom 10
-df_t2_top <- df_t2 %>% 
+df_t1_sud_top <- df_t1_sud %>% 
   arrange(desc(spend_mean)) %>%
   ungroup() %>%
   mutate(rank = as.character(row_number())) %>%
   head(10)
 
-df_t2_bot <- df_t2 %>% 
+df_t1_sud_bot <- df_t1_sud %>% 
   arrange(desc(spend_mean)) %>%
   ungroup() %>%
   mutate(rank = as.character(row_number())) %>%
   tail(10)
 
 # Convert to dollars
-df_t2_top <- convert_to_dollars(df_t2_top, "spend_mean")
-df_t2_bot <- convert_to_dollars(df_t2_bot, "spend_mean")
+df_t1_sud_top <- convert_to_dollars(df_t1_sud_top, "spend_mean")
+df_t1_sud_bot <- convert_to_dollars(df_t1_sud_bot, "spend_mean")
 
 # Add ... row to top data
 ellipsis_row <- tibble(
@@ -191,21 +185,21 @@ ellipsis_row <- tibble(
 )
 
 # Bind it in
-df_t2_all <- bind_rows(df_t2_top, ellipsis_row, df_t2_bot)
+df_t1_sud_all <- bind_rows(df_t1_sud_top, ellipsis_row, df_t1_sud_bot)
 
 # Arrange columns to desired output
-df_t2_all <- df_t2_all %>%
+df_t1_sud_all <- df_t1_sud_all %>%
   select(rank, state_name, location_name, spend_mean) %>%
   setnames(old = c("rank", "state_name", "location_name", "spend_mean"), 
-           new = c("Rank", "State", "County", "Estimated Average Spending SUD (USD)"))
+           new = c("Rank", "State", "County", "Estimated Average Spending SUD (2019 USD)"))
 
 # Write to CSV
-write.csv(df_t2_all, file.path(dir_output, "T2_SUD_top_bottom_10.csv"), row.names = FALSE)
+write.csv(df_t1_sud_all, file.path(dir_output, "T1_SUD.csv"), row.names = FALSE)
 
 ##----------------------------------------------------------------
-## 5. Table 5 - HIV & SUD 2010 ~ 2019
+## 2. Table 2 - HIV & SUD 2010 ~ 2019
 # 
-# T5 - ALL State level table, HIV & SUD separate tables, states are ordered alphabetically
+# T2 - ALL State level table, HIV & SUD separate tables, states are ordered alphabetically
 # 
 # Columns: State, Spending per prevalence (total spending for state / total summed prevalence count),
 # Total spending (cumulative total state spending), 
@@ -218,12 +212,12 @@ write.csv(df_t2_all, file.path(dir_output, "T2_SUD_top_bottom_10.csv"), row.name
 ##----------------------------------------------------------------
 acauses <- c("hiv", "_subs")
 
-t5_cols <- c("cause_name", "location_name", "spend_per_prev", "spend_all", 
+t2_cols <- c("cause_name", "location_name", "spend_per_prev", "spend_all", 
   "spend_mdcd", "spend_mdcr", "spend_oop", "spend_priv", "prevalence_counts", 
   "prevalence_rates", "mort_prev_ratio", "incidence_counts", "incidence_rates"
 )
 
-t5_dol_cols <-  c("spend_per_prev", "spend_all", 
+t2_dol_cols <-  c("spend_per_prev", "spend_all", 
                   "spend_mdcd", "spend_mdcr", "spend_oop", "spend_priv")
 
 for (a in acauses) {
@@ -236,10 +230,10 @@ for (a in acauses) {
   
   # Select columns
   df_tmp <- df_tmp %>%
-    select(all_of(t5_cols))
+    select(all_of(t2_cols))
   
   # Convert to dollars
-  df_tmp <- convert_to_dollars(df_tmp, t5_dol_cols)
+  df_tmp <- convert_to_dollars(df_tmp, t2_dol_cols)
   
   # Rename columns
   df_tmp <- df_tmp %>%
@@ -259,70 +253,75 @@ for (a in acauses) {
       `Incidence Rate` = incidence_rates
     )
   
-  # Assign to df_t5_hiv or df_t5_subs
-  assign(paste0("df_t5_", gsub("^_", "", a)), df_tmp, envir = .GlobalEnv)
+  # Assign to df_t2_hiv or df_t2_subs
+  assign(paste0("df_t2_", gsub("^_", "", a)), df_tmp, envir = .GlobalEnv)
 }
 
 # Write to CSV
-write.csv(df_t5_hiv, file.path(dir_output, "T5_HIV.csv"), row.names = FALSE)
-write.csv(df_t5_subs, file.path(dir_output, "T5_SUD.csv"), row.names = FALSE)
+write.csv(df_t2_hiv, file.path(dir_output, "T2_HIV.csv"), row.names = FALSE)
+write.csv(df_t2_subs, file.path(dir_output, "T2_SUD.csv"), row.names = FALSE)
 
 ##----------------------------------------------------------------
-## 6. Table 6 - HIV & SUD 
+## 3. Table 3 - HIV & SUD 
 # 
-# T6 - ALL State level table, HIV & SUD separate tables, order by state name
+# T3 - ALL State level table, HIV & SUD separate tables, order by state name
 # 
 # Columns: State, Spending (total spending per state), 
 # Spending per case (total spending per state / prevalence count), 
 # DALYs count (total count by state), 
 # DALYs per case (DALYs count / prevalence count), 
 # Spending effectiveness (Spending in year 2019 - Spending in year 2010) / (DALYs in 2019 - DALY in 2010)
+
+# - Table 3 - Spending Effectiveness, basically add two columns, one for the numerator of the SE, one for denonimator
+# - Numerator name, Change in spending (2019 - 2010) - Should be spending per case
+# - Denom name, Change in DALYs (2019 - 2010) - Should be daly per case
 ##----------------------------------------------------------------
-t6_cols <- c("cause_name", "location_name", "spend_all",
+t3_cols <- c("cause_name", "location_name", "spend_all",
              "spend_prev_ratio", 
              "daly_counts",
              "daly_prev_ratio")
 
-t6_dol_cols <-  c("spend_all", "spend_prev_ratio")
+t3_dol_cols <-  c("spend_all", "spend_prev_ratio", "spend_eff_num")
 
 # Create Spending Effectiveness Column
-df_t6_year <- df_as %>%
+df_t3_year <- df_as %>%
   filter(year_id %in% c(2010, 2019))
 
-df_t6_year <- df_t6_year %>%
+df_t3_year <- df_t3_year %>%
   select(c("cause_id", "year_id", "location_id", "location_name", "acause", 
-           "cause_name", "spend_all", "daly_counts"))
+           "cause_name", "spend_all", "daly_counts", "prevalence_counts"))
 
 # Pivot wider to have columns for all different payer types
-df_t6_year <- df_t6_year %>% pivot_wider(
+df_t3_year <- df_t3_year %>% pivot_wider(
   names_from  = year_id,
-  values_from = c(spend_all, daly_counts)
+  values_from = c(spend_all, daly_counts, prevalence_counts)
 )
 
 # Create deltas
-df_t6_year$spend_eff <- (df_t6_year$spend_all_2019 - df_t6_year$spend_all_2010) / (df_t6_year$daly_counts_2019 - df_t6_year$daly_counts_2010)
-
+df_t3_year$spend_eff_num <- ((df_t3_year$spend_all_2019 / df_t3_year$prevalence_counts_2019) - (df_t3_year$spend_all_2010 / df_t3_year$prevalence_counts_2010))
+df_t3_year$spend_eff_denom <- ((df_t3_year$daly_counts_2019 / df_t3_year$prevalence_counts_2019) - (df_t3_year$daly_counts_2010 / df_t3_year$prevalence_counts_2010))
+df_t3_year$spend_eff <- df_t3_year$spend_eff_num / df_t3_year$spend_eff_denom 
 
 # Create table with other columns to join to
-df_t6 <- copy(df_as_no_year)
+df_t3 <- copy(df_as_no_year)
 
 # Select columns
-df_t6 <- df_t6 %>%
-  select(all_of(t6_cols))
+df_t3 <- df_t3 %>%
+  select(all_of(t3_cols))
 
 # Join w/ delta table
-df_t6 <- left_join(
-  x = df_t6,
-  y = df_t6_year,
+df_t3 <- left_join(
+  x = df_t3,
+  y = df_t3_year,
   by = c("cause_name", "location_name")
 ) %>%
   select(!c("spend_all_2010", "spend_all_2019", "daly_counts_2010", "daly_counts_2019", "acause", "cause_id", "location_id"))
 
 # Convert to dollars
-df_t6 <- convert_to_dollars(df_t6, t6_dol_cols)
+df_t3 <- convert_to_dollars(df_t3, t3_dol_cols)
 
 # Rename columns
-df_t6 <- df_t6 %>%
+df_t3 <- df_t3 %>%
   rename(
     Cause = cause_name,
     State = location_name,
@@ -330,16 +329,18 @@ df_t6 <- df_t6 %>%
     `Spending per case` = spend_prev_ratio,
     `DALY Count` = daly_counts,
     `DALYs per case` = daly_prev_ratio,
+    `Change in spending per case (2019 - 2010)` = spend_eff_num,
+    `Change in DALYs per case (2019 - 2010)` = spend_eff_denom,
     `Spending effectiveness` = spend_eff
   )
 
 # Split by cause
-df_t6_hiv <- df_t6 %>% filter(Cause == "HIV/AIDS")
-df_t6_subs <- df_t6 %>% filter(Cause == "Substance use disorders")
+df_t3_hiv <- df_t3 %>% filter(Cause == "HIV/AIDS") %>% select(!c("prevalence_counts_2010", "prevalence_counts_2019"))
+df_t3_subs <- df_t3 %>% filter(Cause == "Substance use disorders") %>% select(!c("prevalence_counts_2010", "prevalence_counts_2019"))
 
 # Write to CSV
-write.csv(df_t6_hiv, file.path(dir_output, "T6_HIV.csv"), row.names = FALSE)
-write.csv(df_t6_subs, file.path(dir_output, "T6_SUD.csv"), row.names = FALSE)
+write.csv(df_t3_hiv, file.path(dir_output, "T3_HIV.csv"), row.names = FALSE)
+write.csv(df_t3_subs, file.path(dir_output, "T3_SUD.csv"), row.names = FALSE)
 
 
 
