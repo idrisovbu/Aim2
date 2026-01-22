@@ -54,7 +54,7 @@ convert_to_dollars <- function(df, cols_to_convert) {
 ## 0.1 Set directories for DEX estimate data / county estimates
 ##----------------------------------------------------------------
 # Set path for DEX data
-date_dex <- "20251123"
+date_dex <- "20260120"
 fp_dex <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_dex, "/compiled_dex_data_2010_2019.parquet")
 
 date_ushd <- "20251123"
@@ -79,7 +79,7 @@ ensure_dir_exists(dir_output)
 ## 0.2 Read in data
 ##----------------------------------------------------------------
 # DEX data
-df_dex <- read_parquet(fp_dex)
+df_dex <- open_dataset(fp_dex)
 
 # USHD Data
 #df_ushd <- read_parquet(fp_ushd)
@@ -104,7 +104,8 @@ df_cov <- read.csv(fp_df_cov)
 df_t1_hiv <- df_dex %>%
   filter(acause == "hiv") %>%
   filter(geo == "county") %>%
-  filter(payer == "all")
+  filter(payer == "all") %>%
+  collect()
 
 # Group by then calculate spend_mean
 df_t1_hiv <- df_t1_hiv %>%
@@ -157,7 +158,8 @@ subs_causes <- c("mental_alcohol", "mental_drug_agg", "mental_drug_opioids")
 df_t1_sud <- df_dex %>%
   filter(acause %in% subs_causes) %>%
   filter(geo == "county") %>%
-  filter(payer == "all")
+  filter(payer == "all") %>%
+  collect()
 
 # Group by then calculate spend_mean
 df_t1_sud <- df_t1_sud %>%
@@ -390,8 +392,8 @@ df_t4_year <- df_t4_year %>%
 
 # Reorder columns
 t4_year_col_order <- c("year_id", 
-                       "spend_mdcd_percentage", "spend_mdcd", 
                        "spend_mdcr_percentage", "spend_mdcr",
+                       "spend_mdcd_percentage", "spend_mdcd", 
                        "spend_oop_percentage", "spend_oop",
                        "spend_priv_percentage", "spend_priv",
                        "spend_rw_percentage", "spend_rw")
@@ -404,8 +406,8 @@ df_t4_year <- df_t4_year %>%
   setnames(
     old = t4_year_col_order,
     new = c("Year", 
-            "Medicaid %", "Medicaid (2019 USD)",
             "Medicare %", "Medicare (2019 USD)",
+            "Medicaid %", "Medicaid (2019 USD)",
             "Out of pocket %", "Out of pocket (2019 USD)",
             "Private %", "Private (2019 USD)", 
             "Ryan White Funding %", "Ryan White Funding (2019 USD)")
@@ -446,8 +448,8 @@ df_t4_state <- df_t4_state %>%
 
 # Reorder columns
 t4_state_col_order <- c("location_name", 
-                       "spend_mdcd_percentage", "spend_mdcd", 
                        "spend_mdcr_percentage", "spend_mdcr", 
+                       "spend_mdcd_percentage", "spend_mdcd", 
                        "spend_oop_percentage", "spend_oop", 
                        "spend_priv_percentage", "spend_priv", 
                        "spend_rw_percentage", "spend_rw")
@@ -460,8 +462,8 @@ df_t4_state <- df_t4_state %>%
   setnames(
     old = t4_state_col_order,
     new = c("State", 
-            "Medicaid %", "Medicaid (2019 USD)", 
             "Medicare %", "Medicare (2019 USD)", 
+            "Medicaid %", "Medicaid (2019 USD)", 
             "Out of pocket %", "Out of pocket (2019 USD)", 
             "Private %", "Private (2019 USD)", 
             "Ryan White Funding %", "Ryan White Funding (2019 USD)")
@@ -479,8 +481,130 @@ write.csv(df_t4_state, file.path(dir_output, "T4_HIV_state.csv"), row.names = FA
 # Break down of percentage and dollar amount per (State or Year) for each payer group, by <65 and 65+ age categories
 #
 # Columns: Year, Age group, Medicaid %, Medicaid $, ..., OOP %, OOP $
+#
+# Notes: Using national data to aggregate age groups
 ##----------------------------------------------------------------
+# Filter down DEX data to national level
+df_t5 <- df_dex %>%
+  filter(geo == "national") %>%
+  collect()
 
+# Pivot wider
+df_t5_p <- df_t5 %>%
+  select(c("year_id", "geo", "location_name", "fips", "payer", "toc", 
+    "acause", "cause_name", "age_group_years_start", "age_name", 
+    "sex_id", "sex_name", "spend_mean")) %>%
+  pivot_wider(
+    names_from = payer,
+    values_from = spend_mean,
+    names_prefix = "spend_"
+  )
+
+# Checking delta between payer groups sum and payer = all
+df_t5_p$payer_total <- rowSums(
+  df_t5_p[, c("spend_mdcd", "spend_mdcr", "spend_oop", "spend_priv")],
+  na.rm = TRUE
+)
+
+df_t5_p$payer_delta <- df_t5_p$spend_all - df_t5_p$payer_total
+
+# Create <65 and 65+ age groups
+df_t5_p <- df_t5_p %>%
+  mutate(age_name_65 = case_when(
+    age_name == "0 - <1" ~ "<65",
+    age_name == "1 - <5" ~ "<65",
+    age_name == "5 - <10" ~ "<65",
+    age_name == "10 - <15" ~ "<65",
+    age_name == "15 - <20" ~ "<65",
+    age_name == "20 - <25" ~ "<65",
+    age_name == "25 - <30" ~ "<65",
+    age_name == "30 - <35" ~ "<65",
+    age_name == "35 - <40" ~ "<65",
+    age_name == "40 - <45" ~ "<65",
+    age_name == "45 - <50" ~ "<65",
+    age_name == "50 - <55" ~ "<65",
+    age_name == "55 - <60" ~ "<65",
+    age_name == "60 - <65" ~ "<65",
+    age_name == "65 - <70" ~ "65+",
+    age_name == "70 - <75" ~ "65+",
+    age_name == "75 - <80" ~ "65+",
+    age_name == "80 - <85" ~ "65+",
+    age_name == "85+"      ~ "65+"
+  ))
+
+# Group by summary based on new age grouping
+df_t5_p_hiv <- df_t5_p %>%
+  filter(acause == "hiv") %>%
+  group_by(year_id, cause_name, age_name_65) %>%
+  summarise(
+    spend_mdcd = sum(spend_mdcd, na.rm = TRUE),
+    spend_mdcr = sum(spend_mdcr, na.rm = TRUE),
+    spend_oop = sum(spend_oop, na.rm = TRUE),
+    spend_priv = sum(spend_priv, na.rm = TRUE),
+    spend_total = sum(spend_mdcd, spend_mdcr, spend_oop, spend_priv),
+    spend_mdcd_percentage = (spend_mdcd / spend_total)*100,
+    spend_mdcr_percentage = (spend_mdcr / spend_total)*100,
+    spend_oop_percentage = (spend_oop / spend_total)*100,
+    spend_priv_percentage = (spend_priv / spend_total)*100
+  )
+
+df_t5_p_sud <- df_t5_p %>%
+  filter(acause != "hiv") %>%
+  group_by(year_id, age_name_65) %>%
+  summarise(
+    spend_mdcd = sum(spend_mdcd, na.rm = TRUE),
+    spend_mdcr = sum(spend_mdcr, na.rm = TRUE),
+    spend_oop = sum(spend_oop, na.rm = TRUE),
+    spend_priv = sum(spend_priv, na.rm = TRUE),
+    spend_total = sum(spend_mdcd, spend_mdcr, spend_oop, spend_priv),
+    spend_mdcd_percentage = (spend_mdcd / spend_total)*100,
+    spend_mdcr_percentage = (spend_mdcr / spend_total)*100,
+    spend_oop_percentage = (spend_oop / spend_total)*100,
+    spend_priv_percentage = (spend_priv / spend_total)*100
+  ) %>%
+  mutate(cause_name = "Substance use disorder")
+
+# Rowbind back together
+df_t5_p_final <- rbind(df_t5_p_hiv, df_t5_p_sud)
+
+# Convert columns to dollars
+t5_dol_cols <- c("spend_mdcd", "spend_mdcr", "spend_oop", "spend_priv", "spend_total")
+df_t5_p_final <- convert_to_dollars(df_t5_p_final, t5_dol_cols)
+
+# Reorder columns
+t5_state_col_order <- c("cause_name", "year_id", "age_name_65", 
+                        "spend_mdcr_percentage", "spend_mdcr", 
+                        "spend_mdcd_percentage", "spend_mdcd",  
+                        "spend_oop_percentage", "spend_oop", 
+                        "spend_priv_percentage", "spend_priv")
+
+df_t5_p_final <- df_t5_p_final %>%
+  select(all_of(t5_state_col_order))
+
+# Rename columns
+df_t5_p_final <- df_t5_p_final %>%
+  setnames(
+    old = t5_state_col_order,
+    new = c("Cause", "Year", "Age Group",
+            "Medicare %", "Medicare (2019 USD)", 
+            "Medicaid %", "Medicaid (2019 USD)", 
+            "Out of pocket %", "Out of pocket (2019 USD)", 
+            "Private %", "Private (2019 USD)"))
+
+# Sort
+df_t5_p_final <- df_t5_p_final %>%
+  ungroup() %>% 
+  mutate(
+    `Age Group` = factor(`Age Group`, levels = c("<65", "65+"), ordered = TRUE)
+  )
+
+
+df_t5_p_final <- df_t5_p_final %>%
+  arrange(Cause, Year, `Age Group`)
+
+# Write to CSV
+write.csv(df_t5_p_final %>% filter(Cause == "HIV/AIDS"), file.path(dir_output, "T5_HIV.csv"), row.names = FALSE)
+write.csv(df_t5_p_final %>% filter(Cause == "Substance use disorder"), file.path(dir_output, "T5_SUD.csv"), row.names = FALSE)
 
 # # SCRATCH SPACE, SAFE TO DELETE
 # 
