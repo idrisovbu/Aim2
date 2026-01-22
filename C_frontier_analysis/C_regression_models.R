@@ -29,7 +29,13 @@ if (Sys.info()["sysname"] == 'Linux'){
 source(file.path(h, "/repo/Aim1/aim1_scripts/Z_utilities/deflate.R"))
 
 ##----------------------------------------------------------------
-## 0. Functions
+## 0. Set Boolean variables
+##----------------------------------------------------------------
+rw <- T # Set TRUE if desire RW + DEX / prevalence counts to be the predictor variable (see "Specify Models" section), FALSE if just spend / prev count ratio as predictor
+cdc <- T # Set TRUE if you want to use CDC HIV prevalence and mortality in the models instead of GBD prev deaths, FALSE if wanting to use GBD data
+
+##----------------------------------------------------------------
+## 0.1 Functions
 ##----------------------------------------------------------------
 ensure_dir_exists <- function(dir_path) {
   if (!dir.exists(dir_path)) {
@@ -43,8 +49,9 @@ ensure_dir_exists <- function(dir_path) {
 ## 1. Set directories
 ##----------------------------------------------------------------
 # Set fp for age-standardized data
-as_date <- "20260119"
+as_date <- "20260121"
 fp_as <- file.path(h, '/aim_outputs/Aim2/C_frontier_analysis/', as_date, "df_as.csv")
+fp_as_cdc <- file.path(h, '/aim_outputs/Aim2/C_frontier_analysis/', as_date, "df_as_cdc.csv")
 
 # Set output directories
 date_today <- format(Sys.time(), "%Y%m%d")
@@ -67,6 +74,7 @@ fp_cityfips <- file.path(h, "/aim_outputs/Aim2/R_resources/ryan_white_data/t1yea
 ## 2. Read in data
 ##----------------------------------------------------------------
 df_as <- read.csv(fp_as)
+df_as_cdc <- read.csv(fp_as_cdc)
 df_cov <- read.csv(fp_df_cov)
 df_race_cov <- read.csv(fp_df_race_cov)
 df_aca_expansion <- read.csv(fp_aca_expansion)
@@ -292,12 +300,21 @@ df_cov <- left_join(
   by = c("year_id", "location_name")
 )
 
-# Merge covariate data w/ age-standardized data
-df_as <- left_join(
-  x = df_as,
-  y = df_cov,
-  by = c("year_id", "location_id", "location_name")
-)
+if (cdc) {
+  # Merge covariate data w/ age-standardized data
+  df_as <- left_join(
+    x = df_as_cdc,
+    y = df_cov,
+    by = c("year_id", "location_id", "location_name")
+  )
+} else {
+  # Merge covariate data w/ age-standardized data
+  df_as <- left_join(
+    x = df_as,
+    y = df_cov,
+    by = c("year_id", "location_id", "location_name")
+  )
+}
 
 ##----------------------------------------------------------------
 ## 6. Create "high_prev" variable to use as an interactive term in respective models (HIV models use HIV high_prev, SUD models use SUD high_prev)
@@ -313,14 +330,25 @@ df_sud_prev_count <- df_sud_prev_count %>%
   mutate(high_sud_prev = ifelse(sud_prevalence_counts >= median(sud_prevalence_counts), 1, 0))
 
 # Create hiv_prevalence_counts column
-df_hiv_prev_count <- df_as %>% 
-  filter(acause == "hiv") %>%
-  select(c("cause_id", "year_id", "location_id", "location_name", "acause", 
-           "cause_name", "prevalence_counts")) %>%
-  setnames(old = "prevalence_counts", new = "hiv_prevalence_counts")
-
-df_hiv_prev_count <- df_hiv_prev_count %>%
-  mutate(high_hiv_prev = ifelse(hiv_prevalence_counts >= median(hiv_prevalence_counts), 1, 0))
+if (cdc) { # use CDC hiv prevalence data
+  df_hiv_prev_count <- df_as %>% 
+    filter(acause == "hiv") %>%
+    select(c("cause_id", "year_id", "location_id", "location_name", "acause", 
+             "cause_name", "cdc_hiv_prevalence_counts"))
+  
+  df_hiv_prev_count <- df_hiv_prev_count %>%
+    mutate(high_cdc_hiv_prev = ifelse(cdc_hiv_prevalence_counts >= median(cdc_hiv_prevalence_counts), 1, 0)) %>%
+    select(!c("cdc_hiv_prevalence_counts"))
+} else { # else use GBD hiv prevalence data
+  df_hiv_prev_count <- df_as %>% 
+    filter(acause == "hiv") %>%
+    select(c("cause_id", "year_id", "location_id", "location_name", "acause", 
+             "cause_name", "prevalence_counts")) %>%
+    setnames(old = "prevalence_counts", new = "hiv_prevalence_counts")
+  
+  df_hiv_prev_count <- df_hiv_prev_count %>%
+    mutate(high_hiv_prev = ifelse(hiv_prevalence_counts >= median(hiv_prevalence_counts), 1, 0))
+}
 
 # Join
 df_as <- left_join(
@@ -342,9 +370,13 @@ df_as <- left_join(
 ## # ONLY used in HIV models
 ##----------------------------------------------------------------
 # Create ratios
-df_as$rw_hiv_prev_ratio <- df_as$ryan_white_funding_final / df_as$hiv_prevalence_counts
-
-df_as$rw_dex_hiv_prev_ratio <- (df_as$ryan_white_funding_final + df_as$spend_all) / df_as$hiv_prevalence_counts
+if (cdc) {
+  df_as$rw_cdc_hiv_prev_ratio <- df_as$ryan_white_funding_final / df_as$cdc_hiv_prevalence_counts
+  df_as$rw_cdc_dex_hiv_prev_ratio <- (df_as$ryan_white_funding_final + df_as$spend_all) / df_as$cdc_hiv_prevalence_counts
+} else {
+  df_as$rw_hiv_prev_ratio <- df_as$ryan_white_funding_final / df_as$hiv_prevalence_counts
+  df_as$rw_dex_hiv_prev_ratio <- (df_as$ryan_white_funding_final + df_as$spend_all) / df_as$hiv_prevalence_counts
+}
 
 ##----------------------------------------------------------------
 ## 8. Factor location_id and year_id to add as covariates
@@ -355,23 +387,33 @@ df_as$location_id <- as.factor(df_as$location_id)
 ##----------------------------------------------------------------
 ## 9. Specify Models
 ##----------------------------------------------------------------
-rw <- FALSE # Set TRUE if desire RW + DEX / prevalence counts to be the predictor variable, FALSE if just spend / prev count ratio as predictor
-
+# HIV
 if (rw) {
-  model_basic_mort <- "as_mort_prev_ratio ~ rw_dex_hiv_prev_ratio"
-  model_basic_mort_interactive_hiv <- "as_mort_prev_ratio ~ rw_dex_hiv_prev_ratio * high_hiv_prev"
+  if (cdc) {
+    model_basic_mort <- "as_cdc_mort_prev_ratio ~ rw_cdc_dex_hiv_prev_ratio"
+    model_basic_mort_interactive_hiv <- "as_cdc_mort_prev_ratio ~ rw_cdc_dex_hiv_prev_ratio * high_cdc_hiv_prev"
+  } else {
+    model_basic_mort <- "as_mort_prev_ratio ~ rw_dex_hiv_prev_ratio"
+    model_basic_mort_interactive_hiv <- "as_mort_prev_ratio ~ rw_dex_hiv_prev_ratio * high_hiv_prev"
+  }
 } else {
-  model_basic_mort <- "as_mort_prev_ratio ~ as_spend_prev_ratio"
-  model_basic_mort_interactive_hiv <- "as_mort_prev_ratio ~ as_spend_prev_ratio * high_hiv_prev"
+  if (cdc) {
+    model_basic_mort <- "as_cdc_mort_prev_ratio ~ as_cdc_spend_prev_ratio"
+    model_basic_mort_interactive_hiv <- "as_cdc_mort_prev_ratio ~ as_cdc_spend_prev_ratio * high_cdc_hiv_prev"
+  } else {
+    model_basic_mort <- "as_mort_prev_ratio ~ as_spend_prev_ratio"
+    model_basic_mort_interactive_hiv <- "as_mort_prev_ratio ~ as_spend_prev_ratio * high_hiv_prev"
+  }
 }
 
-# Basic Model
+# SUD
+model_basic_mort_sud <- "as_mort_prev_ratio ~ as_spend_prev_ratio"
 model_basic_mort_interactive_sud <- "as_mort_prev_ratio ~ as_spend_prev_ratio * high_sud_prev"
 
 # Covariate combinations
 cov_h <- c('obesity', 'age65', 'cig_pc_10', 'phys_act_10', 'edu_yrs', 'as_spend_prev_ratio')
 
-cov_sud <- c("prevalence_counts")
+cov_sud <- c("sud_prevalence_counts")
 
 cov_aca_expansion <- c("aca_implemented_status")
 
@@ -380,7 +422,7 @@ cov_year_loc <- c("year_id", "location_id")
 cov_race <- c("race_prop_BLCK", "race_prop_HISP")
 
 cov_risk <- c(
-  "prev_diabetes",
+  "obesity",
   "cig_pc_10",
   "phys_act_10"
 )
@@ -420,14 +462,14 @@ f7_hiv_interact <- as.formula(paste(model_basic_mort_interactive_hiv, "+", paste
 f9_hiv_interact <- as.formula(paste(model_basic_mort_interactive_hiv, "+", paste(c(cov_h), collapse = " + ")))
 
 # SUD - Mort / prev - Formulas
-f0_sud <- as.formula(model_basic_mort)
-f1_sud <- as.formula(paste(model_basic_mort, "+", paste(cov_risk, collapse = " + ")))
-f2_sud <- as.formula(paste(model_basic_mort, "+", paste(c(cov_risk, cov_aca_expansion), collapse = " + ")))
-f3_sud <- as.formula(paste(model_basic_mort, "+", paste(c(cov_risk, cov_aca_expansion, cov_year_loc), collapse = " + ")))
-f4_sud <- as.formula(paste(model_basic_mort, "+", paste(c(cov_risk, cov_aca_expansion, cov_year_loc, cov_race), collapse = " + ")))
-f5_sud <- as.formula(paste(model_basic_mort, "+", paste(c(cov_risk, cov_aca_expansion, cov_year_loc, cov_race, cov_ses), collapse = " + ")))
-f6_sud <- as.formula(paste(model_basic_mort, "+", paste(c(cov_risk, cov_aca_expansion, cov_year_loc, cov_race, cov_ses, cov_density), collapse = " + ")))
-f7_sud <- as.formula(paste(model_basic_mort, "+", paste(c(cov_h), collapse = " + ")))
+f0_sud <- as.formula(model_basic_mort_sud)
+f1_sud <- as.formula(paste(model_basic_mort_sud, "+", paste(cov_risk, collapse = " + ")))
+f2_sud <- as.formula(paste(model_basic_mort_sud, "+", paste(c(cov_risk, cov_aca_expansion), collapse = " + ")))
+f3_sud <- as.formula(paste(model_basic_mort_sud, "+", paste(c(cov_risk, cov_aca_expansion, cov_year_loc), collapse = " + ")))
+f4_sud <- as.formula(paste(model_basic_mort_sud, "+", paste(c(cov_risk, cov_aca_expansion, cov_year_loc, cov_race), collapse = " + ")))
+f5_sud <- as.formula(paste(model_basic_mort_sud, "+", paste(c(cov_risk, cov_aca_expansion, cov_year_loc, cov_race, cov_ses), collapse = " + ")))
+f6_sud <- as.formula(paste(model_basic_mort_sud, "+", paste(c(cov_risk, cov_aca_expansion, cov_year_loc, cov_race, cov_ses, cov_density), collapse = " + ")))
+f7_sud <- as.formula(paste(model_basic_mort_sud, "+", paste(c(cov_h), collapse = " + ")))
 
 # SUD - Mort / prev w/ interaction term - Formulas
 f0_sud_interact <- as.formula(model_basic_mort_interactive_sud)
@@ -446,7 +488,7 @@ list_formulas_hiv <- list(
   m_mort_plus_aca_expansion                  = f2_hiv,
   m_mort_plus_year_loc                       = f3_hiv,
   m_mort_plus_race                           = f4_hiv,
-  m_mort_plus_diab_cig_phys_ac               = f5_hiv,
+  m_mort_plus_obesity_cig_phys_ac            = f5_hiv,
   m_mort_plus_edu_ldi                        = f6_hiv,
   m_mort_plus_density                        = f7_hiv,
   #m_mort_plus_rw                             = f8_hiv,
@@ -456,7 +498,7 @@ list_formulas_hiv <- list(
   m_mort_int_plus_aca_expansion              = f2_hiv_interact,
   m_mort_int_plus_year_loc                   = f3_hiv_interact,
   m_mort_int_plus_race                       = f4_hiv_interact,
-  m_mort_int_plus_diab_cig_phys_ac           = f5_hiv_interact,
+  m_mort_int_plus_obesity_cig_phys_ac        = f5_hiv_interact,
   m_mort_int_plus_edu_ldi                    = f6_hiv_interact,
   m_mort_int_plus_density                    = f7_hiv_interact,
   #m_mort_int_plus_rw                         = f8_hiv_interact,
@@ -465,7 +507,7 @@ list_formulas_hiv <- list(
 
 list_formulas_sud <- list(
   m_mort_unadj                               = f0_sud,
-  m_mort_plus_diab_cig_phys_ac               = f1_sud,
+  m_mort_plus_obesity_cig_phys_ac            = f1_sud,
   m_mort_plus_aca_expansion                  = f2_sud,
   m_mort_plus_year_loc                       = f3_sud,
   m_mort_plus_race                           = f4_sud,
@@ -473,7 +515,7 @@ list_formulas_sud <- list(
   m_mort_plus_density                        = f6_sud,
   m_mort_haley                               = f7_sud,
   m_mort_int_unadj                           = f0_sud_interact,
-  m_mort_int_plus_diab_cig_phys_ac           = f1_sud_interact,
+  m_mort_int_plus_obesity_cig_phys_ac        = f1_sud_interact,
   m_mort_int_plus_aca_expansion              = f2_sud_interact,
   m_mort_int_plus_year_loc                   = f3_sud_interact,
   m_mort_int_plus_race                       = f4_sud_interact,
@@ -496,10 +538,15 @@ for (nm in names(list_formulas_hiv)) {
 }
 
 # SUD 
-df_sud <- df_as %>% filter(acause == "_subs")
+if (cdc) {
+  print("Skipping SUD models for CDC data run!")
+} else {
 
-for (nm in names(list_formulas_sud)) {
-  list_models[[paste("_subs", nm, sep = "__")]] <- lm(list_formulas_sud[[nm]], data = df_sud)
+  df_sud <- df_as %>% filter(acause == "_subs")
+  
+  for (nm in names(list_formulas_sud)) {
+    list_models[[paste("_subs", nm, sep = "__")]] <- lm(list_formulas_sud[[nm]], data = df_sud)
+  }
 }
 
 ##----------------------------------------------------------------
@@ -541,16 +588,34 @@ metrics_tbl <- imap_dfr(list_models, ~{
 ## 12. Save Outputs
 ##----------------------------------------------------------------
 if (rw) {
-  # Model Outputs
-  write.csv(coef_tbl, file.path(dir_output, "model_coefficients_rw.csv"))
-  write.csv(metrics_tbl, file.path(dir_output, "model_metrics_rw.csv"))
-  
+  if (cdc) {
+    # Model Outputs
+    write.csv(coef_tbl, file.path(dir_output, "model_coefficients_rw_cdc.csv"))
+    write.csv(metrics_tbl, file.path(dir_output, "model_metrics_rw_cdc.csv"))
+  } else {
+    # Model Outputs
+    write.csv(coef_tbl, file.path(dir_output, "model_coefficients_rw.csv"))
+    write.csv(metrics_tbl, file.path(dir_output, "model_metrics_rw.csv"))
+  }
 } else {
-  # Model Outputs
-  write.csv(coef_tbl, file.path(dir_output, "model_coefficients.csv"))
-  write.csv(metrics_tbl, file.path(dir_output, "model_metrics.csv"))
+  if (cdc) {
+    # Model Outputs
+    write.csv(coef_tbl, file.path(dir_output, "model_coefficients_cdc.csv"))
+    write.csv(metrics_tbl, file.path(dir_output, "model_metrics_cdc.csv"))
+  } else {
+    # Model Outputs
+    write.csv(coef_tbl, file.path(dir_output, "model_coefficients.csv"))
+    write.csv(metrics_tbl, file.path(dir_output, "model_metrics.csv"))
+  }
+
 }
 
-# DF w/ all covariates
-write.csv(df_as, file.path(dir_output, "df_as_covariates.csv"))
+if (cdc) {
+  # DF w/ all covariates
+  write.csv(df_as, file.path(dir_output, "df_as_cdc_covariates.csv"))
+} else {
+  # DF w/ all covariates
+  write.csv(df_as, file.path(dir_output, "df_as_covariates.csv"))
+}
+
 

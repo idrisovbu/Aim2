@@ -64,7 +64,7 @@ ensure_dir_exists <- function(dir_path) {
 ## 0.2 Input / Output Directories
 ##----------------------------------------------------------------
 # Input directory
-dex_date_folder <- "20251123"
+dex_date_folder <- "20260120"
 dex_dir <- paste0("/ihme/homes/idrisov/aim_outputs/Aim2/A_data_preparation/", dex_date_folder, "/DEX/")
 
 ushd_date_folder <- "20251204"

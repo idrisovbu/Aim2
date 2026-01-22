@@ -64,7 +64,7 @@ save_plot <- function(ggplot_obj, ggplot_name, output_path, width = 14, height =
 ## 0.2 Set directories for DEX estimate data / county estimates
 ##----------------------------------------------------------------
 # Set path for data
-date_dex <- "20251123"
+date_dex <- "20260120"
 fp_dex <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_dex, "/compiled_dex_data_2010_2019.parquet")
 
 date_ushd <- "20251204"
@@ -755,50 +755,52 @@ df_test <- df_dex %>%
 #     spend_mean = sum(spend_mean)
 #   )
 
-df_test_rc <- df_test %>%
-  select(c("year_id", "geo", "location_name", "fips", "payer", "toc",
-           "acause", "cause_name", "age_group_years_start", "age_name",
-           "sex_id", "sex_name", "spend_mean",
-           "state_name", "location_id", "merged_location_id"))
-
-df_test_pivot <- df_test_rc %>%
-  pivot_wider(
-    names_from  = payer,
-    values_from = spend_mean
-  )
-
-df_test_pivot <- df_test_pivot %>%
-  mutate(
-    payer_sum = rowSums(cbind(mdcd, mdcr, oop, priv), na.rm = TRUE),
-    payer_delta = (all - payer_sum)
-  )
-
-
-df_test_pivot$payer_sum <- df_test_pivot$mdcd + df_test_pivot$mdcr + df_test_pivot$oop + df_test_pivot$priv
-df_test_pivot$payer_delta <- df_test_pivot$all - df_test_pivot$payer_sum
+# df_test_rc <- df_test %>%
+#   select(c("year_id", "geo", "location_name", "fips", "payer", "toc",
+#            "acause", "cause_name", "age_group_years_start", "age_name",
+#            "sex_id", "sex_name", "spend_mean",
+#            "state_name", "location_id", "merged_location_id"))
+# 
+# df_test_pivot <- df_test_rc %>%
+#   pivot_wider(
+#     names_from  = payer,
+#     values_from = spend_mean
+#   )
+# 
+# df_test_pivot <- df_test_pivot %>%
+#   mutate(
+#     payer_sum = rowSums(cbind(mdcd, mdcr, oop, priv), na.rm = TRUE),
+#     payer_delta = (all - payer_sum)
+#   )
+# 
+# 
+# df_test_pivot$payer_sum <- df_test_pivot$mdcd + df_test_pivot$mdcr + df_test_pivot$oop + df_test_pivot$priv
+# df_test_pivot$payer_delta <- df_test_pivot$all - df_test_pivot$payer_sum
 
 
 # CHecking national level
-df_test_nat <- df_dex %>%
-  filter(geo == "national") %>%
-  filter(acause == "hiv") %>%
-  filter(year_id == 2015) %>%
-  filter(age_name == "55 - <60") %>%
-  select(c("year_id", "geo", "location_name", "fips", "payer", "toc",
-           "acause", "cause_name", "age_group_years_start", "age_name",
-           "sex_id", "sex_name", "spend_mean",
-           "state_name", "location_id", "merged_location_id")) %>%
-  pivot_wider(
-    names_from  = payer,
-    values_from = spend_mean
-  ) %>%
-  mutate(
-    payer_sum = rowSums(cbind(mdcd, mdcr, oop, priv), na.rm = TRUE),
-    payer_delta = (all - payer_sum)
-  )
-
-View(df_test_nat %>% select(c("year_id", "geo", "location_name", "toc", "acause", 
-                               "cause_name", "age_group_years_start", "age_name", "sex_id", 
-                               "all", "mdcd", "mdcr", "oop", "priv", "payer_sum", "payer_delta"
-)))
+# df_test_nat <- df_dex %>%
+#   filter(geo == "national") %>%
+#   filter(acause == "hiv") %>%
+#   filter(year_id == 2015) %>%
+#   filter(age_name == "55 - <60") %>%
+#   select(c("year_id", "geo", "location_name", "fips", "payer", "toc",
+#            "acause", "cause_name", "age_group_years_start", "age_name",
+#            "sex_id", "sex_name", "spend_mean",
+#            "state_name", "location_id", "merged_location_id"))
+# 
+# 
+#   pivot_wider(
+#     names_from  = payer,
+#     values_from = spend_mean
+#   ) %>%
+#   mutate(
+#     payer_sum = rowSums(cbind(mdcd, mdcr, oop, priv), na.rm = TRUE),
+#     payer_delta = (all - payer_sum)
+#   )
+# 
+# View(df_test_nat %>% select(c("year_id", "geo", "location_name", "toc", "acause", 
+#                                "cause_name", "age_group_years_start", "age_name", "sex_id", 
+#                                "all", "mdcd", "mdcr", "oop", "priv", "payer_sum", "payer_delta"
+# )))
 
