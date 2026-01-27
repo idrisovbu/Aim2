@@ -9,7 +9,7 @@
 ## Clear environment and set library paths
 ##----------------------------------------------------------------
 rm(list = ls())
-pacman::p_load(data.table, arrow, tidyverse, glue, broom, purrr, readr, lubridate, readxl)
+pacman::p_load(data.table, arrow, tidyverse, glue, broom, purrr, readr, lubridate, readxl, e1071)
 
 # Set drive paths
 if (Sys.info()["sysname"] == 'Linux'){
@@ -30,9 +30,12 @@ source(file.path(h, "/repo/Aim1/aim1_scripts/Z_utilities/deflate.R"))
 
 ##----------------------------------------------------------------
 ## 0. Set Boolean variables
+## 
+## Notes: "rw" variable is always set to T as of 1/26
 ##----------------------------------------------------------------
 rw <- T # Set TRUE if desire RW + DEX / prevalence counts to be the predictor variable (see "Specify Models" section), FALSE if just spend / prev count ratio as predictor
 cdc <- T # Set TRUE if you want to use CDC HIV prevalence and mortality in the models instead of GBD prev deaths, FALSE if wanting to use GBD data
+cdc_gbd_mix <- T # Set T if want to set the outcome ratio to be GBD mort / CDC prev, F if just regular settings
 
 ##----------------------------------------------------------------
 ## 0.1 Functions
@@ -378,6 +381,13 @@ if (cdc) {
   df_as$rw_dex_hiv_prev_ratio <- (df_as$ryan_white_funding_final + df_as$spend_all) / df_as$hiv_prevalence_counts
 }
 
+# Add the custom ratio ONLY used in HIV
+# - RW + DEX spend / CDC prev (have this already)
+# - GBD mortality / CDC prevalence (created below)
+if (cdc_gbd_mix) {
+  df_as$as_cdc_mort_prev_ratio <- df_as$mortality_counts / df_as$cdc_hiv_prevalence_counts
+}
+
 ##----------------------------------------------------------------
 ## 8. Factor location_id and year_id to add as covariates
 ##----------------------------------------------------------------
@@ -385,7 +395,20 @@ df_as$year_id <- as.factor(df_as$year_id)
 df_as$location_id <- as.factor(df_as$location_id)
 
 ##----------------------------------------------------------------
-## 9. Specify Models
+## 9. Log data - exploration
+##----------------------------------------------------------------
+# Outcome and predictor ratios
+pred_out_log_cols <- grep("ratio", colnames(df_as), value = TRUE)
+
+# Covariate variables to log
+cov_log_cols <- c("phys_act_10", "sud_prevalence_counts")
+
+# Log data
+df_as <- df_as %>%
+  mutate(across(all_of(c(pred_out_log_cols, cov_log_cols)), log1p))
+
+##----------------------------------------------------------------
+## 10. Specify Models
 ##----------------------------------------------------------------
 # HIV
 if (rw) {
@@ -415,7 +438,7 @@ cov_h <- c('obesity', 'age65', 'cig_pc_10', 'phys_act_10', 'edu_yrs', 'as_spend_
 
 cov_sud <- c("sud_prevalence_counts")
 
-cov_aca_expansion <- c("aca_implemented_status")
+# cov_aca_expansion <- c("aca_implemented_status") # UNUSED 
 
 cov_year_loc <- c("year_id", "location_id")
 
@@ -428,8 +451,7 @@ cov_risk <- c(
 )
 
 cov_ses <- c(
-  "edu_yrs",
-  "ldi_pc"
+  "edu_yrs"
 )
 
 cov_density <- c(
@@ -440,66 +462,66 @@ cov_density <- c(
 # HIV - Mort / prev - Formulas
 f0_hiv <- as.formula(model_basic_mort)
 f1_hiv <- as.formula(paste(model_basic_mort, "+", paste(cov_sud, collapse = " + ")))
-f2_hiv <- as.formula(paste(model_basic_mort, "+", paste(c(cov_sud, cov_aca_expansion), collapse = " + ")))
-f3_hiv <- as.formula(paste(model_basic_mort, "+", paste(c(cov_sud, cov_aca_expansion, cov_year_loc), collapse = " + ")))
-f4_hiv <- as.formula(paste(model_basic_mort, "+", paste(c(cov_sud, cov_aca_expansion, cov_year_loc, cov_race), collapse = " + ")))
-f5_hiv <- as.formula(paste(model_basic_mort, "+", paste(c(cov_sud, cov_aca_expansion, cov_year_loc, cov_race, cov_risk), collapse = " + ")))
-f6_hiv <- as.formula(paste(model_basic_mort, "+", paste(c(cov_sud, cov_aca_expansion, cov_year_loc, cov_race, cov_risk, cov_ses), collapse = " + ")))
-f7_hiv <- as.formula(paste(model_basic_mort, "+", paste(c(cov_sud, cov_aca_expansion, cov_year_loc, cov_race, cov_risk, cov_ses, cov_density), collapse = " + ")))
-# f8_hiv <- as.formula(paste(model_basic_mort, "+", paste(c(cov_sud, cov_aca_expansion, cov_year_loc, cov_race, cov_risk, cov_ses, cov_density, cov_rw), collapse = " + "))) # Ryan White
+# f2_hiv <- as.formula(paste(model_basic_mort, "+", paste(c(cov_sud, cov_aca_expansion), collapse = " + ")))
+f3_hiv <- as.formula(paste(model_basic_mort, "+", paste(c(cov_sud, cov_year_loc), collapse = " + ")))
+f4_hiv <- as.formula(paste(model_basic_mort, "+", paste(c(cov_sud, cov_year_loc, cov_race), collapse = " + ")))
+f5_hiv <- as.formula(paste(model_basic_mort, "+", paste(c(cov_sud, cov_year_loc, cov_race, cov_risk), collapse = " + ")))
+f6_hiv <- as.formula(paste(model_basic_mort, "+", paste(c(cov_sud, cov_year_loc, cov_race, cov_risk, cov_ses), collapse = " + ")))
+f7_hiv <- as.formula(paste(model_basic_mort, "+", paste(c(cov_sud, cov_year_loc, cov_race, cov_risk, cov_ses, cov_density), collapse = " + ")))
+# f8_hiv <- as.formula(paste(model_basic_mort, "+", paste(c(cov_sud, cov_year_loc, cov_race, cov_risk, cov_ses, cov_density, cov_rw), collapse = " + "))) # Ryan White
 f9_hiv <- as.formula(paste(model_basic_mort, "+", paste(c(cov_h), collapse = " + ")))
 
 # HIV - Mort / prev w/ interaction term - Formulas
 f0_hiv_interact <- as.formula(model_basic_mort_interactive_hiv)
 f1_hiv_interact <- as.formula(paste(model_basic_mort_interactive_hiv, "+", paste(cov_sud, collapse = " + ")))
-f2_hiv_interact <- as.formula(paste(model_basic_mort_interactive_hiv, "+", paste(c(cov_sud, cov_aca_expansion), collapse = " + ")))
-f3_hiv_interact <- as.formula(paste(model_basic_mort_interactive_hiv, "+", paste(c(cov_sud, cov_aca_expansion, cov_year_loc), collapse = " + ")))
-f4_hiv_interact <- as.formula(paste(model_basic_mort_interactive_hiv, "+", paste(c(cov_sud, cov_aca_expansion, cov_year_loc, cov_race), collapse = " + ")))
-f5_hiv_interact <- as.formula(paste(model_basic_mort_interactive_hiv, "+", paste(c(cov_sud, cov_aca_expansion, cov_year_loc, cov_race, cov_risk), collapse = " + ")))
-f6_hiv_interact <- as.formula(paste(model_basic_mort_interactive_hiv, "+", paste(c(cov_sud, cov_aca_expansion, cov_year_loc, cov_race, cov_risk, cov_ses), collapse = " + ")))
-f7_hiv_interact <- as.formula(paste(model_basic_mort_interactive_hiv, "+", paste(c(cov_sud, cov_aca_expansion, cov_year_loc, cov_race, cov_risk, cov_ses, cov_density), collapse = " + ")))
+# f2_hiv_interact <- as.formula(paste(model_basic_mort_interactive_hiv, "+", paste(c(cov_sud, cov_aca_expansion), collapse = " + ")))
+f3_hiv_interact <- as.formula(paste(model_basic_mort_interactive_hiv, "+", paste(c(cov_sud, cov_year_loc), collapse = " + ")))
+f4_hiv_interact <- as.formula(paste(model_basic_mort_interactive_hiv, "+", paste(c(cov_sud, cov_year_loc, cov_race), collapse = " + ")))
+f5_hiv_interact <- as.formula(paste(model_basic_mort_interactive_hiv, "+", paste(c(cov_sud, cov_year_loc, cov_race, cov_risk), collapse = " + ")))
+f6_hiv_interact <- as.formula(paste(model_basic_mort_interactive_hiv, "+", paste(c(cov_sud, cov_year_loc, cov_race, cov_risk, cov_ses), collapse = " + ")))
+f7_hiv_interact <- as.formula(paste(model_basic_mort_interactive_hiv, "+", paste(c(cov_sud, cov_year_loc, cov_race, cov_risk, cov_ses, cov_density), collapse = " + ")))
 # f8_hiv_interact <- as.formula(paste(model_basic_mort_interactive_hiv, "+", paste(c(cov_sud, cov_aca_expansion, cov_year_loc, cov_race, cov_risk, cov_ses, cov_density, cov_rw), collapse = " + "))) # Ryan White
 f9_hiv_interact <- as.formula(paste(model_basic_mort_interactive_hiv, "+", paste(c(cov_h), collapse = " + ")))
 
 # SUD - Mort / prev - Formulas
 f0_sud <- as.formula(model_basic_mort_sud)
 f1_sud <- as.formula(paste(model_basic_mort_sud, "+", paste(cov_risk, collapse = " + ")))
-f2_sud <- as.formula(paste(model_basic_mort_sud, "+", paste(c(cov_risk, cov_aca_expansion), collapse = " + ")))
-f3_sud <- as.formula(paste(model_basic_mort_sud, "+", paste(c(cov_risk, cov_aca_expansion, cov_year_loc), collapse = " + ")))
-f4_sud <- as.formula(paste(model_basic_mort_sud, "+", paste(c(cov_risk, cov_aca_expansion, cov_year_loc, cov_race), collapse = " + ")))
-f5_sud <- as.formula(paste(model_basic_mort_sud, "+", paste(c(cov_risk, cov_aca_expansion, cov_year_loc, cov_race, cov_ses), collapse = " + ")))
-f6_sud <- as.formula(paste(model_basic_mort_sud, "+", paste(c(cov_risk, cov_aca_expansion, cov_year_loc, cov_race, cov_ses, cov_density), collapse = " + ")))
+# f2_sud <- as.formula(paste(model_basic_mort_sud, "+", paste(c(cov_risk, cov_aca_expansion), collapse = " + ")))
+f3_sud <- as.formula(paste(model_basic_mort_sud, "+", paste(c(cov_risk, cov_year_loc), collapse = " + ")))
+f4_sud <- as.formula(paste(model_basic_mort_sud, "+", paste(c(cov_risk, cov_year_loc, cov_race), collapse = " + ")))
+f5_sud <- as.formula(paste(model_basic_mort_sud, "+", paste(c(cov_risk, cov_year_loc, cov_race, cov_ses), collapse = " + ")))
+f6_sud <- as.formula(paste(model_basic_mort_sud, "+", paste(c(cov_risk, cov_year_loc, cov_race, cov_ses, cov_density), collapse = " + ")))
 f7_sud <- as.formula(paste(model_basic_mort_sud, "+", paste(c(cov_h), collapse = " + ")))
 
 # SUD - Mort / prev w/ interaction term - Formulas
 f0_sud_interact <- as.formula(model_basic_mort_interactive_sud)
 f1_sud_interact <- as.formula(paste(model_basic_mort_interactive_sud, "+", paste(cov_risk, collapse = " + ")))
-f2_sud_interact <- as.formula(paste(model_basic_mort_interactive_sud, "+", paste(c(cov_risk, cov_aca_expansion), collapse = " + ")))
-f3_sud_interact <- as.formula(paste(model_basic_mort_interactive_sud, "+", paste(c(cov_risk, cov_aca_expansion, cov_year_loc), collapse = " + ")))
-f4_sud_interact <- as.formula(paste(model_basic_mort_interactive_sud, "+", paste(c(cov_risk, cov_aca_expansion, cov_year_loc, cov_race), collapse = " + ")))
-f5_sud_interact <- as.formula(paste(model_basic_mort_interactive_sud, "+", paste(c(cov_risk, cov_aca_expansion, cov_year_loc, cov_race, cov_ses), collapse = " + ")))
-f6_sud_interact <- as.formula(paste(model_basic_mort_interactive_sud, "+", paste(c(cov_risk, cov_aca_expansion, cov_year_loc, cov_race, cov_ses, cov_density), collapse = " + ")))
+# f2_sud_interact <- as.formula(paste(model_basic_mort_interactive_sud, "+", paste(c(cov_risk, cov_aca_expansion), collapse = " + ")))
+f3_sud_interact <- as.formula(paste(model_basic_mort_interactive_sud, "+", paste(c(cov_risk, cov_year_loc), collapse = " + ")))
+f4_sud_interact <- as.formula(paste(model_basic_mort_interactive_sud, "+", paste(c(cov_risk, cov_year_loc, cov_race), collapse = " + ")))
+f5_sud_interact <- as.formula(paste(model_basic_mort_interactive_sud, "+", paste(c(cov_risk, cov_year_loc, cov_race, cov_ses), collapse = " + ")))
+f6_sud_interact <- as.formula(paste(model_basic_mort_interactive_sud, "+", paste(c(cov_risk, cov_year_loc, cov_race, cov_ses, cov_density), collapse = " + ")))
 f7_sud_interact <- as.formula(paste(model_basic_mort_interactive_sud, "+", paste(c(cov_h), collapse = " + ")))
 
 # Formula List
 list_formulas_hiv <- list(
   m_mort_unadj                               = f0_hiv,
   m_mort_plus_sud                            = f1_hiv,
-  m_mort_plus_aca_expansion                  = f2_hiv,
+  #m_mort_plus_aca_expansion                  = f2_hiv,
   m_mort_plus_year_loc                       = f3_hiv,
   m_mort_plus_race                           = f4_hiv,
   m_mort_plus_obesity_cig_phys_ac            = f5_hiv,
-  m_mort_plus_edu_ldi                        = f6_hiv,
+  m_mort_plus_edu                            = f6_hiv,
   m_mort_plus_density                        = f7_hiv,
   #m_mort_plus_rw                             = f8_hiv,
   m_mort_haley                               = f9_hiv,
   m_mort_int_unadj                           = f0_hiv_interact,
   m_mort_int_plus_sud                        = f1_hiv_interact,
-  m_mort_int_plus_aca_expansion              = f2_hiv_interact,
+  #m_mort_int_plus_aca_expansion              = f2_hiv_interact,
   m_mort_int_plus_year_loc                   = f3_hiv_interact,
   m_mort_int_plus_race                       = f4_hiv_interact,
   m_mort_int_plus_obesity_cig_phys_ac        = f5_hiv_interact,
-  m_mort_int_plus_edu_ldi                    = f6_hiv_interact,
+  m_mort_int_plus_edu                        = f6_hiv_interact,
   m_mort_int_plus_density                    = f7_hiv_interact,
   #m_mort_int_plus_rw                         = f8_hiv_interact,
   m_mort_int_haley                           = f9_hiv_interact
@@ -508,25 +530,25 @@ list_formulas_hiv <- list(
 list_formulas_sud <- list(
   m_mort_unadj                               = f0_sud,
   m_mort_plus_obesity_cig_phys_ac            = f1_sud,
-  m_mort_plus_aca_expansion                  = f2_sud,
+  #m_mort_plus_aca_expansion                  = f2_sud,
   m_mort_plus_year_loc                       = f3_sud,
   m_mort_plus_race                           = f4_sud,
-  m_mort_plus_edu_ldi                        = f5_sud,
+  m_mort_plus_edu                            = f5_sud,
   m_mort_plus_density                        = f6_sud,
   m_mort_haley                               = f7_sud,
   m_mort_int_unadj                           = f0_sud_interact,
   m_mort_int_plus_obesity_cig_phys_ac        = f1_sud_interact,
-  m_mort_int_plus_aca_expansion              = f2_sud_interact,
+  #m_mort_int_plus_aca_expansion              = f2_sud_interact,
   m_mort_int_plus_year_loc                   = f3_sud_interact,
   m_mort_int_plus_race                       = f4_sud_interact,
-  m_mort_int_plus_edu_ldi                    = f5_sud_interact,
+  m_mort_int_plus_edu                        = f5_sud_interact,
   m_mort_int_plus_density                    = f6_sud_interact,
   m_mort_int_haley                           = f7_sud_interact
 )
 
 
 ##----------------------------------------------------------------
-## 10. Run Models
+## 11. Run Models
 ##----------------------------------------------------------------
 list_models <- list()
 
@@ -550,7 +572,7 @@ if (cdc) {
 }
 
 ##----------------------------------------------------------------
-## 11. Extract coefficients from models
+## 12. Extract coefficients from models
 ##----------------------------------------------------------------
 coef_tbl <- imap_dfr(list_models, ~{
   broom::tidy(.x) %>%
@@ -585,29 +607,34 @@ metrics_tbl <- imap_dfr(list_models, ~{
 })
 
 ##----------------------------------------------------------------
-## 12. Save Outputs
+## 13. Save Outputs
 ##----------------------------------------------------------------
-if (rw) {
-  if (cdc) {
-    # Model Outputs
-    write.csv(coef_tbl, file.path(dir_output, "model_coefficients_rw_cdc.csv"))
-    write.csv(metrics_tbl, file.path(dir_output, "model_metrics_rw_cdc.csv"))
-  } else {
-    # Model Outputs
-    write.csv(coef_tbl, file.path(dir_output, "model_coefficients_rw.csv"))
-    write.csv(metrics_tbl, file.path(dir_output, "model_metrics_rw.csv"))
-  }
+if (rw & cdc & cdc_gbd_mix) {
+  # Model Outputs
+  write.csv(coef_tbl, file.path(dir_output, "model_coefficients_rw_cdc_gbd_mix.csv"))
+  write.csv(metrics_tbl, file.path(dir_output, "model_metrics_rw_cdc_gbd_mix.csv"))
 } else {
-  if (cdc) {
-    # Model Outputs
-    write.csv(coef_tbl, file.path(dir_output, "model_coefficients_cdc.csv"))
-    write.csv(metrics_tbl, file.path(dir_output, "model_metrics_cdc.csv"))
+  if (rw) {
+    if (cdc) {
+      # Model Outputs
+      write.csv(coef_tbl, file.path(dir_output, "model_coefficients_rw_cdc.csv"))
+      write.csv(metrics_tbl, file.path(dir_output, "model_metrics_rw_cdc.csv"))
+    } else {
+      # Model Outputs
+      write.csv(coef_tbl, file.path(dir_output, "model_coefficients_rw.csv"))
+      write.csv(metrics_tbl, file.path(dir_output, "model_metrics_rw.csv"))
+    }
   } else {
-    # Model Outputs
-    write.csv(coef_tbl, file.path(dir_output, "model_coefficients.csv"))
-    write.csv(metrics_tbl, file.path(dir_output, "model_metrics.csv"))
+    if (cdc) {
+      # Model Outputs
+      write.csv(coef_tbl, file.path(dir_output, "model_coefficients_cdc.csv"))
+      write.csv(metrics_tbl, file.path(dir_output, "model_metrics_cdc.csv"))
+    } else {
+      # Model Outputs
+      write.csv(coef_tbl, file.path(dir_output, "model_coefficients.csv"))
+      write.csv(metrics_tbl, file.path(dir_output, "model_metrics.csv"))
+    }
   }
-
 }
 
 if (cdc) {
@@ -617,5 +644,111 @@ if (cdc) {
   # DF w/ all covariates
   write.csv(df_as, file.path(dir_output, "df_as_covariates.csv"))
 }
+
+##----------------------------------------------------------------
+## SKEWNESS EXPLORATION - SAFE TO DELETE
+##----------------------------------------------------------------
+# skew_summary_table <- function(df) {
+#   df %>%
+#     select(where(is.numeric)) %>%
+#     pivot_longer(
+#       cols = everything(),
+#       names_to = "variable",
+#       values_to = "value"
+#     ) %>%
+#     group_by(variable) %>%
+#     summarise(
+#       n        = sum(!is.na(value)),
+#       mean     = mean(value, na.rm = TRUE),
+#       sd       = sd(value, na.rm = TRUE),
+#       min      = min(value, na.rm = TRUE),
+#       p25      = quantile(value, 0.25, na.rm = TRUE),
+#       median   = median(value, na.rm = TRUE),
+#       p75      = quantile(value, 0.75, na.rm = TRUE),
+#       max      = max(value, na.rm = TRUE),
+#       skewness = skewness(value, na.rm = TRUE),
+#       .groups = "drop"
+#     )
+# }
+# 
+# skew_tbl <- skew_summary_table(df_as %>% filter(acause == "hiv"))
+# 
+# skew_tbl <- skew_tbl %>%
+#   mutate(
+#     log_candidate = case_when(
+#       skewness > 1  & min > 0 ~ "yes",
+#       skewness > 0.5 & min > 0 ~ "maybe",
+#       TRUE ~ "no"
+#     )
+#   )
+# 
+# skew_tbl <- skew_tbl %>%
+#   mutate(
+#     skew_interpretation = case_when(
+#       skewness < -1              ~ "strong left skew",
+#       skewness >= -1 & skewness < -0.5 ~ "moderate left skew",
+#       skewness >= -0.5 & skewness <= 0.5 ~ "approximately symmetric",
+#       skewness > 0.5 & skewness <= 1     ~ "mild right skew",
+#       skewness > 1 & skewness <= 2       ~ "strong right skew",
+#       skewness > 2                       ~ "extreme right skew",
+#       TRUE ~ NA_character_
+#     )
+#   )
+# 
+# skew_tbl <- skew_tbl %>%
+#   mutate(
+#     transform_recommendation = case_when(
+#       skewness > 1 & min > 0  ~ "log recommended",
+#       skewness > 0.5 & min > 0 ~ "log optional",
+#       TRUE ~ "no transform"
+#     )
+#   )
+# 
+# View(skew_tbl %>% select(c("variable", "skewness", "log_candidate", "skew_interpretation", "transform_recommendation")))
+# 
+# # YES to logging
+# # Outcome and predictor ratio variablkes
+# 
+# # Potential YES log candidates
+# # phys_act_10 - this is number of minutes per week of activity
+# # sud_prevalence_counts
+# 
+# # Prevalence Count
+# ggplot(df_as %>% filter(acause == "hiv"), aes(x = cdc_hiv_prevalence_counts)) +
+#   geom_histogram(bins = 300, fill = "steelblue", color = "white") +
+#   labs(
+#     title = "Distribution of CDC HIV Prevalence Counts",
+#     x = "CDC HIV Prevalence Counts",
+#     y = "Frequency"
+#   ) +
+#   theme_minimal()
+# 
+# ggplot(df_as %>% filter(acause == "hiv"), aes(x = prevalence_counts)) +
+#   geom_histogram(bins = 300) +
+#   labs(
+#     title = "Distribution of GBD HIV Prevalence Counts",
+#     x = "GBD HIV Prevalence Counts",
+#     y = "Number of State–Year Observations"
+#   ) +
+#   theme_minimal()
+# 
+# # Mortality Count
+# ggplot(df_as %>% filter(acause == "hiv"), aes(x = cdc_hiv_mortality_counts)) +
+#   geom_histogram(bins = 300, fill = "steelblue", color = "white") +
+#   labs(
+#     title = "Distribution of CDC HIV Mortality Counts",
+#     x = "CDC HIV Mortality Counts",
+#     y = "Frequency"
+#   ) +
+#   theme_minimal()
+# 
+# ggplot(df_as %>% filter(acause == "hiv"), aes(x = mortality_counts)) +
+#   geom_histogram(bins = 300) +
+#   labs(
+#     title = "Distribution of GBD HIV Mortality Counts",
+#     x = "GBD HIV Mortality Counts",
+#     y = "Number of State–Year Observations"
+#   ) +
+#   theme_minimal()
 
 
