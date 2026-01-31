@@ -741,13 +741,13 @@ dev.off()
 
 # Code used to look at the difference between individual payer groups summed up vs. payer = all
 # There seems to be a pretty big delta
-df_test <- df_dex %>%
-  filter(geo == "county") %>%
-  filter(acause == "hiv") %>%
-  filter(year_id == 2015) %>%
-  filter(location_name == "King County") %>%
-  filter(fips == 53033) %>%
-  filter(age_name == "55 - <60")
+# df_test <- df_dex %>%
+#   filter(geo == "county") %>%
+#   filter(acause == "hiv") %>%
+#   filter(year_id == 2015) %>%
+#   filter(location_name == "King County") %>%
+#   filter(fips == 53033) %>%
+#   filter(age_name == "55 - <60")
 
 # df_test_sex <- df_test %>%
 #   group_by(year_id, location_name, fips, payer) %>%

@@ -32,10 +32,14 @@ source(file.path(h, "/repo/Aim1/aim1_scripts/Z_utilities/deflate.R"))
 ## 0. Set Boolean variables
 ## 
 ## Notes: "rw" variable is always set to T as of 1/26
+##
+## 3 unique combos,  rw (T), cdc (F), cdc_gbd_mix (F)
+##                   rw (T), cdc (T), cdc_gbd_mix (F)
+##                   rw (T), cdc (T), cdc_gbd_mix (T)
 ##----------------------------------------------------------------
 rw <- T # Set TRUE if desire RW + DEX / prevalence counts to be the predictor variable (see "Specify Models" section), FALSE if just spend / prev count ratio as predictor
-cdc <- T # Set TRUE if you want to use CDC HIV prevalence and mortality in the models instead of GBD prev deaths, FALSE if wanting to use GBD data
-cdc_gbd_mix <- T # Set T if want to set the outcome ratio to be GBD mort / CDC prev, F if just regular settings
+cdc <- F # Set TRUE if you want to use CDC HIV prevalence and mortality in the models instead of GBD prev deaths, FALSE if wanting to use GBD data
+cdc_gbd_mix <- F # Set T if want to set the outcome ratio to be GBD mort / CDC prev, F if just regular settings
 
 ##----------------------------------------------------------------
 ## 0.1 Functions
@@ -52,7 +56,7 @@ ensure_dir_exists <- function(dir_path) {
 ## 1. Set directories
 ##----------------------------------------------------------------
 # Set fp for age-standardized data
-as_date <- "20260121"
+as_date <- "20260131"
 fp_as <- file.path(h, '/aim_outputs/Aim2/C_frontier_analysis/', as_date, "df_as.csv")
 fp_as_cdc <- file.path(h, '/aim_outputs/Aim2/C_frontier_analysis/', as_date, "df_as_cdc.csv")
 
@@ -62,12 +66,12 @@ dir_output <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_today)
 ensure_dir_exists(dir_output)
 
 # Covariates data
-fp_df_cov <- "/ihme/resource_tracking/us_value/data/sfa_covars2021_shea.csv"
-fp_df_race_cov <- "/ihme/resource_tracking/us_value/data/sfa_covars_w_race_fractions.csv"
-fp_aca_expansion <- file.path(h, "/aim_outputs/Aim2/R_resources/aca_expansion_formatted.csv")
-fp_rw_t1 <- file.path(h, "/aim_outputs/Aim2/R_resources/ryan_white_data/rw_title1.xls")
-fp_rw_t2 <- file.path(h, "/aim_outputs/Aim2/R_resources/ryan_white_data/rw_title2.xls")
-fp_rw_2016_2019 <- file.path(h, "aim_outputs/Aim2/R_resources/ryan_white_data/ryan_white_data_2016-2019.csv")
+fp_df_cov <- "/ihme/resource_tracking/us_value/data/sfa_covars2021_shea.csv" # H's
+fp_df_race_cov <- "/ihme/resource_tracking/us_value/data/sfa_covars_w_race_fractions.csv" # H's
+fp_aca_expansion <- file.path(h, "/aim_outputs/Aim2/R_resources/aca_expansion_formatted.csv") # ACA - from online
+fp_rw_t1 <- file.path(h, "/aim_outputs/Aim2/R_resources/ryan_white_data/rw_title1.xls") # Marcus
+fp_rw_t2 <- file.path(h, "/aim_outputs/Aim2/R_resources/ryan_white_data/rw_title2.xls") # Marcus
+fp_rw_2016_2019 <- file.path(h, "aim_outputs/Aim2/R_resources/ryan_white_data/ryan_white_data_2016-2019.csv") # Official RW site
 
 # FIPS table
 fp_fips <- file.path(h, "/aim_outputs/Aim2/R_resources/state_county_city_fips.csv")
@@ -416,8 +420,17 @@ if (rw) {
     model_basic_mort <- "as_cdc_mort_prev_ratio ~ rw_cdc_dex_hiv_prev_ratio"
     model_basic_mort_interactive_hiv <- "as_cdc_mort_prev_ratio ~ rw_cdc_dex_hiv_prev_ratio * high_cdc_hiv_prev"
   } else {
+    # ORIGINAL MODELS
     model_basic_mort <- "as_mort_prev_ratio ~ rw_dex_hiv_prev_ratio"
     model_basic_mort_interactive_hiv <- "as_mort_prev_ratio ~ rw_dex_hiv_prev_ratio * high_hiv_prev"
+    
+    # YLL MODELS
+    # model_basic_mort <- "as_yll_prev_ratio ~ rw_dex_hiv_prev_ratio"
+    # model_basic_mort_interactive_hiv <- "as_yll_prev_ratio ~ rw_dex_hiv_prev_ratio * high_hiv_prev"
+    
+    # DALY MODELS
+    # model_basic_mort <- "as_daly_prev_ratio ~ rw_dex_hiv_prev_ratio"
+    # model_basic_mort_interactive_hiv <- "as_daly_prev_ratio ~ rw_dex_hiv_prev_ratio * high_hiv_prev"
   }
 } else {
   if (cdc) {

@@ -1,5 +1,5 @@
 ##----------------------------------------------------------------
-##' Title: C_FA_data_prep.R
+##' Title: C_model_data_prep.R
 ##'
 ##' Purpose: TBD
 ##----------------------------------------------------------------
@@ -46,8 +46,8 @@ ensure_dir_exists <- function(dir_path) {
 date_dex <- "20260120"
 fp_dex <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_dex, "/compiled_dex_data_2010_2019.parquet")
 
-date_gbd <- "20260113"
-fp_gbd <- file.path(h, "/aim_outputs/Aim2/A_data_preparation/", date_gbd, "/FA/df_gbd.parquet")
+date_gbd <- "20260131"
+fp_gbd <- file.path(h, "/aim_outputs/Aim2/A_data_preparation/", date_gbd, "/GBD/df_gbd.parquet")
 
 # date_ushd <- "20251204"
 # fp_ushd <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_ushd, "/compiled_ushd_data_2010_2019.parquet")
@@ -161,6 +161,9 @@ df_m <- left_join(
   by = c("location_id", "sex_id", "year_id", "acause", "cause_name", "location_name", "age_name")
 )
 
+# Write out age*sex*year*loc strata file, used for decomp analysis
+write.csv(x = df_m, row.names = FALSE, file = file.path(dir_output, "df_decomp.csv"))
+
 ##----------------------------------------------------------------
 ## 2. Collapse on sex_id
 ##----------------------------------------------------------------
@@ -176,6 +179,8 @@ df_m <- df_m %>%
     prevalence_counts = sum(prevalence_counts),
     daly_counts = sum(daly_counts),
     incidence_counts = sum(incidence_counts),
+    yll_counts = sum(yll_counts),
+    yld_counts = sum(yld_counts),
     population = sum(population),
     .groups = "drop"
   )
@@ -187,7 +192,9 @@ df_m <- df_m %>%
   mutate(
     spend_prev_ratio = (spend_all / prevalence_counts),
     mort_prev_ratio = (mortality_counts / prevalence_counts),
-    daly_prev_ratio = (daly_counts / prevalence_counts)
+    daly_prev_ratio = (daly_counts / prevalence_counts),
+    yll_prev_ratio = (yll_counts / prevalence_counts),
+    yld_prev_ratio = (yld_counts / prevalence_counts)
   )
 
 ##----------------------------------------------------------------
@@ -211,6 +218,8 @@ df_as <- df_as %>%
     as_spend_prev_ratio = sum(spend_prev_ratio * age_group_weight_value, na.rm = TRUE),
     as_mort_prev_ratio  = sum(mort_prev_ratio * age_group_weight_value, na.rm = TRUE),
     as_daly_prev_ratio  = sum(daly_prev_ratio * age_group_weight_value, na.rm = TRUE),
+    as_yll_prev_ratio  = sum(yll_prev_ratio * age_group_weight_value, na.rm = TRUE),
+    as_yld_prev_ratio  = sum(yld_prev_ratio * age_group_weight_value, na.rm = TRUE),
     spend_all = sum(spend_all, na.rm = TRUE),
     spend_mdcd = sum(spend_mdcd, na.rm = TRUE),
     spend_mdcr = sum(spend_mdcr, na.rm = TRUE),
@@ -220,6 +229,8 @@ df_as <- df_as %>%
     prevalence_counts = sum(prevalence_counts),
     daly_counts = sum(daly_counts),
     incidence_counts = sum(incidence_counts),
+    yll_counts = sum(yll_counts),
+    yld_counts = sum(yld_counts),
     population = sum(population),
     .groups = "drop"
   )
@@ -231,6 +242,8 @@ df_as$mortality_rates <- df_as$mortality_counts / df_as$population
 df_as$prevalence_rates <- df_as$prevalence_counts / df_as$population
 df_as$daly_rates <- df_as$daly_counts / df_as$population
 df_as$incidence_rates <- df_as$incidence_counts / df_as$population
+df_as$yll_rates <- df_as$yll_counts / df_as$population
+df_as$yld_rates <- df_as$yld_counts / df_as$population
 
 ##----------------------------------------------------------------
 ## 6. Add variance column from mortality and deaths data
@@ -257,11 +270,14 @@ df_as_no_year <- df_as %>%
     prevalence_counts = sum(prevalence_counts),
     daly_counts = sum(daly_counts),
     incidence_counts = sum(incidence_counts),
+    yll_counts = sum(yll_counts),
+    yld_counts = sum(yld_counts),
     population = sum(population),
-    
     spend_prev_ratio = spend_all / prevalence_counts,
     mort_prev_ratio  = mortality_counts / prevalence_counts,
     daly_prev_ratio  = daly_counts / prevalence_counts,
+    yll_prev_ratio  = yll_counts / prevalence_counts,
+    yld_prev_ratio  = yld_counts / prevalence_counts,
     .groups = "drop"
   )
 
@@ -269,6 +285,8 @@ df_as_no_year$mortality_rates <- df_as_no_year$mortality_counts / df_as_no_year$
 df_as_no_year$prevalence_rates <- df_as_no_year$prevalence_counts / df_as_no_year$population
 df_as_no_year$daly_rates <- df_as_no_year$daly_counts / df_as_no_year$population
 df_as_no_year$incidence_rates <- df_as_no_year$incidence_counts / df_as_no_year$population
+df_as_no_year$yll_rates <- df_as_no_year$yll_counts / df_as_no_year$population
+df_as_no_year$yld_rates <- df_as_no_year$yld_counts / df_as_no_year$population
 
 # Save
 write.csv(x = df_as_no_year, row.names = FALSE, file = file.path(dir_output, "df_as_no_year.csv"))
@@ -349,7 +367,7 @@ df_m_cdc <- df_m_cdc %>%
 
 # Collapse on sex
 df_m_cdc <- df_m_cdc %>%
-  select(!c("spend_prev_ratio", "mort_prev_ratio", "daly_prev_ratio")) %>%
+  select(!c("spend_prev_ratio", "mort_prev_ratio", "daly_prev_ratio", "yll_prev_ratio", "yld_prev_ratio")) %>%
   group_by(cause_id, year_id, location_id, location_name, acause, cause_name, age_name_cdc) %>%
   summarise(
     spend_all = sum(spend_all, na.rm = TRUE),
@@ -361,6 +379,8 @@ df_m_cdc <- df_m_cdc %>%
     prevalence_counts = sum(prevalence_counts),
     daly_counts = sum(daly_counts),
     incidence_counts = sum(incidence_counts),
+    yll_counts = sum(yll_counts),
+    yld_counts = sum(yld_counts),
     population = sum(population),
     .groups = "drop"
   )
@@ -381,7 +401,9 @@ df_m_cdc <- df_m_cdc %>%
     cdc_mort_prev_ratio = (cdc_hiv_mortality_counts / cdc_hiv_prevalence_counts),
     spend_prev_ratio = (spend_all / prevalence_counts),
     mort_prev_ratio = (mortality_counts / prevalence_counts),
-    daly_prev_ratio = (daly_counts / prevalence_counts)
+    daly_prev_ratio = (daly_counts / prevalence_counts),
+    yll_prev_ratio = (yll_counts / prevalence_counts),
+    yld_prev_ratio = (yld_counts / prevalence_counts)
   )
 
 ##----------------------------------------------------------------
@@ -433,6 +455,8 @@ df_as_cdc <- df_m_cdc %>%
     as_spend_prev_ratio = sum(spend_prev_ratio * age_group_weight, na.rm = TRUE),
     as_mort_prev_ratio  = sum(mort_prev_ratio * age_group_weight, na.rm = TRUE),
     as_daly_prev_ratio  = sum(daly_prev_ratio * age_group_weight, na.rm = TRUE),
+    as_yll_prev_ratio  = sum(yll_prev_ratio * age_group_weight, na.rm = TRUE),
+    as_yld_prev_ratio  = sum(yld_prev_ratio * age_group_weight, na.rm = TRUE),
     spend_all = sum(spend_all, na.rm = TRUE),
     spend_mdcd = sum(spend_mdcd, na.rm = TRUE),
     spend_mdcr = sum(spend_mdcr, na.rm = TRUE),
@@ -444,6 +468,8 @@ df_as_cdc <- df_m_cdc %>%
     prevalence_counts = sum(prevalence_counts),
     daly_counts = sum(daly_counts),
     incidence_counts = sum(incidence_counts),
+    yll_counts = sum(yll_counts),
+    yld_counts = sum(yld_counts),
     population = sum(population),
     .groups = "drop"
   )
@@ -455,6 +481,8 @@ df_as_cdc$mortality_rates <- df_as_cdc$mortality_counts / df_as_cdc$population
 df_as_cdc$prevalence_rates <- df_as_cdc$prevalence_counts / df_as_cdc$population
 df_as_cdc$daly_rates <- df_as_cdc$daly_counts / df_as_cdc$population
 df_as_cdc$incidence_rates <- df_as_cdc$incidence_counts / df_as_cdc$population
+df_as_cdc$yll_rates <- df_as_cdc$yll_counts / df_as_cdc$population
+df_as_cdc$yld_rates <- df_as_cdc$yld_counts / df_as_cdc$population
 
 ##----------------------------------------------------------------
 ## 14. Add variance column from mortality and deaths data

@@ -61,7 +61,7 @@ date_ushd <- "20251123"
 fp_ushd <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_ushd, "/compiled_ushd_data_2010_2019.parquet")
 
 # Age-standardized State level GBD + Dex data
-date_as <- "20260121"
+date_as <- "20260127"
 fp_as <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_as, "/df_as.csv")
 
 # State level GBD + Dex data - No years

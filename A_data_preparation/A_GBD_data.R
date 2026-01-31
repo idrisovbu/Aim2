@@ -1,7 +1,7 @@
 ##----------------------------------------------------------------
-##' Title: A_FA_data.R
+##' Title: A_GBD_data.R
 ##'
-##' Purpose: Pulls and saves Mortality, Prevalence, and Population data needed for C Frontier Analysis
+##' Purpose: Pulls and saves Mortality, Prevalence, DALY, Incidence, YLD, YLL, and Population data needed for C Frontier Analysis
 ##' Use: Run script from start to finish, data will save to Aim2/A_data_preparation/FA/<current_date>
 ##----------------------------------------------------------------
 
@@ -39,7 +39,7 @@ ensure_path <- function(filepath) {
 ## 0.2 Set output directory
 ##----------------------------------------------------------------
 date_today <- format(Sys.Date(), "%Y%m%d")
-dir_out <- paste0("/ihme/homes/idrisov/aim_outputs/Aim2/A_data_preparation/", date_today, "/FA/")
+dir_out <- paste0("/ihme/homes/idrisov/aim_outputs/Aim2/A_data_preparation/", date_today, "/GBD/")
 
 ensure_path(dir_out)
 
@@ -88,6 +88,8 @@ df_age_groups <- get_age_metadata(release_id = 16)
 # Incidence rate
 # DALY count
 # DALY rate
+# YLL count
+# YLL rate
 
 ##----------------------------------------------------------------
 # Set arguments
@@ -107,16 +109,24 @@ df_prevalence_counts <- do.call(get_outputs, c(args_get_outputs, list(measure_id
 df_mortality_counts <- do.call(get_outputs, c(args_get_outputs, list(measure_id = 1, metric_id = 1)))
 df_daly_counts <- do.call(get_outputs, c(args_get_outputs, list(measure_id = 2, metric_id = 1)))
 df_incidence_counts <- do.call(get_outputs, c(args_get_outputs, list(measure_id = 6, metric_id = 1)))
+df_yll_counts <- do.call(get_outputs, c(args_get_outputs, list(measure_id = 4, metric_id = 1)))
+df_yld_counts <- do.call(get_outputs, c(args_get_outputs, list(measure_id = 3, metric_id = 1)))
 
 df_list <- list(df_prevalence_counts,
                 df_mortality_counts,
                 df_daly_counts,
-                df_incidence_counts)
+                df_incidence_counts,
+                df_yll_counts,
+                df_yld_counts
+                )
 
 df_list_val_label <- c("prevalence_counts",
                        "mortality_counts",
                        "daly_counts",
-                       "incidence_counts")
+                       "incidence_counts",
+                       "yll_counts",
+                       "yld_counts"
+                       )
 
 df_gbd <- data.frame()
 
@@ -192,8 +202,10 @@ df_age_collapse <- df_age_collapse %>%
     prevalence_counts = sum(prevalence_counts),
     mortality_counts= sum(mortality_counts, na.rm = TRUE),
     daly_counts = sum(daly_counts),
-    incidence_counts = sum(incidence_counts),
-    population = sum(population),
+    incidence_counts = sum(incidence_counts, na.rm = TRUE),
+    yll_counts = sum(yll_counts, na.rm = TRUE),
+    yld_counts = sum(yld_counts, na.rm = TRUE),
+    population = sum(population)
   )
 
 df_age_collapse <- df_age_collapse %>%
