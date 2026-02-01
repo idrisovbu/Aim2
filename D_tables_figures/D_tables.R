@@ -636,4 +636,74 @@ write.csv(df_t5_p_final %>% filter(Cause == "Substance use disorder"), file.path
 
 
 
+##----------------------------------------------------------------
+## 3. Spending Effectiveness (CORRECTED per IHME methodology)
+##----------------------------------------------------------------
 
+# Method 1: Simple approach (state-level, matches your current structure)
+# NOTE: This is a simplification - ideally use decomposition effects
+df_as_hiv <- df_as %>%
+  filter(cause_name == "HIV/AIDS")
+
+df_t3_year <- df_as_hiv %>%
+  filter(year_id %in% c(2010, 2019)) %>%
+  select(c("cause_id", "year_id", "location_id", "location_name", "acause", 
+           "cause_name", "spend_all", "daly_counts", "prevalence_counts"))
+
+df_t3_year <- df_t3_year %>% 
+  pivot_wider(
+    names_from = year_id,
+    values_from = c(spend_all, daly_counts, prevalence_counts)
+  )
+
+# Calculate spending per case
+df_t3_year$spend_per_case_2010 <- df_t3_year$spend_all_2010 / df_t3_year$prevalence_counts_2010
+df_t3_year$spend_per_case_2019 <- df_t3_year$spend_all_2019 / df_t3_year$prevalence_counts_2019
+
+# Calculate DALYs per case
+df_t3_year$daly_per_case_2010 <- df_t3_year$daly_counts_2010 / df_t3_year$prevalence_counts_2010
+df_t3_year$daly_per_case_2019 <- df_t3_year$daly_counts_2019 / df_t3_year$prevalence_counts_2019
+
+# Change in spending per case (numerator)
+df_t3_year$spend_eff_num <- df_t3_year$spend_per_case_2019 - df_t3_year$spend_per_case_2010
+
+# Change in DALYs AVERTED per case (denominator)
+# DALYs averted = REDUCTION in DALYs = -(DALY_2019 - DALY_2010) = DALY_2010 - DALY_2019
+# If DALYs decreased (good), averted is positive
+df_t3_year$daly_averted_per_case <- df_t3_year$daly_per_case_2010 - df_t3_year$daly_per_case_2019
+
+# Spending effectiveness ratio ($ per DALY averted)
+# Interpretation: How much additional spending per case for each DALY averted
+df_t3_year$spend_eff <- df_t3_year$spend_eff_num / df_t3_year$daly_averted_per_case
+
+# Categorize results (per IHME method)
+df_t3_year <- df_t3_year %>%
+  mutate(
+    spend_eff_category = case_when(
+      spend_eff_num > 0 & daly_averted_per_case > 0 ~ 1,  # ↑ Spending, ↑ DALYs averted (report ratio)
+      spend_eff_num < 0 & daly_averted_per_case > 0 ~ 2,  # ↓ Spending, ↑ DALYs averted (cost-saving!)
+      spend_eff_num > 0 & daly_averted_per_case < 0 ~ 3,  # ↑ Spending, ↓ DALYs averted (dominated)
+      spend_eff_num < 0 & daly_averted_per_case < 0 ~ 4,  # ↓ Spending, ↓ DALYs averted (excluded)
+      TRUE ~ NA_real_
+    ),
+    spend_eff_interpretation = case_when(
+      spend_eff_category == 1 ~ paste0("$", format(round(spend_eff), big.mark = ","), " per DALY averted"),
+      spend_eff_category == 2 ~ "Cost-saving (↓spend, ↑health)",
+      spend_eff_category == 3 ~ "Dominated (↑spend, ↓health)",
+      spend_eff_category == 4 ~ "Excluded (↓both)",
+      TRUE ~ "N/A"
+    )
+  )
+
+# Rename for clarity
+df_t3_year <- df_t3_year %>%
+  rename(
+    `Change in spending per case` = spend_eff_num,
+    `Change in DALYs averted per case` = daly_averted_per_case,
+    `Spending effectiveness ($/DALY averted)` = spend_eff,
+    `Category` = spend_eff_category,
+    `Interpretation` = spend_eff_interpretation
+  )
+
+# Write to CSV
+write.csv(df_t3_year, file.path(dir_output, "T4a_HIV_SE_naive.csv"), row.names = FALSE)
