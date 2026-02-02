@@ -1,0 +1,58 @@
+accumulated_dependence
+                        Accumulated Local Effects Profiles aka ALEPlots
+aggregate_profiles      Aggregates Ceteris Paribus Profiles
+bind_plots              Bind Multiple ggplot Objects
+calculate_oscillations
+                        Calculate Oscillations for Ceteris Paribus
+                        Explainer
+calculate_variable_profile
+                        Internal Function for Individual Variable
+                        Profiles
+calculate_variable_split
+                        Internal Function for Split Points for Selected
+                        Variables
+ceteris_paribus         Ceteris Paribus Profiles aka Individual
+                        Variable Profiles
+ceteris_paribus_2d      Ceteris Paribus 2D Plot
+cluster_profiles        Cluster Ceteris Paribus Profiles
+conditional_dependence
+                        Conditional Dependence Profiles
+describe.partial_dependence_explainer
+                        Natural language description of feature
+                        importance explainer
+feature_importance      Feature Importance
+partial_dependence      Partial Dependence Profiles
+plot.aggregated_profiles_explainer
+                        Plots Aggregated Profiles
+plot.ceteris_paribus_2d_explainer
+                        Plot Ceteris Paribus 2D Explanations
+plot.ceteris_paribus_explainer
+                        Plots Ceteris Paribus Profiles
+plot.ceteris_paribus_oscillations
+                        Plot Ceteris Paribus Oscillations
+plot.feature_importance_explainer
+                        Plots Feature Importance
+plotD3                  Plots Ceteris Paribus Profiles in D3 with r2d3
+                        Package.
+plotD3.aggregated_profiles_explainer
+                        Plots Aggregated Ceteris Paribus Profiles in D3
+                        with r2d3 Package.
+plotD3.feature_importance_explainer
+                        Plot Feature Importance Objects in D3 with r2d3
+                        Package.
+print.aggregated_profiles_explainer
+                        Prints Aggregated Profiles
+print.ceteris_paribus_explainer
+                        Prints Individual Variable Explainer Summary
+print.feature_importance_explainer
+                        Print Generic for Feature Importance Object
+select_neighbours       Select Subset of Rows Closest to a Specified
+                        Observation
+select_sample           Select Subset of Rows
+show_aggregated_profiles
+                        Adds a Layer with Aggregated Profiles
+show_observations       Adds a Layer with Observations to a Profile
+                        Plot
+show_profiles           Adds a Layer with Profiles
+show_residuals          Adds a Layer with Residuals to a Profile Plot
+show_rugs               Adds a Layer with Rugs to a Profile Plot

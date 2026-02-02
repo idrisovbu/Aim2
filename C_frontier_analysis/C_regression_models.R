@@ -11,6 +11,7 @@
 rm(list = ls())
 pacman::p_load(data.table, arrow, tidyverse, glue, broom, purrr, readr, lubridate, readxl, e1071)
 
+
 # Set drive paths
 if (Sys.info()["sysname"] == 'Linux'){
   j <- "/home/j/"
@@ -56,7 +57,7 @@ ensure_dir_exists <- function(dir_path) {
 ## 1. Set directories
 ##----------------------------------------------------------------
 # Set fp for age-standardized data
-as_date <- "20260131"
+as_date <- "20260201"
 fp_as <- file.path(h, '/aim_outputs/Aim2/C_frontier_analysis/', as_date, "df_as.csv")
 fp_as_cdc <- file.path(h, '/aim_outputs/Aim2/C_frontier_analysis/', as_date, "df_as_cdc.csv")
 
@@ -323,6 +324,9 @@ if (cdc) {
   )
 }
 
+
+
+
 ##----------------------------------------------------------------
 ## 6. Create "high_prev" variable to use as an interactive term in respective models (HIV models use HIV high_prev, SUD models use SUD high_prev)
 ##----------------------------------------------------------------
@@ -431,6 +435,9 @@ if (rw) {
     # DALY MODELS
     # model_basic_mort <- "as_daly_prev_ratio ~ rw_dex_hiv_prev_ratio"
     # model_basic_mort_interactive_hiv <- "as_daly_prev_ratio ~ rw_dex_hiv_prev_ratio * high_hiv_prev"
+    #YLD MODELS
+    #model_basic_mort <- "as_yld_prev_ratio ~ rw_dex_hiv_prev_ratio"
+    #model_basic_mort_interactive_hiv <- "as_yld_prev_ratio ~ rw_dex_hiv_prev_ratio * high_hiv_prev"
   }
 } else {
   if (cdc) {
@@ -584,86 +591,224 @@ if (cdc) {
   }
 }
 
-##----------------------------------------------------------------
-## 12. Extract coefficients from models
-##----------------------------------------------------------------
-coef_tbl <- imap_dfr(list_models, ~{
-  broom::tidy(.x) %>%
-    mutate(model_id = .y,
-       signif_stars = case_when(
-         p.value < 0.001 ~ "***",
-         p.value < 0.01  ~ "**",
-         p.value < 0.05  ~ "*",
-         TRUE            ~ ""
-       ),
-       signif_label = case_when(
-         signif_stars == "***" ~ "p < 0.001",
-         signif_stars == "**"  ~ "p < 0.01",
-         signif_stars == "*"   ~ "p < 0.05",
-         TRUE                  ~ "not significant"
-       )) %>%
-    tidyr::separate(model_id, into = c("acause", "model_name"), sep = "__", remove = FALSE)
-})
-
-metrics_tbl <- imap_dfr(list_models, ~{
-  g <- broom::glance(.x)
-  tibble(
-    model_id = .y,
-    n = g$nobs,
-    r2 = g$r.squared,
-    adj_r2 = g$adj.r.squared,
-    aic = AIC(.x),
-    bic = BIC(.x),
-    sigma = g$sigma
-  ) %>%
-    tidyr::separate(model_id, into = c("acause", "model_name"), sep = "__", remove = FALSE)
-})
 
 ##----------------------------------------------------------------
-## 13. Save Outputs
+## 11.5 STRATIFIED MODELS: URBAN VS RURAL (HIV MORTALITY ONLY)
+## 
+## Paste this AFTER section 11 (Run Models) and BEFORE section 12
+## 
+## Set run_urban = TRUE for urban states, FALSE for rural states
+## Run twice, clearing console between runs
 ##----------------------------------------------------------------
-if (rw & cdc & cdc_gbd_mix) {
-  # Model Outputs
-  write.csv(coef_tbl, file.path(dir_output, "model_coefficients_rw_cdc_gbd_mix.csv"))
-  write.csv(metrics_tbl, file.path(dir_output, "model_metrics_rw_cdc_gbd_mix.csv"))
-} else {
-  if (rw) {
-    if (cdc) {
-      # Model Outputs
-      write.csv(coef_tbl, file.path(dir_output, "model_coefficients_rw_cdc.csv"))
-      write.csv(metrics_tbl, file.path(dir_output, "model_metrics_rw_cdc.csv"))
-    } else {
-      # Model Outputs
-      write.csv(coef_tbl, file.path(dir_output, "model_coefficients_rw.csv"))
-      write.csv(metrics_tbl, file.path(dir_output, "model_metrics_rw.csv"))
-    }
-  } else {
-    if (cdc) {
-      # Model Outputs
-      write.csv(coef_tbl, file.path(dir_output, "model_coefficients_cdc.csv"))
-      write.csv(metrics_tbl, file.path(dir_output, "model_metrics_cdc.csv"))
-    } else {
-      # Model Outputs
-      write.csv(coef_tbl, file.path(dir_output, "model_coefficients.csv"))
-      write.csv(metrics_tbl, file.path(dir_output, "model_metrics.csv"))
-    }
-  }
-}
-
-if (cdc) {
-  # DF w/ all covariates
-  write.csv(df_as, file.path(dir_output, "df_as_cdc_covariates.csv"))
-} else {
-  # DF w/ all covariates
-  write.csv(df_as, file.path(dir_output, "df_as_covariates.csv"))
-}
-
-##----------------------------------------------------------------
-## SKEWNESS EXPLORATION - SAFE TO DELETE
-##----------------------------------------------------------------
-# skew_summary_table <- function(df) {
-#   df %>%
-#     select(where(is.numeric)) %>%
+# 
+# # SET THIS FLAG: TRUE = urban states, FALSE = rural states
+# run_urban <- FALSE  # <-- CHANGE THIS TO FALSE FOR RURAL RUN
+# 
+# # Create urban/rural indicator (based on high-density population proportion)
+# df_hiv <- df_hiv %>%
+#   mutate(
+#     urban = ifelse(density_g.1000 > median(density_g.1000, na.rm = TRUE), 1, 0)
+#   )
+# 
+# # Check distribution
+# cat("\n=== URBAN/RURAL DISTRIBUTION ===\n")
+# print(table(df_hiv$urban))
+# cat("0 = Rural, 1 = Urban\n")
+# 
+# # Subset based on flag
+# if (run_urban) {
+#   df_hiv_subset <- df_hiv %>% filter(urban == 1)
+#   subset_label <- "URBAN"
+# } else {
+#   df_hiv_subset <- df_hiv %>% filter(urban == 0)
+#   subset_label <- "RURAL"
+# }
+# 
+# cat("\n=============================================\n")
+# cat("RUNNING MODELS FOR:", subset_label, "STATES\n")
+# cat("N observations:", nrow(df_hiv_subset), "\n")
+# cat("=============================================\n\n")
+# 
+# # Run HIV models on subset (only the interaction models since those are your main ones)
+# list_models_stratified <- list()
+# 
+# for (nm in names(list_formulas_hiv)) {
+#   # Only run models with interaction term (your main models)
+#   if (grepl("_int_", nm)) {
+#     list_models_stratified[[paste("hiv", nm, sep = "__")]] <- lm(list_formulas_hiv[[nm]], data = df_hiv_subset)
+#   }
+# }
+# 
+# # Also run the full model without interaction to see main spending effect
+# # This is your m_mort_int_plus_density model but without the interaction
+# f_main_no_int <- as.formula(
+#   "as_mort_prev_ratio ~ rw_dex_hiv_prev_ratio + 
+#    sud_prevalence_counts + year_id + location_id + 
+#    race_prop_BLCK + race_prop_HISP + 
+#    obesity + cig_pc_10 + phys_act_10 + edu_yrs + 
+#    density_l.150 + density_g.1000"
+# )
+# 
+# list_models_stratified[["hiv__m_mort_main_effect_only"]] <- lm(f_main_no_int, data = df_hiv_subset)
+# 
+# ##----------------------------------------------------------------
+# ## Extract coefficients for stratified models
+# ##----------------------------------------------------------------
+# coef_tbl_stratified <- imap_dfr(list_models_stratified, ~{
+#   broom::tidy(.x) %>%
+#     mutate(model_id = .y,
+#            subset = subset_label,
+#            signif_stars = case_when(
+#              p.value < 0.001 ~ "***",
+#              p.value < 0.01  ~ "**",
+#              p.value < 0.05  ~ "*",
+#              p.value < 0.1   ~ ".",
+#              TRUE            ~ ""
+#            )) %>%
+#     tidyr::separate(model_id, into = c("acause", "model_name"), sep = "__", remove = FALSE)
+# })
+# 
+# metrics_tbl_stratified <- imap_dfr(list_models_stratified, ~{
+#   g <- broom::glance(.x)
+#   tibble(
+#     model_id = .y,
+#     subset = subset_label,
+#     n = g$nobs,
+#     r2 = g$r.squared,
+#     adj_r2 = g$adj.r.squared,
+#     aic = AIC(.x),
+#     bic = BIC(.x),
+#     sigma = g$sigma
+#   ) %>%
+#     tidyr::separate(model_id, into = c("acause", "model_name"), sep = "__", remove = FALSE)
+# })
+# 
+# ##----------------------------------------------------------------
+# ## Print key results
+# ##----------------------------------------------------------------
+# cat("\n=============================================\n")
+# cat("KEY SPENDING COEFFICIENTS -", subset_label, "STATES\n")
+# cat("=============================================\n\n")
+# 
+# # Filter to just spending-related coefficients
+# spending_coefs <- coef_tbl_stratified %>%
+#   filter(grepl("rw_dex|high_hiv_prev", term)) %>%
+#   select(model_name, term, estimate, std.error, p.value, signif_stars) %>%
+#   arrange(model_name, term)
+# 
+# print(spending_coefs, n = 50)
+# 
+# cat("\n\n=============================================\n")
+# cat("MODEL FIT METRICS -", subset_label, "STATES\n")
+# cat("=============================================\n\n")
+# 
+# print(metrics_tbl_stratified %>% select(model_name, n, r2, adj_r2, aic))
+# 
+# cat("\n\n=============================================\n")
+# cat("MAIN EFFECT ONLY MODEL (no interaction) -", subset_label, "\n")
+# cat("=============================================\n\n")
+# 
+# # Print the main effect model summary
+# main_effect_coef <- coef_tbl_stratified %>%
+#   filter(model_name == "m_mort_main_effect_only") %>%
+#   filter(term == "rw_dex_hiv_prev_ratio") %>%
+#   select(term, estimate, std.error, p.value, signif_stars)
+# 
+# print(main_effect_coef)
+# 
+# cat("\nInterpretation: In", subset_label, "states, a 1-unit increase in log(spending/prevalence)\n")
+# cat("is associated with a", round(main_effect_coef$estimate, 6), "change in log(mortality/prevalence)\n")
+# cat("p-value:", format(main_effect_coef$p.value, digits = 4), main_effect_coef$signif_stars, "\n")
+# 
+# ##----------------------------------------------------------------
+# ## Save stratified outputs
+# ##----------------------------------------------------------------
+# write.csv(coef_tbl_stratified, file.path(dir_output, paste0("model_coefficients_rw_", tolower(subset_label), ".csv")), row.names = FALSE)
+# write.csv(metrics_tbl_stratified, file.path(dir_output, paste0("model_metrics_rw_", tolower(subset_label), ".csv")), row.names = FALSE)
+# 
+# cat("\n\nOutputs saved to:", dir_output, "\n")
+# cat("  - model_coefficients_rw_", tolower(subset_label), ".csv\n", sep = "")
+# cat("  - model_metrics_rw_", tolower(subset_label), ".csv\n", sep = "")
+# ##----------------------------------------------------------------
+# ## 12. Extract coefficients from models
+# ##----------------------------------------------------------------
+# coef_tbl <- imap_dfr(list_models, ~{
+#   broom::tidy(.x) %>%
+#     mutate(model_id = .y,
+#        signif_stars = case_when(
+#          p.value < 0.001 ~ "***",
+#          p.value < 0.01  ~ "**",
+#          p.value < 0.05  ~ "*",
+#          TRUE            ~ ""
+#        ),
+#        signif_label = case_when(
+#          signif_stars == "***" ~ "p < 0.001",
+#          signif_stars == "**"  ~ "p < 0.01",
+#          signif_stars == "*"   ~ "p < 0.05",
+#          TRUE                  ~ "not significant"
+#        )) %>%
+#     tidyr::separate(model_id, into = c("acause", "model_name"), sep = "__", remove = FALSE)
+# })
+# 
+# metrics_tbl <- imap_dfr(list_models, ~{
+#   g <- broom::glance(.x)
+#   tibble(
+#     model_id = .y,
+#     n = g$nobs,
+#     r2 = g$r.squared,
+#     adj_r2 = g$adj.r.squared,
+#     aic = AIC(.x),
+#     bic = BIC(.x),
+#     sigma = g$sigma
+#   ) %>%
+#     tidyr::separate(model_id, into = c("acause", "model_name"), sep = "__", remove = FALSE)
+# })
+# 
+# ##----------------------------------------------------------------
+# ## 13. Save Outputs
+# ##----------------------------------------------------------------
+# if (rw & cdc & cdc_gbd_mix) {
+#   # Model Outputs
+#   write.csv(coef_tbl, file.path(dir_output, "model_coefficients_rw_cdc_gbd_mix.csv"))
+#   write.csv(metrics_tbl, file.path(dir_output, "model_metrics_rw_cdc_gbd_mix.csv"))
+# } else {
+#   if (rw) {
+#     if (cdc) {
+#       # Model Outputs
+#       write.csv(coef_tbl, file.path(dir_output, "model_coefficients_rw_cdc.csv"))
+#       write.csv(metrics_tbl, file.path(dir_output, "model_metrics_rw_cdc.csv"))
+#     } else {
+#       # Model Outputs
+#       write.csv(coef_tbl, file.path(dir_output, "model_coefficients_rw.csv"))
+#       write.csv(metrics_tbl, file.path(dir_output, "model_metrics_rw.csv"))
+#     }
+#   } else {
+#     if (cdc) {
+#       # Model Outputs
+#       write.csv(coef_tbl, file.path(dir_output, "model_coefficients_cdc.csv"))
+#       write.csv(metrics_tbl, file.path(dir_output, "model_metrics_cdc.csv"))
+#     } else {
+#       # Model Outputs
+#       write.csv(coef_tbl, file.path(dir_output, "model_coefficients.csv"))
+#       write.csv(metrics_tbl, file.path(dir_output, "model_metrics.csv"))
+#     }
+#   }
+# }
+# 
+# if (cdc) {
+#   # DF w/ all covariates
+#   write.csv(df_as, file.path(dir_output, "df_as_cdc_covariates.csv"))
+# } else {
+#   # DF w/ all covariates
+#   write.csv(df_as, file.path(dir_output, "df_as_covariates.csv"))
+# }
+# 
+# ##----------------------------------------------------------------
+# ## SKEWNESS EXPLORATION - SAFE TO DELETE
+# ##----------------------------------------------------------------
+# # skew_summary_table <- function(df) {
+# #   df %>%
+# #     select(where(is.numeric)) %>%
 #     pivot_longer(
 #       cols = everything(),
 #       names_to = "variable",
@@ -765,3 +910,990 @@ if (cdc) {
 #   theme_minimal()
 
 
+
+
+##----------------------------------------------------------------
+##' Title: ML_exploration.R
+##'
+##' Purpose: Machine learning exploration to identify key predictors of 
+##'          HIV mortality and DALYs, helping uncover confounders and 
+##'          potential mechanisms driving outcomes
+##----------------------------------------------------------------
+
+##----------------------------------------------------------------
+## Load packages
+##----------------------------------------------------------------
+# pacman::p_load(
+#   data.table, tidyverse, glmnet, randomForest, caret, 
+#   doParallel, foreach, corrplot, ggplot2, viridis,
+#   pdp, iml, DALEX, ranger
+# )
+
+##----------------------------------------------------------------
+## 1. Prepare the data (assumes df_as is already loaded from your main script)
+##    Run this AFTER running your main script through section 8
+##----------------------------------------------------------------
+
+# # Filter to HIV only
+# df_ml <- df_as %>% filter(acause == "hiv")
+# 
+# # Define outcome variables
+# outcome_mort <- "as_mort_prev_ratio"
+# outcome_daly <- "as_daly_prev_ratio"
+# outcome_yll <- "as_yll_prev_ratio"
+# outcome_yld <- "as_yld_prev_ratio"
+# 
+# # Define ALL potential predictors (excluding outcomes and identifiers)
+# predictors_all <- c(
+#   # Spending variables
+#   "rw_dex_hiv_prev_ratio",      # Main spending predictor (RW + DEX / prev)
+#   "rw_hiv_prev_ratio",          # RW only / prev
+#   "as_spend_prev_ratio",        # General spend / prev
+#   "spend_all",                  # Total spending (raw)
+#   "ryan_white_funding_final",   # RW funding (raw)
+#   
+#   # Demographics
+#   "age65",                      # Proportion 65+
+#   "race_prop_BLCK",             # Proportion Black
+#   "race_prop_HISP",             # Proportion Hispanic
+#   "race_prop_WHT",              # Proportion White
+#   "race_prop_API",              # Proportion Asian/Pacific Islander
+#   "race_prop_AIAN",             # Proportion American Indian/Alaska Native
+#   
+#   # Socioeconomic
+#   "edu_yrs",                    # Education years
+#   "ldi_pc",                     # Income per capita
+#   "unemployment_rate",          # Unemployment
+#   "prop_homeless",              # Homelessness proportion
+#   
+#   # Health behaviors / risk factors
+#   "obesity",                    # Obesity prevalence
+#   "cig_pc_10",                  # Cigarette consumption
+#   "phys_act_10",                # Physical activity
+#   "prev_smoking",               # Smoking prevalence
+#   "bmi",                        # BMI
+#   
+#   # Health system / geography
+#   "density_l.150",              # Low density areas
+#   "density_g.1000",             # High density areas
+#   "aca_implemented_status",     # ACA expansion
+#   "spending_adj_pc",            # Adjusted spending per capita
+#   
+#   # Comorbidities
+#   "sud_prevalence_counts",      # SUD prevalence
+#   "prev_diabetes",              # Diabetes prevalence
+#   
+#   # Clinical indicators
+#   "sbp",                        # Systolic blood pressure
+#   "cholesterol",                # Cholesterol
+#   "hemoglobin",                 # Hemoglobin
+#   
+#   # HIV-specific
+#   "high_hiv_prev",              # High prevalence indicator
+#   "hiv_prevalence_counts",      # Raw prevalence counts
+#   "prevalence_rates",           # Prevalence rate
+#   "incidence_rates",            # Incidence rate
+#   
+#   # Population
+#   "population"
+# )
+# 
+# # Keep only predictors that exist in the data
+# predictors_available <- predictors_all[predictors_all %in% colnames(df_ml)]
+# cat("Available predictors:", length(predictors_available), "\n")
+# print(predictors_available)
+# 
+# ##----------------------------------------------------------------
+# ## 2. Create analysis dataset
+# ##----------------------------------------------------------------
+# # Select variables and remove NAs
+# df_analysis <- df_ml %>%
+#   select(all_of(c(outcome_mort, outcome_daly, outcome_yll, outcome_yld, 
+#                   predictors_available, "year_id", "location_id", "location_name"))) %>%
+#   drop_na()
+# 
+# cat("\nAnalysis dataset:", nrow(df_analysis), "observations\n")
+# 
+# # Convert factors back to numeric for ML
+# df_analysis$year_num <- as.numeric(as.character(df_analysis$year_id))
+# df_analysis$location_num <- as.numeric(df_analysis$location_id)
+# 
+# # Update predictors to include year
+# predictors_final <- c(predictors_available, "year_num")
+# 
+# ##----------------------------------------------------------------
+# ## 3. Correlation Analysis - Quick look at what's related
+# ##----------------------------------------------------------------
+# # Compute correlations with outcomes
+# cor_mort <- cor(df_analysis[, predictors_final], 
+#                 df_analysis[[outcome_mort]], 
+#                 use = "pairwise.complete.obs")
+# cor_daly <- cor(df_analysis[, predictors_final], 
+#                 df_analysis[[outcome_daly]], 
+#                 use = "pairwise.complete.obs")
+# 
+# cor_df <- data.frame(
+#   variable = rownames(cor_mort),
+#   cor_mortality = as.vector(cor_mort),
+#   cor_daly = as.vector(cor_daly)
+# ) %>%
+#   arrange(desc(abs(cor_mortality)))
+# 
+# cat("\n=== TOP CORRELATIONS WITH MORTALITY ===\n")
+# print(head(cor_df, 15))
+# 
+# cat("\n=== TOP CORRELATIONS WITH DALYs ===\n")
+# print(cor_df %>% arrange(desc(abs(cor_daly))) %>% head(15))
+# 
+# ##----------------------------------------------------------------
+# ## 4. LASSO Regression - Variable Selection
+# ##----------------------------------------------------------------
+# run_lasso <- function(outcome_var, predictors, data, alpha = 1) {
+#   # Prepare matrices
+#   X <- as.matrix(data[, predictors])
+#   y <- data[[outcome_var]]
+#   
+#   # Standardize predictors
+#   X_scaled <- scale(X)
+#   
+#   # Cross-validated LASSO
+#   set.seed(42)
+#   cv_fit <- cv.glmnet(X_scaled, y, alpha = alpha, nfolds = 10)
+#   
+#   # Extract coefficients at lambda.min and lambda.1se
+#   coef_min <- coef(cv_fit, s = "lambda.min")
+#   coef_1se <- coef(cv_fit, s = "lambda.1se")
+#   
+#   # Create coefficient dataframe
+#   coef_df <- data.frame(
+#     variable = rownames(coef_min)[-1],  # Remove intercept
+#     coef_lambda_min = as.vector(coef_min)[-1],
+#     coef_lambda_1se = as.vector(coef_1se)[-1]
+#   ) %>%
+#     filter(coef_lambda_min != 0 | coef_lambda_1se != 0) %>%
+#     arrange(desc(abs(coef_lambda_min)))
+#   
+#   return(list(
+#     cv_fit = cv_fit,
+#     coef_df = coef_df,
+#     lambda_min = cv_fit$lambda.min,
+#     lambda_1se = cv_fit$lambda.1se
+#   ))
+# }
+# 
+# cat("\n\n========================================\n")
+# cat("=== LASSO RESULTS FOR MORTALITY ===\n")
+# cat("========================================\n")
+# lasso_mort <- run_lasso(outcome_mort, predictors_final, df_analysis)
+# print(lasso_mort$coef_df)
+# 
+# cat("\n\n========================================\n")
+# cat("=== LASSO RESULTS FOR DALYs ===\n")
+# cat("========================================\n")
+# lasso_daly <- run_lasso(outcome_daly, predictors_final, df_analysis)
+# print(lasso_daly$coef_df)
+# 
+# ##----------------------------------------------------------------
+# ## 5. Elastic Net (alpha = 0.5) - Balance between LASSO and Ridge
+# ##----------------------------------------------------------------
+# cat("\n\n========================================\n")
+# cat("=== ELASTIC NET (alpha=0.5) FOR MORTALITY ===\n")
+# cat("========================================\n")
+# enet_mort <- run_lasso(outcome_mort, predictors_final, df_analysis, alpha = 0.5)
+# print(enet_mort$coef_df)
+# 
+# ##----------------------------------------------------------------
+# ## 6. Random Forest - Variable Importance
+# ##----------------------------------------------------------------
+# run_rf <- function(outcome_var, predictors, data, ntree = 500) {
+#   # Prepare data
+#   X <- data[, predictors]
+#   y <- data[[outcome_var]]
+#   
+#   set.seed(42)
+#   rf_fit <- randomForest(x = X, y = y, ntree = ntree, importance = TRUE)
+#   
+#   # Extract importance
+#   importance_df <- data.frame(
+#     variable = rownames(importance(rf_fit)),
+#     pct_inc_mse = importance(rf_fit)[, "%IncMSE"],
+#     inc_node_purity = importance(rf_fit)[, "IncNodePurity"]
+#   ) %>%
+#     arrange(desc(pct_inc_mse))
+#   
+#   return(list(
+#     rf_fit = rf_fit,
+#     importance = importance_df,
+#     r2 = mean(rf_fit$rsq)
+#   ))
+# }
+# 
+# cat("\n\n========================================\n")
+# cat("=== RANDOM FOREST FOR MORTALITY ===\n")
+# cat("========================================\n")
+# rf_mort <- run_rf(outcome_mort, predictors_final, df_analysis)
+# cat("\nR-squared:", round(rf_mort$r2, 4), "\n")
+# cat("\nTop 15 Important Variables (by %IncMSE):\n")
+# print(head(rf_mort$importance, 15))
+# 
+# cat("\n\n========================================\n")
+# cat("=== RANDOM FOREST FOR DALYs ===\n")
+# cat("========================================\n")
+# rf_daly <- run_rf(outcome_daly, predictors_final, df_analysis)
+# cat("\nR-squared:", round(rf_daly$r2, 4), "\n")
+# cat("\nTop 15 Important Variables (by %IncMSE):\n")
+# print(head(rf_daly$importance, 15))
+# 
+# ##----------------------------------------------------------------
+# ## 7. Summary Table - Consensus across methods
+# ##----------------------------------------------------------------
+# create_summary <- function(cor_df, lasso_result, rf_result, outcome_name) {
+#   
+#   # Merge all results
+#   summary_df <- cor_df %>%
+#     rename(correlation = starts_with("cor_")) %>%
+#     left_join(
+#       lasso_result$coef_df %>% 
+#         select(variable, lasso_coef = coef_lambda_min),
+#       by = "variable"
+#     ) %>%
+#     left_join(
+#       rf_result$importance %>%
+#         select(variable, rf_importance = pct_inc_mse),
+#       by = "variable"
+#     ) %>%
+#     mutate(
+#       # Rank each method
+#       rank_cor = rank(-abs(correlation), na.last = "keep"),
+#       rank_lasso = ifelse(is.na(lasso_coef), NA, rank(-abs(lasso_coef), na.last = "keep")),
+#       rank_rf = rank(-rf_importance, na.last = "keep"),
+#       # Average rank (lower is better)
+#       avg_rank = rowMeans(cbind(rank_cor, rank_lasso, rank_rf), na.rm = TRUE)
+#     ) %>%
+#     arrange(avg_rank)
+#   
+#   return(summary_df)
+# }
+# 
+# cat("\n\n========================================\n")
+# cat("=== CONSENSUS RANKING - MORTALITY ===\n")
+# cat("========================================\n")
+# cor_mort_df <- cor_df %>% select(variable, cor_mortality) %>% rename(correlation = cor_mortality)
+# summary_mort <- create_summary(cor_mort_df, lasso_mort, rf_mort, "mortality")
+# print(head(summary_mort %>% select(variable, correlation, lasso_coef, rf_importance, avg_rank), 20))
+# 
+# cat("\n\n========================================\n")
+# cat("=== CONSENSUS RANKING - DALYs ===\n")
+# cat("========================================\n")
+# cor_daly_df <- cor_df %>% select(variable, cor_daly) %>% rename(correlation = cor_daly)
+# summary_daly <- create_summary(cor_daly_df, lasso_daly, rf_daly, "daly")
+# print(head(summary_daly %>% select(variable, correlation, lasso_coef, rf_importance, avg_rank), 20))
+# 
+# ##----------------------------------------------------------------
+# ## 8. Investigate Spending-Outcome Relationship by Subgroups
+# ##----------------------------------------------------------------
+# cat("\n\n========================================\n")
+# cat("=== SPENDING EFFECT BY SUBGROUPS ===\n")
+# cat("========================================\n")
+# 
+# # By high/low prevalence
+# cat("\n--- By HIV Prevalence (High vs Low) ---\n")
+# df_analysis %>%
+#   group_by(high_hiv_prev) %>%
+#   summarise(
+#     n = n(),
+#     mean_spending = mean(rw_dex_hiv_prev_ratio),
+#     mean_mortality = mean(as_mort_prev_ratio),
+#     cor_spend_mort = cor(rw_dex_hiv_prev_ratio, as_mort_prev_ratio)
+#   ) %>%
+#   print()
+# 
+# # By ACA expansion
+# cat("\n--- By ACA Expansion Status ---\n")
+# df_analysis %>%
+#   group_by(aca_implemented_status) %>%
+#   summarise(
+#     n = n(),
+#     mean_spending = mean(rw_dex_hiv_prev_ratio),
+#     mean_mortality = mean(as_mort_prev_ratio),
+#     cor_spend_mort = cor(rw_dex_hiv_prev_ratio, as_mort_prev_ratio)
+#   ) %>%
+#   print()
+# 
+# # By population density (urban/rural)
+# df_analysis$urban <- ifelse(df_analysis$density_g.1000 > median(df_analysis$density_g.1000), "Urban", "Rural")
+# cat("\n--- By Urban/Rural ---\n")
+# df_analysis %>%
+#   group_by(urban) %>%
+#   summarise(
+#     n = n(),
+#     mean_spending = mean(rw_dex_hiv_prev_ratio),
+#     mean_mortality = mean(as_mort_prev_ratio),
+#     cor_spend_mort = cor(rw_dex_hiv_prev_ratio, as_mort_prev_ratio)
+#   ) %>%
+#   print()
+# 
+# # By race composition (high Black population vs others)
+# df_analysis$high_black_pop <- ifelse(df_analysis$race_prop_BLCK > median(df_analysis$race_prop_BLCK), "High", "Low")
+# cat("\n--- By Black Population Proportion ---\n")
+# df_analysis %>%
+#   group_by(high_black_pop) %>%
+#   summarise(
+#     n = n(),
+#     mean_spending = mean(rw_dex_hiv_prev_ratio),
+#     mean_mortality = mean(as_mort_prev_ratio),
+#     cor_spend_mort = cor(rw_dex_hiv_prev_ratio, as_mort_prev_ratio)
+#   ) %>%
+#   print()
+# 
+# ##----------------------------------------------------------------
+# ## 9. Partial Dependence Analysis - Spending effect controlling for others
+# ##----------------------------------------------------------------
+# cat("\n\n========================================\n")
+# cat("=== PARTIAL DEPENDENCE OF SPENDING ===\n")
+# cat("========================================\n")
+# 
+# # Using the RF model, examine partial dependence of spending
+# pd_spend <- partial(rf_mort$rf_fit, 
+#                     pred.var = "rw_dex_hiv_prev_ratio",
+#                     train = df_analysis[, predictors_final])
+# 
+# cat("Partial dependence of spending on mortality:\n")
+# print(summary(pd_spend))
+# 
+# # Check for interactions between spending and prevalence
+# pd_interact <- partial(rf_mort$rf_fit,
+#                        pred.var = c("rw_dex_hiv_prev_ratio", "high_hiv_prev"),
+#                        train = df_analysis[, predictors_final])
+# 
+# cat("\nPartial dependence - Spending x High Prevalence interaction:\n")
+# print(head(pd_interact, 20))
+# 
+# ##----------------------------------------------------------------
+# ## 10. Mediation Analysis Setup - What mediates spending effect?
+# ##----------------------------------------------------------------
+# cat("\n\n========================================\n")
+# cat("=== POTENTIAL MEDIATORS OF SPENDING ===\n")
+# cat("========================================\n")
+# 
+# # Variables that might be on the causal pathway from spending to outcomes
+# potential_mediators <- c("incidence_rates", "prevalence_rates", 
+#                          "sud_prevalence_counts", "prev_diabetes")
+# 
+# cat("Correlations between spending and potential mediators:\n")
+# for (med in potential_mediators) {
+#   if (med %in% colnames(df_analysis)) {
+#     cor_val <- cor(df_analysis$rw_dex_hiv_prev_ratio, df_analysis[[med]], use = "complete.obs")
+#     cat(sprintf("  %s: %.4f\n", med, cor_val))
+#   }
+# }
+# 
+# ##----------------------------------------------------------------
+# ## 11. Time Trends - Does spending effect vary over time?
+# ##----------------------------------------------------------------
+# cat("\n\n========================================\n")
+# cat("=== SPENDING EFFECT BY YEAR ===\n")
+# cat("========================================\n")
+# 
+# yearly_effects <- df_analysis %>%
+#   group_by(year_num) %>%
+#   summarise(
+#     n = n(),
+#     cor_spend_mort = cor(rw_dex_hiv_prev_ratio, as_mort_prev_ratio),
+#     cor_spend_daly = cor(rw_dex_hiv_prev_ratio, as_daly_prev_ratio),
+#     mean_spend = mean(rw_dex_hiv_prev_ratio),
+#     mean_mort = mean(as_mort_prev_ratio)
+#   )
+# 
+# print(yearly_effects)
+# 
+# ##----------------------------------------------------------------
+# ## 12. Create Visualization Outputs
+# ##----------------------------------------------------------------
+# 
+# # Variable importance plot - Mortality
+# p_imp_mort <- rf_mort$importance %>%
+#   head(15) %>%
+#   mutate(variable = fct_reorder(variable, pct_inc_mse)) %>%
+#   ggplot(aes(x = pct_inc_mse, y = variable)) +
+#   geom_col(fill = "steelblue") +
+#   labs(title = "Random Forest Variable Importance - Mortality",
+#        x = "% Increase in MSE",
+#        y = "") +
+#   theme_minimal()
+# 
+# # Variable importance plot - DALYs
+# p_imp_daly <- rf_daly$importance %>%
+#   head(15) %>%
+#   mutate(variable = fct_reorder(variable, pct_inc_mse)) %>%
+#   ggplot(aes(x = pct_inc_mse, y = variable)) +
+#   geom_col(fill = "darkred") +
+#   labs(title = "Random Forest Variable Importance - DALYs",
+#        x = "% Increase in MSE",
+#        y = "") +
+#   theme_minimal()
+# 
+# # Save plots
+# ggsave("rf_importance_mortality.png", p_imp_mort, width = 10, height = 8)
+# ggsave("rf_importance_daly.png", p_imp_daly, width = 10, height = 8)
+# 
+# cat("\nPlots saved to working directory\n")
+# 
+# ##----------------------------------------------------------------
+# ## 13. Export Results
+# ##----------------------------------------------------------------
+# 
+# # Save summary tables
+# write.csv(summary_mort, "ml_summary_mortality.csv", row.names = FALSE)
+# write.csv(summary_daly, "ml_summary_daly.csv", row.names = FALSE)
+# write.csv(yearly_effects, "spending_effect_by_year.csv", row.names = FALSE)
+# 
+# cat("\n\n========================================\n")
+# cat("=== ANALYSIS COMPLETE ===\n")
+# cat("========================================\n")
+# cat("\nKey outputs saved:\n")
+# cat("  - ml_summary_mortality.csv\n")
+# cat("  - ml_summary_daly.csv\n")
+# cat("  - spending_effect_by_year.csv\n")
+# cat("  - rf_importance_mortality.png\n")
+# cat("  - rf_importance_daly.png\n")
+# 
+# ##----------------------------------------------------------------
+# ## 14. INTERPRETATION GUIDANCE
+# ##----------------------------------------------------------------
+# cat("\n\n========================================\n")
+# cat("=== INTERPRETATION GUIDANCE ===\n")
+# cat("========================================\n")
+# cat("
+# 1. LASSO COEFFICIENTS: 
+#    - Variables with non-zero coefficients are selected as important
+#    - Sign indicates direction of association
+#    - Magnitude (on standardized scale) indicates relative importance
+# 
+# 2. RANDOM FOREST %IncMSE:
+#    - Higher values = more important for prediction
+#    - Captures non-linear relationships and interactions
+#    - Does not indicate direction of effect
+# 
+# 3. POTENTIAL CONFOUNDERS:
+#    - Variables that are:
+#      a) Correlated with spending
+#      b) Correlated with outcomes
+#      c) Have high importance in ML models
+#    - Check: prevalence_rates, incidence_rates, race variables, density
+# 
+# 4. REVERSE CAUSALITY CHECK:
+#    - If prevalence/incidence rates are top predictors, this suggests
+#      spending follows disease burden (reverse causality)
+#    - High-burden states receive more funding AND have worse outcomes
+# 
+# 5. NEXT STEPS:
+#    - Consider instrumental variable approaches
+#    - Look at lagged spending effects
+#    - Examine within-state changes over time (first differences)
+#    - Stratify by state characteristics
+# ")
+# 
+# 
+# 
+# pacman::p_load(randomForest, dplyr, purrr, tibble)
+# 
+# run_rf_groupcv <- function(outcome_var, predictors, data,
+#                            group_var = "location_id",
+#                            ntree = 1000, mtry = NULL, seed = 42) {
+#   set.seed(seed)
+#   
+#   # ensure numeric matrix (RF in randomForest can handle factors, but keep it clean)
+#   df <- data %>% dplyr::select(all_of(c(outcome_var, predictors, group_var))) %>% tidyr::drop_na()
+#   
+#   # create grouped folds: hold out entire states
+#   groups <- unique(df[[group_var]])
+#   K <- 10
+#   folds <- split(groups, sort(rep(1:K, length.out = length(groups))))
+#   
+#   fold_metrics <- purrr::map_dfr(seq_along(folds), function(k) {
+#     test_groups <- folds[[k]]
+#     train <- df[df[[group_var]] %in% setdiff(groups, test_groups), ]
+#     test  <- df[df[[group_var]] %in% test_groups, ]
+#     
+#     X_train <- train[, predictors, drop = FALSE]
+#     y_train <- train[[outcome_var]]
+#     X_test  <- test[, predictors, drop = FALSE]
+#     y_test  <- test[[outcome_var]]
+#     
+#     if (is.null(mtry)) mtry_use <- max(1, floor(sqrt(ncol(X_train)))) else mtry_use <- mtry
+#     
+#     rf_fit <- randomForest::randomForest(
+#       x = X_train, y = y_train,
+#       ntree = ntree, mtry = mtry_use,
+#       importance = TRUE
+#     )
+#     
+#     pred <- predict(rf_fit, newdata = X_test)
+#     
+#     tibble(
+#       fold = k,
+#       rmse = sqrt(mean((y_test - pred)^2)),
+#       r2   = 1 - sum((y_test - pred)^2) / sum((y_test - mean(y_test))^2)
+#     )
+#   })
+#   
+#   # Fit final model on full data for importance table
+#   X_full <- df[, predictors, drop = FALSE]
+#   y_full <- df[[outcome_var]]
+#   if (is.null(mtry)) mtry_use <- max(1, floor(sqrt(ncol(X_full)))) else mtry_use <- mtry
+#   
+#   rf_full <- randomForest::randomForest(
+#     x = X_full, y = y_full,
+#     ntree = ntree, mtry = mtry_use,
+#     importance = TRUE
+#   )
+#   
+#   imp <- randomForest::importance(rf_full)
+#   imp_df <- tibble(
+#     variable = rownames(imp),
+#     pct_inc_mse = imp[, "%IncMSE"],
+#     inc_node_purity = imp[, "IncNodePurity"]
+#   ) %>% arrange(desc(pct_inc_mse))
+#   
+#   list(
+#     rf_fit = rf_full,
+#     importance = imp_df,
+#     cv_metrics = fold_metrics,
+#     cv_summary = fold_metrics %>%
+#       summarise(rmse_mean = mean(rmse), rmse_sd = sd(rmse),
+#                 r2_mean = mean(r2), r2_sd = sd(r2))
+#   )
+# }
+# 
+# ## Run it
+# rf_mort <- run_rf_groupcv(outcome_mort, predictors_final, df_analysis, group_var = "location_id")
+# rf_daly <- run_rf_groupcv(outcome_daly, predictors_final, df_analysis, group_var = "location_id")
+# 
+# rf_mort$cv_summary
+# head(rf_mort$importance, 15)
+# 
+# rf_daly$cv_summary
+# head(rf_daly$importance, 15)
+# 
+# 
+# 
+# ##----------------------------------------------------------------
+# ##' Title: ML_informed_regression.R
+# ##'
+# ##' Purpose: Regression models informed by ML variable selection
+# ##'          Incorporates urban/rural interactions and key confounders
+# ##'          
+# ##' Run this AFTER your main script through section 8 (after df_as is created)
+# ##----------------------------------------------------------------
+# 
+# ##----------------------------------------------------------------
+# ## 1. Prepare data (assumes df_as is loaded from main script)
+# ##----------------------------------------------------------------
+# 
+# # Filter to HIV only
+# df_reg <- df_as %>% filter(acause == "hiv")
+# 
+# # Create urban/rural indicator based on high-density population proportion
+# df_reg <- df_reg %>%
+#   mutate(
+#     # Urban = above median high-density population
+#     urban = ifelse(density_g.1000 > median(density_g.1000, na.rm = TRUE), 1, 0),
+#     urban_factor = factor(urban, levels = c(0, 1), labels = c("Rural", "Urban"))
+#   )
+# 
+# # Verify the split
+# cat("Urban/Rural distribution:\n")
+# print(table(df_reg$urban_factor))
+# 
+# ##----------------------------------------------------------------
+# ## 2. Define model formulas based on ML findings
+# ##----------------------------------------------------------------
+# 
+# # Key variables identified by LASSO:
+# # - rw_dex_hiv_prev_ratio (main predictor - negative effect on mortality)
+# # - as_spend_prev_ratio (general spending - positive/endogenous)
+# # - density variables (urban/rural)
+# # - ldi_pc (income)
+# # - obesity, edu_yrs, prev_smoking (health/SES)
+# # - incidence_rates (HIV-specific confounder)
+# # - cholesterol (time proxy)
+# # - high_hiv_prev (interaction term)
+# 
+# # ============================================================
+# # MODEL SET 1: MORTALITY OUTCOME
+# # ============================================================
+# 
+# # Model 1a: Basic with urban interaction
+# f_mort_1a <- as.formula(
+#   "as_mort_prev_ratio ~ rw_dex_hiv_prev_ratio * urban_factor"
+# )
+# 
+# # Model 1b: Add year and state fixed effects
+# f_mort_1b <- as.formula(
+#   "as_mort_prev_ratio ~ rw_dex_hiv_prev_ratio * urban_factor + year_id + location_id"
+# )
+# 
+# # Model 1c: Add key confounders from LASSO
+# f_mort_1c <- as.formula(
+#   "as_mort_prev_ratio ~ rw_dex_hiv_prev_ratio * urban_factor + 
+#    year_id + location_id + 
+#    ldi_pc + edu_yrs + obesity"
+# )
+# 
+# # Model 1d: Full model with HIV-specific controls
+# f_mort_1d <- as.formula(
+#   "as_mort_prev_ratio ~ rw_dex_hiv_prev_ratio * urban_factor + 
+#    year_id + location_id + 
+#    ldi_pc + edu_yrs + obesity + prev_smoking +
+#    incidence_rates + high_hiv_prev"
+# )
+# 
+# # Model 1e: Three-way interaction (spending x urban x high_prev)
+# f_mort_1e <- as.formula(
+#   "as_mort_prev_ratio ~ rw_dex_hiv_prev_ratio * urban_factor * high_hiv_prev + 
+#    year_id + location_id + 
+#    ldi_pc + edu_yrs + obesity"
+# )
+# 
+# # Model 1f: Urban/Rural interaction + race controls
+# f_mort_1f <- as.formula(
+#   "as_mort_prev_ratio ~ rw_dex_hiv_prev_ratio * urban_factor + 
+#    year_id + location_id + 
+#    ldi_pc + edu_yrs + obesity + 
+#    race_prop_BLCK + race_prop_HISP"
+# )
+# 
+# # ============================================================
+# # MODEL SET 2: DALY OUTCOME
+# # ============================================================
+# 
+# # Model 2a: Basic with urban interaction
+# f_daly_1a <- as.formula(
+#   "as_daly_prev_ratio ~ rw_dex_hiv_prev_ratio * urban_factor"
+# )
+# 
+# # Model 2b: Add year and state fixed effects
+# f_daly_1b <- as.formula(
+#   "as_daly_prev_ratio ~ rw_dex_hiv_prev_ratio * urban_factor + year_id + location_id"
+# )
+# 
+# # Model 2c: Add key confounders
+# f_daly_1c <- as.formula(
+#   "as_daly_prev_ratio ~ rw_dex_hiv_prev_ratio * urban_factor + 
+#    year_id + location_id + 
+#    ldi_pc + edu_yrs + obesity"
+# )
+# 
+# # Model 2d: Full model
+# f_daly_1d <- as.formula(
+#   "as_daly_prev_ratio ~ rw_dex_hiv_prev_ratio * urban_factor + 
+#    year_id + location_id + 
+#    ldi_pc + edu_yrs + obesity + prev_smoking +
+#    incidence_rates + high_hiv_prev"
+# )
+# 
+# # ============================================================
+# # MODEL SET 3: YLL OUTCOME (Years of Life Lost)
+# # ============================================================
+# 
+# f_yll_1d <- as.formula(
+#   "as_yll_prev_ratio ~ rw_dex_hiv_prev_ratio * urban_factor + 
+#    year_id + location_id + 
+#    ldi_pc + edu_yrs + obesity + prev_smoking +
+#    incidence_rates + high_hiv_prev"
+# )
+# 
+# # ============================================================
+# # MODEL SET 4: YLD OUTCOME (Years Lived with Disability)
+# # ============================================================
+# 
+# f_yld_1d <- as.formula(
+#   "as_yld_prev_ratio ~ rw_dex_hiv_prev_ratio * urban_factor + 
+#    year_id + location_id + 
+#    ldi_pc + edu_yrs + obesity + prev_smoking +
+#    incidence_rates + high_hiv_prev"
+# )
+# 
+# ##----------------------------------------------------------------
+# ## 3. Run mortality models
+# ##----------------------------------------------------------------
+# 
+# cat("\n\n================================================================\n")
+# cat("MORTALITY MODELS WITH URBAN/RURAL INTERACTION\n")
+# cat("================================================================\n")
+# 
+# # Run models
+# m_mort_1a <- lm(f_mort_1a, data = df_reg)
+# m_mort_1b <- lm(f_mort_1b, data = df_reg)
+# m_mort_1c <- lm(f_mort_1c, data = df_reg)
+# m_mort_1d <- lm(f_mort_1d, data = df_reg)
+# m_mort_1e <- lm(f_mort_1e, data = df_reg)
+# m_mort_1f <- lm(f_mort_1f, data = df_reg)
+# 
+# # Print key results
+# cat("\n--- Model 1a: Basic Urban Interaction ---\n")
+# summary(m_mort_1a)
+# 
+# cat("\n--- Model 1d: Full Model with HIV Controls ---\n")
+# summary(m_mort_1d)
+# 
+# cat("\n--- Model 1e: Three-way Interaction ---\n")
+# summary(m_mort_1e)
+# 
+# ##----------------------------------------------------------------
+# ## 4. Run DALY models
+# ##----------------------------------------------------------------
+# 
+# cat("\n\n================================================================\n")
+# cat("DALY MODELS WITH URBAN/RURAL INTERACTION\n")
+# cat("================================================================\n")
+# 
+# m_daly_1a <- lm(f_daly_1a, data = df_reg)
+# m_daly_1b <- lm(f_daly_1b, data = df_reg)
+# m_daly_1c <- lm(f_daly_1c, data = df_reg)
+# m_daly_1d <- lm(f_daly_1d, data = df_reg)
+# 
+# cat("\n--- Model 2a: Basic Urban Interaction ---\n")
+# summary(m_daly_1a)
+# 
+# cat("\n--- Model 2d: Full Model ---\n")
+# summary(m_daly_1d)
+# 
+# ##----------------------------------------------------------------
+# ## 5. Run YLL and YLD models
+# ##----------------------------------------------------------------
+# 
+# cat("\n\n================================================================\n")
+# cat("YLL AND YLD MODELS\n")
+# cat("================================================================\n")
+# 
+# m_yll_1d <- lm(f_yll_1d, data = df_reg)
+# m_yld_1d <- lm(f_yld_1d, data = df_reg)
+# 
+# cat("\n--- YLL Full Model ---\n")
+# summary(m_yll_1d)
+# 
+# cat("\n--- YLD Full Model ---\n")
+# summary(m_yld_1d)
+# 
+# ##----------------------------------------------------------------
+# ## 6. Extract and compare results
+# ##----------------------------------------------------------------
+# 
+# # Function to extract key coefficients
+# extract_spending_effects <- function(model, model_name) {
+#   coefs <- broom::tidy(model) %>%
+#     filter(grepl("rw_dex|urban|Urban", term)) %>%
+#     mutate(
+#       model = model_name,
+#       signif = case_when(
+#         p.value < 0.001 ~ "***",
+#         p.value < 0.01 ~ "**",
+#         p.value < 0.05 ~ "*",
+#         p.value < 0.1 ~ ".",
+#         TRUE ~ ""
+#       )
+#     )
+#   return(coefs)
+# }
+# 
+# # Compile results
+# results_mort <- bind_rows(
+#   extract_spending_effects(m_mort_1a, "Mort_Basic"),
+#   extract_spending_effects(m_mort_1b, "Mort_FE"),
+#   extract_spending_effects(m_mort_1c, "Mort_FE_SES"),
+#   extract_spending_effects(m_mort_1d, "Mort_Full"),
+#   extract_spending_effects(m_mort_1e, "Mort_3way"),
+#   extract_spending_effects(m_mort_1f, "Mort_Race")
+# )
+# 
+# results_daly <- bind_rows(
+#   extract_spending_effects(m_daly_1a, "DALY_Basic"),
+#   extract_spending_effects(m_daly_1b, "DALY_FE"),
+#   extract_spending_effects(m_daly_1c, "DALY_FE_SES"),
+#   extract_spending_effects(m_daly_1d, "DALY_Full")
+# )
+# 
+# cat("\n\n================================================================\n")
+# cat("SUMMARY: SPENDING EFFECTS ACROSS MORTALITY MODELS\n")
+# cat("================================================================\n")
+# print(results_mort %>% select(model, term, estimate, std.error, p.value, signif))
+# 
+# cat("\n\n================================================================\n")
+# cat("SUMMARY: SPENDING EFFECTS ACROSS DALY MODELS\n")
+# cat("================================================================\n")
+# print(results_daly %>% select(model, term, estimate, std.error, p.value, signif))
+# 
+# ##----------------------------------------------------------------
+# ## 7. Model comparison metrics
+# ##----------------------------------------------------------------
+# 
+# get_metrics <- function(model, model_name) {
+#   g <- broom::glance(model)
+#   tibble(
+#     model = model_name,
+#     n = g$nobs,
+#     r2 = round(g$r.squared, 4),
+#     adj_r2 = round(g$adj.r.squared, 4),
+#     aic = round(AIC(model), 1),
+#     bic = round(BIC(model), 1)
+#   )
+# }
+# 
+# metrics_comparison <- bind_rows(
+#   get_metrics(m_mort_1a, "Mort_1a_Basic"),
+#   get_metrics(m_mort_1b, "Mort_1b_FE"),
+#   get_metrics(m_mort_1c, "Mort_1c_FE_SES"),
+#   get_metrics(m_mort_1d, "Mort_1d_Full"),
+#   get_metrics(m_mort_1e, "Mort_1e_3way"),
+#   get_metrics(m_mort_1f, "Mort_1f_Race"),
+#   get_metrics(m_daly_1a, "DALY_1a_Basic"),
+#   get_metrics(m_daly_1b, "DALY_1b_FE"),
+#   get_metrics(m_daly_1c, "DALY_1c_FE_SES"),
+#   get_metrics(m_daly_1d, "DALY_1d_Full"),
+#   get_metrics(m_yll_1d, "YLL_Full"),
+#   get_metrics(m_yld_1d, "YLD_Full")
+# )
+# 
+# cat("\n\n================================================================\n")
+# cat("MODEL FIT COMPARISON\n")
+# cat("================================================================\n")
+# print(metrics_comparison)
+# 
+# ##----------------------------------------------------------------
+# ## 8. Compute marginal effects by urban/rural
+# ##----------------------------------------------------------------
+# 
+# cat("\n\n================================================================\n")
+# cat("MARGINAL EFFECTS OF SPENDING BY URBAN/RURAL\n")
+# cat("================================================================\n")
+# 
+# # For the full mortality model
+# coef_full <- coef(m_mort_1d)
+# 
+# # Effect in Rural areas (baseline)
+# effect_rural <- coef_full["rw_dex_hiv_prev_ratio"]
+# 
+# # Effect in Urban areas (baseline + interaction)
+# effect_urban <- coef_full["rw_dex_hiv_prev_ratio"] + 
+#   coef_full["rw_dex_hiv_prev_ratio:urban_factorUrban"]
+# 
+# cat("\nFull Mortality Model (1d):\n")
+# cat(sprintf("  Spending effect in RURAL areas:  %.6f\n", effect_rural))
+# cat(sprintf("  Spending effect in URBAN areas:  %.6f\n", effect_urban))
+# cat(sprintf("  Difference (Urban - Rural):      %.6f\n", effect_urban - effect_rural))
+# 
+# # For DALY model
+# coef_daly <- coef(m_daly_1d)
+# effect_rural_daly <- coef_daly["rw_dex_hiv_prev_ratio"]
+# effect_urban_daly <- coef_daly["rw_dex_hiv_prev_ratio"] + 
+#   coef_daly["rw_dex_hiv_prev_ratio:urban_factorUrban"]
+# 
+# cat("\nFull DALY Model (2d):\n")
+# cat(sprintf("  Spending effect in RURAL areas:  %.6f\n", effect_rural_daly))
+# cat(sprintf("  Spending effect in URBAN areas:  %.6f\n", effect_urban_daly))
+# cat(sprintf("  Difference (Urban - Rural):      %.6f\n", effect_urban_daly - effect_rural_daly))
+# 
+# ##----------------------------------------------------------------
+# ## 9. Stratified models (run separately for urban vs rural)
+# ##----------------------------------------------------------------
+# 
+# cat("\n\n================================================================\n")
+# cat("STRATIFIED MODELS: URBAN VS RURAL SEPARATELY\n")
+# cat("================================================================\n")
+# 
+# # Stratified formula (no urban interaction needed)
+# f_stratified <- as.formula(
+#   "as_mort_prev_ratio ~ rw_dex_hiv_prev_ratio + 
+#    year_id + location_id + 
+#    ldi_pc + edu_yrs + obesity + prev_smoking +
+#    incidence_rates + high_hiv_prev"
+# )
+# 
+# # Rural only
+# df_rural <- df_reg %>% filter(urban == 0)
+# m_rural <- lm(f_stratified, data = df_rural)
+# 
+# # Urban only
+# df_urban <- df_reg %>% filter(urban == 1)
+# m_urban <- lm(f_stratified, data = df_urban)
+# 
+# cat("\n--- RURAL STATES ONLY ---\n")
+# cat("N =", nrow(df_rural), "\n")
+# rural_coef <- broom::tidy(m_rural) %>% filter(term == "rw_dex_hiv_prev_ratio")
+# print(rural_coef)
+# 
+# cat("\n--- URBAN STATES ONLY ---\n")
+# cat("N =", nrow(df_urban), "\n")
+# urban_coef <- broom::tidy(m_urban) %>% filter(term == "rw_dex_hiv_prev_ratio")
+# print(urban_coef)
+# 
+# ##----------------------------------------------------------------
+# ## 10. Save outputs
+# ##----------------------------------------------------------------
+# 
+# # Compile all coefficient tables
+# coef_mort_full <- broom::tidy(m_mort_1d) %>% mutate(model = "Mortality_Full")
+# coef_daly_full <- broom::tidy(m_daly_1d) %>% mutate(model = "DALY_Full")
+# coef_yll_full <- broom::tidy(m_yll_1d) %>% mutate(model = "YLL_Full")
+# coef_yld_full <- broom::tidy(m_yld_1d) %>% mutate(model = "YLD_Full")
+# 
+# all_coefs <- bind_rows(coef_mort_full, coef_daly_full, coef_yll_full, coef_yld_full)
+# 
+# # Save to output directory
+# write.csv(all_coefs, file.path(dir_output, "ml_informed_model_coefficients.csv"), row.names = FALSE)
+# write.csv(metrics_comparison, file.path(dir_output, "ml_informed_model_metrics.csv"), row.names = FALSE)
+# write.csv(results_mort, file.path(dir_output, "spending_effects_mortality.csv"), row.names = FALSE)
+# write.csv(results_daly, file.path(dir_output, "spending_effects_daly.csv"), row.names = FALSE)
+# 
+# cat("\n\n================================================================\n")
+# cat("OUTPUTS SAVED TO:", dir_output, "\n")
+# cat("================================================================\n")
+# cat("  - ml_informed_model_coefficients.csv\n")
+# cat("  - ml_informed_model_metrics.csv\n")
+# cat("  - spending_effects_mortality.csv\n")
+# cat("  - spending_effects_daly.csv\n")
+# 
+# ##----------------------------------------------------------------
+# ## 11. INTERPRETATION GUIDE
+# ##----------------------------------------------------------------
+# 
+# cat("\n\n================================================================\n")
+# cat("INTERPRETATION GUIDE\n")
+# cat("================================================================\n")
+# cat("
+# KEY TERMS TO INTERPRET:
+# 
+# 1. rw_dex_hiv_prev_ratio
+#    - Main spending effect (in RURAL areas when interaction included)
+#    - Negative coefficient = spending reduces mortality/DALYs (good!)
+#    - Positive coefficient = spending associated with higher mortality (endogeneity?)
+# 
+# 2. urban_factorUrban
+#    - Difference in baseline mortality between urban vs rural
+#    - Negative = urban states have lower mortality at baseline
+# 
+# 3. rw_dex_hiv_prev_ratio:urban_factorUrban
+#    - THE KEY INTERACTION TERM
+#    - Positive = spending is LESS effective in urban areas
+#    - Negative = spending is MORE effective in urban areas
+#    - To get total urban effect: add main effect + interaction
+# 
+# 4. high_hiv_prev
+#    - Controls for baseline disease burden
+#    - Helps address reverse causality
+# 
+# 5. incidence_rates
+#    - Controls for new cases
+#    - Important confounder (new cases → more spending AND more deaths)
+# 
+# EXPECTED PATTERN IF REVERSE CAUSALITY:
+# - Rural: positive spending coefficient (more sick → more spending)
+# - Urban: negative or null (better infrastructure → spending works)
+# 
+# EXPECTED PATTERN IF SPENDING WORKS:
+# - Both: negative coefficients
+# - Interaction: may show urban is more effective (better infrastructure)
+# ")
+# 

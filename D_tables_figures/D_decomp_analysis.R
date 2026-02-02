@@ -51,7 +51,7 @@ convert_to_dollars <- function(df, cols_to_convert) {
 ##----------------------------------------------------------------
 ## 0.1 Set directories
 ##----------------------------------------------------------------
-date_decomp <- "20260131"
+date_decomp <- "20260201"
 fp_decomp <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_decomp, "/df_decomp.csv")
 
 date_today <- format(Sys.time(), "%Y%m%d")
@@ -511,7 +511,7 @@ p_states <- ggplot(plot_data_top, aes(x = location_name, y = effect/1e6, fill = 
   ) +
   guides(fill = guide_legend(nrow = 2))
 print(p_states)
-ggsave(file.path(dir_output, "F6_decomp_15_states_stacked_bar.png"), p_states, 
+ggsave(file.path(dir_output, "F6_HIV_decomp_15_states_stacked_bar.png"), p_states, 
        width = 10, height = 8, dpi = 300)
 
 
@@ -680,18 +680,19 @@ spend_eff_table[, spend_effectiveness := fifelse(
 # ----------------------------------------------------------------------------
 
 spend_eff_table[, category := fcase(
-  spend_intensity_effect > 0 & daly_averted_effect > 0, 1L,  # ↑Spend, ↑Health (report ratio)
-  spend_intensity_effect < 0 & daly_averted_effect > 0, 2L,  # ↓Spend, ↑Health (cost-saving)
-  spend_intensity_effect > 0 & daly_averted_effect < 0, 3L,  # ↑Spend, ↓Health (dominated)
-  spend_intensity_effect < 0 & daly_averted_effect < 0, 4L,  # ↓Spend, ↓Health (excluded)
+  spend_intensity_effect > 0 & daly_averted_effect > 0, 1L,  # +Spend, +Health (report ratio)
+  spend_intensity_effect < 0 & daly_averted_effect > 0, 2L,  # -Spend, +Health (cost-saving)
+  spend_intensity_effect > 0 & daly_averted_effect < 0, 3L,  # +Spend, -Health (dominated)
+  spend_intensity_effect < 0 & daly_averted_effect < 0, 4L,  # -Spend, -Health (excluded)
   default = NA_integer_
 )]
 
+# ASCII-safe category labels (no Unicode arrows)
 spend_eff_table[, category_label := fcase(
-  category == 1L, "Category 1: ↑Spend, ↑Health",
+  category == 1L, "Category 1: +Spend, +Health",
   category == 2L, "Category 2: Cost-saving",
   category == 3L, "Category 3: Dominated",
-  category == 4L, "Category 4: ↓Both",
+  category == 4L, "Category 4: -Both",
   default = "N/A"
 )]
 
@@ -733,12 +734,11 @@ spend_eff_table[, spend_effectiveness_simple := fifelse(
 )]
 
 # ----------------------------------------------------------------------------
-# B.5: Create final table for export
+# B.5: Create state-level table
 # ----------------------------------------------------------------------------
 
-# Select and rename columns for final table
-final_spend_eff <- spend_eff_table[, .(
-  State = location_name,
+state_spend_eff <- spend_eff_table[, .(
+  Level = location_name,
   `Spending 2010` = spend_2010,
   `Spending 2019` = spend_2019,
   `Spending Change` = delta_spend,
@@ -753,45 +753,108 @@ final_spend_eff <- spend_eff_table[, .(
   `Change in DALYs Averted per Case` = change_daly_averted_per_case,
   `Spend Intensity Effect (Decomp)` = spend_intensity_effect,
   `DALY Averted Effect (Decomp)` = daly_averted_effect,
-  `Spending Effectiveness ($/DALY averted) - Simple` = spend_effectiveness_simple,
-  `Spending Effectiveness ($/DALY averted) - Decomp` = spend_effectiveness,
+  `Spending Effectiveness - Simple` = spend_effectiveness_simple,
+  `Spending Effectiveness - Decomp` = spend_effectiveness,
   Category = category,
   `Category Label` = category_label,
   Interpretation = interpretation
 )]
 
 # Order by state name
-final_spend_eff <- final_spend_eff[order(State)]
+state_spend_eff <- state_spend_eff[order(Level)]
 
 # ----------------------------------------------------------------------------
-# B.6: National spending effectiveness
+# B.6: Create national row and combine with states
 # ----------------------------------------------------------------------------
 
-national_spend_eff <- data.table(
-  Level = "United States",
+# Calculate national simple spending effectiveness
+national_prev_2010 <- sum(spend_eff_table$prev_2010)
+national_prev_2019 <- sum(spend_eff_table$prev_2019)
+national_spend_pc_2010 <- national$spend_2010 / national_prev_2010
+national_spend_pc_2019 <- national$spend_2019 / national_prev_2019
+national_daly_pc_2010 <- national_daly$daly_2010 / national_prev_2010
+national_daly_pc_2019 <- national_daly$daly_2019 / national_prev_2019
+national_change_spend_pc <- national_spend_pc_2019 - national_spend_pc_2010
+national_change_daly_averted_pc <- national_daly_pc_2010 - national_daly_pc_2019
+national_spend_eff_simple <- national_change_spend_pc / national_change_daly_averted_pc
+national_spend_eff_decomp <- national$spend_intensity_effect / (-national_daly$daly_intensity_effect)
+
+# Determine national category
+national_category <- fcase(
+  national$spend_intensity_effect > 0 & (-national_daly$daly_intensity_effect) > 0, 1L,
+  national$spend_intensity_effect < 0 & (-national_daly$daly_intensity_effect) > 0, 2L,
+  national$spend_intensity_effect > 0 & (-national_daly$daly_intensity_effect) < 0, 3L,
+  national$spend_intensity_effect < 0 & (-national_daly$daly_intensity_effect) < 0, 4L,
+  default = NA_integer_
+)
+
+national_category_label <- fcase(
+  national_category == 1L, "Category 1: +Spend, +Health",
+  national_category == 2L, "Category 2: Cost-saving",
+  national_category == 3L, "Category 3: Dominated",
+  national_category == 4L, "Category 4: -Both",
+  default = "N/A"
+)
+
+national_interpretation <- fcase(
+  national_category == 1L, paste0("$", format(round(national_spend_eff_decomp), big.mark = ","), " per DALY averted"),
+  national_category == 2L, "Cost-saving (less spending, better health)",
+  national_category == 3L, "Dominated (more spending, worse health)",
+  national_category == 4L, "Excluded from ratio calculation",
+  default = "N/A"
+)
+
+# Create national row
+national_row <- data.table(
+  Level = "United States (National)",
   `Spending 2010` = national$spend_2010,
   `Spending 2019` = national$spend_2019,
   `Spending Change` = national$delta_spend,
   `DALYs 2010` = national_daly$daly_2010,
   `DALYs 2019` = national_daly$daly_2019,
   `DALY Change` = national_daly$delta_daly,
-  `Spend Intensity Effect` = national$spend_intensity_effect,
-  `DALY Intensity Effect` = national_daly$daly_intensity_effect,
-  `DALY Averted Effect` = -national_daly$daly_intensity_effect,
-  `Spending Effectiveness ($/DALY averted)` = national$spend_intensity_effect / (-national_daly$daly_intensity_effect)
+  `Spend per Case 2010` = national_spend_pc_2010,
+  `Spend per Case 2019` = national_spend_pc_2019,
+  `DALY per Case 2010` = national_daly_pc_2010,
+  `DALY per Case 2019` = national_daly_pc_2019,
+  `Change in Spend per Case` = national_change_spend_pc,
+  `Change in DALYs Averted per Case` = national_change_daly_averted_pc,
+  `Spend Intensity Effect (Decomp)` = national$spend_intensity_effect,
+  `DALY Averted Effect (Decomp)` = -national_daly$daly_intensity_effect,
+  `Spending Effectiveness - Simple` = national_spend_eff_simple,
+  `Spending Effectiveness - Decomp` = national_spend_eff_decomp,
+  Category = national_category,
+  `Category Label` = national_category_label,
+  Interpretation = national_interpretation
 )
 
-# Determine national category
-national_spend_eff[, Category := fcase(
-  `Spend Intensity Effect` > 0 & `DALY Averted Effect` > 0, 1L,
-  `Spend Intensity Effect` < 0 & `DALY Averted Effect` > 0, 2L,
-  `Spend Intensity Effect` > 0 & `DALY Averted Effect` < 0, 3L,
-  `Spend Intensity Effect` < 0 & `DALY Averted Effect` < 0, 4L,
-  default = NA_integer_
-)]
+# Combine national + states (national first)
+final_spend_eff <- rbind(national_row, state_spend_eff)
 
 # ----------------------------------------------------------------------------
-# B.7: Print summary
+# B.7: Combine DALY decomposition tables (national + states)
+# ----------------------------------------------------------------------------
+
+# Create national DALY row with same columns as by_state_daly
+national_daly_row <- data.table(
+  location_id = NA_integer_,
+  location_name = "United States (National)",
+  daly_pop_size_effect = national_daly$daly_pop_size_effect,
+  daly_prevalence_rate_effect = national_daly$daly_prevalence_rate_effect,
+  daly_case_composition_effect = national_daly$daly_case_composition_effect,
+  daly_intensity_effect = national_daly$daly_intensity_effect,
+  delta_daly = national_daly$delta_daly,
+  daly_2010 = national_daly$daly_2010,
+  daly_2019 = national_daly$daly_2019,
+  sum_effects = national_daly$sum_effects,
+  diff_check = national_daly$diff_check
+)
+
+# Combine national + states
+final_daly_decomp <- rbind(national_daly_row, by_state_daly)
+
+# ----------------------------------------------------------------------------
+# B.8: Print summary
 # ----------------------------------------------------------------------------
 
 cat("\n=========== SPENDING EFFECTIVENESS SUMMARY ===========\n\n")
@@ -802,30 +865,27 @@ cat(sprintf("  Spend Intensity Effect:        $%s\n",
 cat(sprintf("  DALY Averted Effect:           %s DALYs\n", 
             format(round(-national_daly$daly_intensity_effect), big.mark = ",")))
 cat(sprintf("  Spending Effectiveness:        $%s per DALY averted\n",
-            format(round(national$spend_intensity_effect / (-national_daly$daly_intensity_effect)), big.mark = ",")))
-cat(sprintf("  Category:                      %d\n", national_spend_eff$Category))
+            format(round(national_spend_eff_decomp), big.mark = ",")))
+cat(sprintf("  Category:                      %d\n", national_category))
 
 cat("\nSTATE-LEVEL CATEGORY DISTRIBUTION:\n")
 print(table(spend_eff_table$category_label))
 
 cat("\nTOP 10 STATES BY SPENDING EFFECTIVENESS (Category 1 only):\n")
-print(final_spend_eff[Category == 1][order(`Spending Effectiveness ($/DALY averted) - Decomp`)][1:10, 
-                                                                                                .(State, `Spending Effectiveness ($/DALY averted) - Decomp`, Interpretation)])
+print(final_spend_eff[Category == 1][order(`Spending Effectiveness - Decomp`)][1:10, 
+                                                                               .(Level, `Spending Effectiveness - Decomp`, Interpretation)])
 
 cat("\nCOST-SAVING STATES (Category 2):\n")
-print(final_spend_eff[Category == 2, .(State, `Change in Spend per Case`, `Change in DALYs Averted per Case`)])
+print(final_spend_eff[Category == 2, .(Level, `Change in Spend per Case`, `Change in DALYs Averted per Case`)])
 
 # ----------------------------------------------------------------------------
-# B.8: Save results
+# B.9: Save results (2 tables instead of 4)
 # ----------------------------------------------------------------------------
 
-write.csv(final_spend_eff, file.path(dir_output, "spending_effectiveness_by_state.csv"), row.names = FALSE)
-write.csv(national_spend_eff, file.path(dir_output, "spending_effectiveness_national.csv"), row.names = FALSE)
-write.csv(by_state_daly, file.path(dir_output, "decomp_daly_by_state.csv"), row.names = FALSE)
-write.csv(national_daly, file.path(dir_output, "decomp_daly_national.csv"), row.names = FALSE)
+write.csv(final_spend_eff, file.path(dir_output, "T3_HIV_spending_effectiveness.csv"), row.names = FALSE)
+write.csv(final_daly_decomp, file.path(dir_output, "T8_HIV_decomp_daly.csv"), row.names = FALSE)
 
 cat(sprintf("\n=========== FILES SAVED TO: %s ===========\n", dir_output))
-cat("  - spending_effectiveness_by_state.csv\n")
-cat("  - spending_effectiveness_national.csv\n")
-cat("  - decomp_daly_by_state.csv\n")
-cat("  - decomp_daly_national.csv\n")
+cat("  - T3_HIV_spending_effectiveness.csv (national + all states)\n")
+cat("  - T8_HIV_decomp_daly.csv (national + all states)\n")
+
