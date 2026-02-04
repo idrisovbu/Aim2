@@ -1,0 +1,49 @@
+AchievementAwardsRCT    Achievement Awards Demonstration program
+MortalityRates          State-level annual mortality rates by cause
+                        among 18-20 year-olds
+SATcoaching             Randomized experiments on SAT coaching
+Wald_test               Test parameter constraints in a fitted linear
+                        regression model
+coef_test               Test all or selected regression coefficients in
+                        a fitted model
+conf_int                Calculate confidence intervals for all or
+                        selected regression coefficients in a fitted
+                        model
+constraint_matrices     Create constraint matrices
+dropoutPrevention       Dropout prevention/intervention program effects
+findCluster.rma.mv      Detect cluster structure of an rma.mv object
+impute_covariance_matrix
+                        Impute a block-diagonal covariance matrix
+linear_contrast         Calculate confidence intervals and p-values for
+                        linear contrasts of regression coefficients in
+                        a fitted model
+pattern_covariance_matrix
+                        Impute a patterned block-diagonal covariance
+                        matrix
+vcovCR                  Cluster-robust variance-covariance matrix
+vcovCR.geeglm           Cluster-robust variance-covariance matrix for a
+                        geeglm object.
+vcovCR.glm              Cluster-robust variance-covariance matrix for a
+                        glm object.
+vcovCR.gls              Cluster-robust variance-covariance matrix for a
+                        gls object.
+vcovCR.ivreg            Cluster-robust variance-covariance matrix for
+                        an ivreg object.
+vcovCR.lm               Cluster-robust variance-covariance matrix for
+                        an lm object.
+vcovCR.lm_robust        Cluster-robust variance-covariance matrix for
+                        an 'estimatr::lm_robust' object.
+vcovCR.lme              Cluster-robust variance-covariance matrix for
+                        an lme object.
+vcovCR.lmerMod          Cluster-robust variance-covariance matrix for
+                        an lmerMod object.
+vcovCR.mlm              Cluster-robust variance-covariance matrix for
+                        an mlm object.
+vcovCR.plm              Cluster-robust variance-covariance matrix for a
+                        plm object.
+vcovCR.rma.mv           Cluster-robust variance-covariance matrix for a
+                        rma.mv object.
+vcovCR.rma.uni          Cluster-robust variance-covariance matrix for a
+                        rma.uni object.
+vcovCR.robu             Cluster-robust variance-covariance matrix for a
+                        robu object.
