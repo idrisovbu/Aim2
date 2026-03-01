@@ -9,11 +9,21 @@
 ##----------------------------------------------------------------
 rm(list = ls())
 
-pacman::p_load(dplyr, openxlsx, RMySQL, data.table, ini, DBI, tidyr, openxlsx, reticulate, ggpubr, arrow, grid, gridExtra, scales, ggplot2, shiny)
+pacman::p_load(dplyr, openxlsx, RMySQL, data.table, ini, DBI, tidyr, openxlsx, readxl, reticulate, ggpubr, arrow, grid, gridExtra, scales, ggplot2, shiny)
 library(lbd.loader, lib.loc = sprintf("/share/geospatial/code/geospatial-libraries/lbd.loader-%s", R.version$major))
 if("dex.dbr"%in% (.packages())) detach("package:dex.dbr", unload=TRUE)
 library(dex.dbr, lib.loc = lbd.loader::pkg_loc("dex.dbr"))
 suppressMessages(devtools::load_all(path = "/ihme/homes/idrisov/repo/dex_us_county/"))
+.libPaths(c(file.path(h, "R_packages"), .libPaths()))
+library(ggpol)
+
+# Needed to use the below code to install "ggpol" for using the facet_share function which somehow we used before and now R can't find the function anymore? Makes no sense
+# install.packages(
+#   "/ihme/homes/idrisov/ggpol_0.0.7.tar.gz",
+#   repos = NULL,
+#   type = "source",
+#   lib = file.path(h, "R_packages")
+# )
 
 # Set drive paths
 if (Sys.info()["sysname"] == 'Linux'){
@@ -70,6 +80,16 @@ fp_dex <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_dex, "/compiled_
 date_ushd <- "20251204"
 fp_ushd <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_ushd, "/compiled_ushd_data_2010_2019.parquet")
 
+# Ryan White Data
+fp_rw_t1 <- file.path(h, "/aim_outputs/Aim2/R_resources/ryan_white_data/rw_title1.xls") # Marcus
+fp_rw_t2 <- file.path(h, "/aim_outputs/Aim2/R_resources/ryan_white_data/rw_title2.xls") # Marcus
+fp_rw_2016_2019 <- file.path(h, "aim_outputs/Aim2/R_resources/ryan_white_data/ryan_white_data_2016-2019.csv") # Official RW site
+fp_rw_agesex_weights <- file.path(h, "aim_outputs/Aim2/R_resources/ryan_white_data/ryan_white_agesex_weights.xlsx")
+
+# FIPS table
+fp_fips <- file.path(h, "/aim_outputs/Aim2/R_resources/state_county_city_fips.csv")
+fp_cityfips <- file.path(h, "/aim_outputs/Aim2/R_resources/ryan_white_data/t1years.xlsx")
+
 # Set output directories
 date_today <- format(Sys.time(), "%Y%m%d")
 dir_output <- file.path(h, "/aim_outputs/Aim2/D_tables_figures/", date_today)
@@ -84,13 +104,15 @@ ensure_dir_exists(dir_output)
 payer_list <- list("mdcr" = "Medicare", 
                    "mdcd" = "Medicaid", 
                    "priv" = "Private Insurance", 
-                   "oop" = "Out-of-Pocket")
+                   "oop" = "Out-of-Pocket",
+                   "ryan_white" = "Ryan White")
 
 # payer colors
 payer_colors <- list("priv" =	"#FFCB8D", 
                      "mdcr" =	"#3188BD", 
                      "mdcd" =	"#ACDABA", 
-                     "oop" =	"#D58192")
+                     "oop" =	"#D58192",
+                     "ryan_white" =	"#bc53f5")
 
 payer_colors_maps <- list("priv" =	c("#f1f1f1", "#f5dbbc", "#f4c788", "#efb353", "#E69F00"),
                              "mdcr" =	c("#f1f1f1","#c2c9e0", "#93a4d0","#6080bf","#0E5EAE"),
@@ -121,6 +143,8 @@ toc_labels = c(
 age_factor <- c("0-<1", "1-<5", "5-<10", "10-<15", "15-<20", "20-<25", "25-<30", "30-<35", 
                 "35-<40", "40-<45", "45-<50",  "50-<55", "55-<60", "60-<65", 
                 "65-<70", "70-<75", "75-<80", "80-<85", "85+")
+
+age_factor_rw <- c("25 - <35", "35 - <45", "45 - <55", "55 - <65", "65+")
 
 sex_factor <- c("Male", "Female")
 
@@ -153,10 +177,19 @@ theme_settings <- theme(
 ## 0.5 Read in data & loc_ids file & map files
 ##----------------------------------------------------------------
 # Main DEX Data
-df_dex <- read_parquet(fp_dex)
+df_dex <- open_dataset(fp_dex)
 
 # USHD Data - UNUSED ATM
 #df_ushd <- read_parquet(fp_ushd)
+
+# Ryan White Data
+df_rw_t1 <- read_excel(fp_rw_t1)
+df_rw_t2 <- read_excel(fp_rw_t2)
+df_rw_cityfips <- read_excel(fp_cityfips)
+df_rw_2016_2019 <- read.csv(fp_rw_2016_2019)
+df_rw_agesex_weights <- read_excel(fp_rw_agesex_weights)
+
+df_fips <- read.csv(fp_fips)
 
 # DEX causes that aggregate to "_subs" cause
 subs_causes <- c("mental_alcohol", "mental_drug_agg", "mental_drug_opioids")
@@ -167,6 +200,194 @@ df_loc_ids <- fread("/ihme/homes/idrisov/aim_outputs/Aim2/R_resources/county_fip
 # Shape files used for large US map plotting by county
 mcnty_shapefile <- readRDS("/ihme/dex/us_county/maps/mcnty_sf_shapefile.rds")
 state_shapefile <- readRDS("/ihme/dex/us_county/maps/state_sf_shapefile.rds")
+
+##----------------------------------------------------------------
+## 0.6 Format RW data
+##----------------------------------------------------------------
+# Title1 City level Ryan White Data #
+# Add padded 0 to cityfip column
+df_rw_t1$cityfip <- sprintf("%04d", df_rw_t1$cityfip)
+
+# Cityfip codes
+# Remove padded spaces from cityfip
+df_rw_cityfips$cityfip <- str_trim(df_rw_cityfips$cityfip)
+
+# Merge w/ Ryan White title1 (city)
+df_rw_t1_m <- left_join(
+  x = df_rw_t1,
+  y = df_rw_cityfips,
+  by = "cityfip"
+)
+
+# Extract state name
+df_rw_t1_m$state_abbr <- substr(df_rw_t1_m$city, nchar(df_rw_t1_m$city) - 1, nchar(df_rw_t1_m$city))
+
+# Create full state names
+state_lookup <- setNames(state.name, state.abb)
+df_rw_t1_m$state_name <- state_lookup[df_rw_t1_m$state_abbr]
+df_rw_t1_m$state_name <- if_else(df_rw_t1_m$state_abbr == "DC", "District of Columbia", df_rw_t1_m$state_name)
+
+# Group by summary for whole state
+df_rw_t1_m <- df_rw_t1_m %>%
+  group_by(year, state_name) %>%
+  summarise(
+    rw_title1_funding = sum(title1_funding, na.rm = TRUE)
+  )
+
+# Filter on 2010 ~ 2019
+df_rw_t1_m <- df_rw_t1_m %>%
+  filter(year %in% (2010:2019))
+
+df_rw_t1_m <- df_rw_t1_m %>%
+  setnames(
+    old = c("year", "state_name"),
+    new = c("year_id", "location_name")
+  )
+
+
+# Title2 State level Ryan White Data #
+# Format FIPS data
+df_fips$State.Name <- str_to_title(tolower(df_fips$State.Name))
+df_fips_state <- df_fips %>% select(c("State.Name", "State.Code", "State.FIPS.Code")) %>% unique()
+
+df_rw_t2_m <- left_join(
+  x = df_rw_t2,
+  y = df_fips_state,
+  by = c("statefip" = "State.FIPS.Code")
+)
+
+df_rw_t2_m <- df_rw_t2_m %>%
+  select(c(year, State.Name, title2_funding_annual)) %>%
+  filter(year %in% c(2010:2019))
+
+df_rw_t2_m <- df_rw_t2_m %>%
+  setnames(
+    old = c("year", "State.Name", "title2_funding_annual"),
+    new = c("year_id", "location_name", "rw_title2_funding")
+  )
+
+
+# Merge Title1 and Title2 data #
+df_rw_t1_m <- df_rw_t1_m %>%
+  ungroup() %>%
+  mutate(
+    year_id = as.integer(year_id),
+    location_name = unname(as.character(location_name)),
+    location_name = trimws(location_name)
+  )
+
+df_rw_t2_m <- df_rw_t2_m %>%
+  mutate(
+    year_id = as.integer(year_id),
+    location_name = as.character(location_name),
+    location_name = trimws(location_name)
+  )
+
+# Fix naming issue
+df_rw_t2_m$location_name <- if_else(df_rw_t2_m$location_name == "District Of Columbia", "District of Columbia", df_rw_t2_m$location_name)
+
+# Join
+df_rw_m <- full_join(
+  x = df_rw_t1_m,
+  y = df_rw_t2_m,
+  by = c("year_id", "location_name")
+)
+
+# Combine title1 and title2 grant sums
+df_rw_m <- df_rw_m %>%
+  mutate(
+    rw_funding = rowSums(cbind(rw_title1_funding, rw_title2_funding), na.rm = TRUE)
+  )
+
+
+# 2016 - 2019 Ryan White data
+df_rw_2016_2019_f <- df_rw_2016_2019 %>%
+  filter(HRSA.Program.Area.Name == "HIV/AIDS") %>%
+  filter(Grant.Program.Name %in% c("Ryan White Part A HIV Emergency Relief Grant Program (H89)",
+                                   "Ryan White Part B HIV Care Grant Program (X07)",
+                                   "Ryan White Part B Supplemental (X08)",
+                                   "ADAP Shortfall Relief (X09)"
+  )) %>%
+  group_by(Award.Year, State.Name) %>%
+  summarise(
+    `Financial.Assistance` = sum(Financial.Assistance)
+  )
+
+df_rw_2016_2019_f <- df_rw_2016_2019_f %>%
+  filter(Award.Year %in% c(2016:2019))
+
+df_rw_2016_2019_f <- df_rw_2016_2019_f %>%
+  setnames(
+    old = c("Award.Year", "State.Name", "Financial.Assistance"),
+    new = c("year_id", "location_name", "ryan_white_grant")
+  )
+
+# Join to title1 and title2 summed data
+df_rw_total <- full_join(
+  x = df_rw_m,
+  y = df_rw_2016_2019_f,
+  by = c("year_id", "location_name")
+)
+
+df_rw_total$delta <- (df_rw_total$rw_funding - df_rw_total$ryan_white_grant)
+
+# View(df_rw_total %>% filter(year_id %in% c(2016:2019))) # Checking deltas, it seems some are matching perfectly against Marcus's data, whereas we are off in some rows but unknow why we are off
+
+# Using <=2018 data from Marcus's dataset, 2019 data will come from the official Ryan White grant data
+df_rw_total$ryan_white_funding_final <- if_else(df_rw_total$year_id <= 2018, df_rw_total$rw_funding, df_rw_total$ryan_white_grant)
+
+# Inflation adjust RW data before creating (RW Spend + DEX spend_all) / prevalence → RWspend ratio
+df_rw_total <- deflate(
+  data = df_rw_total,
+  val_columns = "ryan_white_funding_final",
+  old_year = "year_id",
+  new_year = 2019
+)
+
+# Apply age sex weights to RW data
+df_rw_agesex <- df_rw_total %>%
+  select(c("year_id", "location_name", "ryan_white_funding_final"))
+
+df_rw_agesex <- df_rw_agesex %>%
+  tidyr::crossing(df_rw_agesex_weights %>% distinct(age_name))
+
+df_rw_agesex <- df_rw_agesex %>%
+  left_join(df_rw_agesex_weights, by = c("age_name")) %>%
+  mutate(
+    spend_male = ryan_white_funding_final * age_weight_m,
+    spend_female = ryan_white_funding_final * age_weight_f
+  )
+
+df_rw_agesex <- df_rw_agesex %>%
+  select(c("year_id", "location_name", "ryan_white_funding_final", "age_name", "spend_male", "spend_female"))
+
+# Pivot longer
+df_rw_long <- df_rw_agesex %>%
+  pivot_longer(
+    cols = c(spend_male, spend_female),
+    names_to = "sex_source",
+    values_to = "rw_funding"
+  ) %>%
+  mutate(
+    sex_name = case_when(
+      sex_source == "spend_male"   ~ "Male",
+      sex_source == "spend_female" ~ "Female"
+    )
+  ) %>%
+  select(-sex_source)
+
+# Rename age groups to match format of DEX data
+df_rw_long <- df_rw_long %>%
+  mutate(
+    age_name = recode(
+      age_name,
+      "25–34" = "25 - <35",
+      "35–44" = "35 - <45",
+      "45–54" = "45 - <55",
+      "55–64" = "55 - <65",
+      "≥65"   = "65+"
+    )
+  )
 
 ##----------------------------------------------------------------
 ## 1. Figure 1 - Spending by insurance
@@ -183,9 +404,13 @@ df_f1_hiv <- df_dex %>%
   filter(geo == "national") %>%
   filter(acause == "hiv") %>%
   filter(payer != "all") %>%
-  group_by(payer, age_name, sex_name) %>%
-  summarize(
-    "spend_mean" = mean(spend_mean)
+  collect()
+  
+df_f1_hiv <- df_f1_hiv %>%
+  dplyr::group_by(payer, age_name, sex_name) %>%
+  dplyr::summarise(
+    spend_mean = mean(spend_mean, na.rm = TRUE),
+    .groups = "drop"
   )
 
 # Remove spaces from "age_name"
@@ -236,6 +461,9 @@ df_f1_sud <- df_dex %>%
   filter(geo == "national") %>%
   filter(acause %in% subs_causes) %>%
   filter(payer != "all") %>%
+  collect()
+
+df_f1_sud <- df_f1_sud %>%
   group_by(payer, age_name, sex_name) %>%
   summarize(
     "spend_mean" = mean(spend_mean)
@@ -283,6 +511,116 @@ f1_sud <- ggplot(data = df_f1_sud, aes(age_name, spend_mean_inverse, fill = fact
 save_plot(f1_sud, "F1_SUD_spending_by_insurance", dir_output)
 
 ##----------------------------------------------------------------
+## 1.1 Figure 1 - Spending by insurance + RW, HIV Only
+## What are the differences in spending for patients with HIV / SUD for each age group
+## based on different types of insurance (Medicare, Medicaid, Private)? (all years, all counties)
+##----------------------------------------------------------------
+
+# HIV + RW data #
+
+# We want just payer, age, sex left over - let's format the RW data first so we know what to match with
+
+# Collapse on TOC, location (which is all national), year
+df_f1_hiv_rw <- df_dex %>%
+  filter(geo == "national") %>%
+  filter(acause == "hiv") %>%
+  filter(payer != "all") %>%
+  collect()
+
+df_f1_hiv_rw <- df_f1_hiv_rw %>%
+  dplyr::group_by(payer, age_name, sex_name) %>%
+  dplyr::summarise(
+    spend_mean = mean(spend_mean, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Collapse on age groups to match RW age groups: "25 - <35" "35 - <45" "45 - <55" "55 - <65" "65+" 
+df_f1_hiv_rw <- df_f1_hiv_rw %>%
+  mutate(
+    age_name_rw = case_when(
+      age_name %in% c("25 - <30", "30 - <35") ~ "25 - <35",
+      age_name %in% c("35 - <40", "40 - <45") ~ "35 - <45",
+      age_name %in% c("45 - <50", "50 - <55") ~ "45 - <55",
+      age_name %in% c("55 - <60", "60 - <65") ~ "55 - <65",
+      age_name %in% c("65 - <70", "70 - <75", "75 - <80", "80 - <85", "85+") ~ "65+",
+      TRUE ~ NA_character_   # non-overlapping ages: 0-<25, etc.
+    )
+  )
+
+df_f1_hiv_rw <- df_f1_hiv_rw %>%
+  filter(!is.na(age_name_rw))
+
+df_f1_hiv_rw <- df_f1_hiv_rw %>%
+  group_by(payer, sex_name, age_name_rw) %>%
+  summarize(spend_mean = sum(spend_mean))
+
+df_f1_hiv_rw <- df_f1_hiv_rw %>%
+  rename(
+    age_name = age_name_rw
+  )
+
+# Collapse RW data
+df_f1_rw_data <- df_rw_long %>%
+  dplyr::group_by(age_name, sex_name) %>%
+  dplyr::summarise(
+    spend_mean = mean(rw_funding, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Filter out <13 and 13-24 age groups from RW data
+df_f1_rw_data <- df_f1_rw_data %>%
+  filter(!age_name %in% c("<13", "13–24"))
+
+# Add "payer" column label for RW
+df_f1_rw_data$payer <- "ryan_white"
+
+# Combine DEX + RW data
+df_f1_hiv_rw_fig_data <- rbind(df_f1_hiv_rw, df_f1_rw_data)
+
+# Remove spaces from "age_name"
+#df_f1_hiv_rw_fig_data$age_name <- str_replace_all(df_f1_hiv_rw_fig_data$age_name, " ", "")
+
+# Set male spending as negative
+df_f1_hiv_rw_fig_data <- df_f1_hiv_rw_fig_data %>%
+  mutate(spend_mean_inverse = ifelse(sex_name == "Male", spend_mean*-1, spend_mean))
+
+# Create factors
+df_f1_hiv_rw_fig_data$age_name <- factor(df_f1_hiv_rw_fig_data$age_name, levels = age_factor_rw) 
+df_f1_hiv_rw_fig_data$sex_name <- factor(df_f1_hiv_rw_fig_data$sex_name, levels = sex_factor) 
+
+# Make plot 
+# TODO - Have x-axis be the same for both male and female, also fix the age axis labels to make them look more neat
+# basically copy from the original script, they are already typed out
+# https://github.com/ihmeuw/Resource_Tracking_US_DEX/blob/main/DEX_Capstone_2025/04_figures/figure_1.R
+f1_hiv_rw <- ggplot(data = df_f1_hiv_rw_fig_data, aes(age_name, spend_mean_inverse, fill = factor(payer, levels = c("mdcr", "mdcd", "priv", "oop", "ryan_white")))) +
+  facet_share(~ sex_name, scales = "free", reverse_num = FALSE) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  scale_fill_manual(values = payer_colors, labels = payer_list, name = "Payer") +
+  scale_y_continuous(
+    #limits = (),
+    #breaks = seq(-800000, 800000, 200000),
+    labels = function(x) scales::dollar(abs(x))
+  ) +
+  theme_classic() +
+  labs(y = "Inflation Adjusted Spending (2019 USD)",
+       x = "",
+       title = "Mean annual HIV spending for each insurance type & Ryan White by sex and age group, 2010 - 2019") +
+  theme_settings +
+  guides(
+    fill = guide_legend(
+      title.position = "top",  # put title above the keys
+      title.hjust = 0.5,       # center the title
+      nrow = 1                 # keep items in one row
+    )) +
+  geom_col(color = "black", width = 1, size = 0.3) 
+
+f1_hiv_rw
+
+# Save plot
+save_plot(f1_hiv_rw, "F1_HIV_spending_by_insurance_plus_RW", dir_output)
+
+##----------------------------------------------------------------
 ## 2. Figure 2 - Spending by TOC using payer=all
 ## What are the differences in spending for patients with HIV for each age group based on different toc?
 ##
@@ -295,6 +633,9 @@ df_f2_hiv <- df_dex %>%
   filter(geo == 'national') %>%
   filter(acause == "hiv") %>%
   filter(payer == "all") %>%
+  collect() 
+
+df_f2_hiv <- df_f2_hiv %>%
   group_by(toc, age_name, sex_name) %>%
   summarize(
     "spend_mean" = mean(spend_mean)
@@ -349,6 +690,9 @@ df_f2_sud <- df_dex %>%
   filter(geo == 'national') %>%
   filter(acause %in% subs_causes) %>%
   filter(payer == "all") %>%
+  collect()
+
+df_f2_sud <- df_f2_sud %>%
   group_by(toc, age_name, sex_name) %>%
   summarize(
     "spend_mean" = mean(spend_mean)
@@ -414,6 +758,9 @@ df_f3_hiv_payer <- df_dex %>%
   filter(geo == "county") %>%
   filter(payer != "all") %>%
   filter(acause == "hiv") %>%
+  collect()
+
+df_f3_hiv_payer <- df_f3_hiv_payer %>%
   group_by(payer, state_name, location_name, fips) %>%
   summarize(
     "value" = mean(spend_mean)
@@ -424,6 +771,9 @@ df_f3_hiv_overall <- df_dex %>%
   filter(geo == "county") %>%
   filter(payer == "all") %>%
   filter(acause == "hiv") %>%
+  collect()
+
+df_f3_hiv_overall <- df_f3_hiv_overall %>%
   group_by(state_name, location_name, fips) %>%
   summarize(
     "value" = mean(spend_mean)
@@ -586,6 +936,9 @@ df_f3_sud_payer <- df_dex %>%
   filter(geo == "county") %>%
   filter(acause %in% subs_causes) %>%
   filter(payer != "all") %>%
+  collect()
+
+df_f3_sud_payer <- df_f3_sud_payer %>%
   group_by(payer, state_name, location_name, fips) %>%
   summarize(
     "value" = mean(spend_mean)
@@ -596,6 +949,9 @@ df_f3_sud_overall <- df_dex %>%
   filter(geo == "county") %>%
   filter(acause %in% subs_causes) %>%
   filter(payer == "all") %>%
+  collect()
+
+df_f3_sud_overall <- df_f3_sud_overall %>%
   group_by(state_name, location_name, fips) %>%
   summarize(
     "value" = mean(spend_mean)

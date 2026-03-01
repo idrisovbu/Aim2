@@ -1,9 +1,29 @@
 """
-Filename: C_frontier_analysis_smfa
-Description: Python script for running SFMA for Aim 2, adaptation from H's code.
-How to run: Modify the acause and dir_output variable as necessary, then run entire script
-            Outputs to /ihme/homes/idrisov/aim_outputs/Aim2/C_frontier_analysis/<today's date>/<acause>_output.csv & <acause>_covariates.csv
+Filename: C_frontier_analysis_sfma_hiv_between.py
+Description: Python script for running SFMA frontier analysis for HIV (Aim 2).
+             Covariates included INSIDE SFMA with direction priors from regression.
+             Spending modeled as SplineVariable for nonlinear frontier.
+             Includes homelessness covariate from secondary regression model.
+
+Regression models informing priors:
+  Primary:   log(M) ~ log(S) + Year + Black + log(Inc) + Hisp
+  Secondary: log(M) ~ log(S) + Year + Black + log(Inc) + Hisp + log(Homeless)
+
+  Coef directions (on MORTALITY, informing SFMA priors on NEGATED mortality):
+    rw_dex_hiv_prev_ratio_log_B:  -0.254  → LOWER mort → pos prior on neg_mort [via spline]
+    year_centered:                -0.088  → LOWER mort → pos prior on neg_mort
+    race_prop_BLCK_B:              0.839  → HIGHER mort → neg prior on neg_mort
+    log_incidence_rates_B:        -0.365  → LOWER mort → pos prior on neg_mort
+    race_prop_HISP:                0.845  → HIGHER mort → neg prior on neg_mort
+    log_prop_homeless_B:           0.070  → HIGHER mort → neg prior on neg_mort
+
+How to run: Modify fp_input / dir_output as needed, then run entire script.
+            Outputs to /ihme/homes/idrisov/aim_outputs/Aim2/C_frontier_analysis/<today>/
 """
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DIRECTORIES & CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
 
 from pathlib import Path
 from datetime import date
@@ -11,612 +31,426 @@ import numpy as np
 import pandas as pd
 import sys
 import os
-import shutil
 import matplotlib.pyplot as plt
-from sfma import Data, Variable, SplineVariable, SplineGetter, SplinePriorGetter, UniformPrior, SFMAModel
+
+from sfma import Data, Variable, SplineVariable, SplineGetter, SplinePriorGetter, UniformPrior, GaussianPrior, SFMAModel
 from anml.data.component import Component
 
-# B's
-def runSFA(acause='hiv', as_dated_folder='20260104'):
+# ── Paths ──
+dir_base = Path('/ihme/homes/idrisov/aim_outputs/Aim2/C_frontier_analysis/')
+
+# Input: pre-merged dataset with between/within decomposition variables
+fp_input = Path('/ihme/homes/idrisov/aim_outputs/Aim2/C_frontier_analysis/20260218/analysis/df_hiv_analysis.csv')
+
+# Output: dated folder
+today_yyyymmdd = date.today().strftime("%Y%m%d")
+dir_output = dir_base / today_yyyymmdd
+dir_output.mkdir(parents=True, exist_ok=True)
+
+# ── Column names (exact names from df_hiv_analysis.csv) ──
+mort_col     = 'as_mort_prev_ratio_log'          # outcome: log(mortality/prevalence)
+spend_col    = 'rw_dex_hiv_prev_ratio_log_B'     # spending: log(spending+RW / prevalence), between-state mean
+variance_col = 'variance'
+strat_col    = 'high_hiv_prev_B'                  # stratification: 1=high prev, 0=low prev
+
+# ── Model variants ──
+# Primary: without homelessness (matches hiv__between__primary regression)
+# Secondary: with homelessness (matches hiv__between__secondary_homeless regression)
+MODEL_VARIANTS = {
+    'primary': {
+        'cov_cols': ['year_centered', 'race_prop_BLCK_B', 'log_incidence_rates_B', 'race_prop_HISP'],
+        'label': 'Primary (no homelessness)',
+    },
+    'secondary_homeless': {
+        'cov_cols': ['year_centered', 'race_prop_BLCK_B', 'log_incidence_rates_B', 'race_prop_HISP', 'log_prop_homeless_B'],
+        'label': 'Secondary (with homelessness)',
+    },
+}
+
+# ── Prior directions (based on regression coefficients, FLIPPED for negated mortality) ──
+# Regression β < 0 on mortality → variable IMPROVES outcomes → POSITIVE prior on neg_mort
+# Regression β > 0 on mortality → variable WORSENS outcomes → NEGATIVE prior on neg_mort
+pos_prior_vars = ['year_centered', 'log_incidence_rates_B']
+neg_prior_vars = ['race_prop_BLCK_B', 'race_prop_HISP', 'log_prop_homeless_B']
+# NOTE: spending gets its prior via SplineVariable shape constraints (increasing + concave)
+
+acause = 'hiv'
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# MAIN FUNCTION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def runSFA_HIV(df_full, subset_type='all', model_variant='primary'):
     """
-    Docstring for runSFA
+    Run SFMA frontier analysis for HIV.
     
-    :param cause: The cause to process the model for. 
-        Either "hiv" or "_subs"
-    :param testplot: Description
+    Approach (following Lescinsky/H's method):
+      - Covariates go INSIDE the SFMA model with direction priors from regression
+      - Spending modeled as SplineVariable (nonlinear frontier, increasing, concave)
+      - Outcome is negated log(mortality/prevalence) so SFMA fits upper envelope
+      - All variables z-scored for numerical stability (originals preserved for plotting)
+    
+    Parameters
+    ----------
+    df_full : pd.DataFrame
+        Full analysis dataset (df_hiv_analysis.csv)
+    subset_type : str
+        'all', 'high_prev', or 'low_prev'
+    model_variant : str
+        'primary' or 'secondary_homeless'
+    
+    Returns
+    -------
+    out : pd.DataFrame
+        Output with inefficiency scores, adjusted values, frontier predictions
+    covs_df : pd.DataFrame
+        Selected covariate information and betas
     """
-
-    #### Default parameters ####
-    #---------------------------------------
     
-    # Set fp for age-standardized data
-    fp_df_base = Path('/ihme/homes/idrisov/aim_outputs/Aim2/C_frontier_analysis/')
-    fp_df_as = fp_df_base / as_dated_folder / "df_as.csv"
-
-    # Set fp for covariate data
-    fp_df_cov = '/ihme/resource_tracking/us_value/data/sfa_covars2021_shea.csv'
+    variant_config = MODEL_VARIANTS[model_variant]
+    cov_cols = variant_config['cov_cols']
+    all_model_vars = [spend_col] + cov_cols
     
-    # Set covariates
-    covs = ['obesity', 'age65', 'cig_pc_10', 'phys_act_10', 'edu_yrs', 'as_spend_prev_ratio']
-    pre_selected_covs = ['as_spend_prev_ratio']
-    no_prior_covs = [] # this was the default, only changed if we specified a variant to this function
-
-    # Set column names for parameters
-    spend_prev_col = 'as_spend_prev_ratio'
-    mort_prev_col = 'as_mort_prev_ratio'
-    spline_variable_name = None
-    variance_column = 'variance'
-
-    # Set model specifications
-    test_cov_direction = True # drop covariates that aren't in right direction and rerun
-    trimming = True #5%
-    l_tail = r_tail = True # doesn't matter since default is no spline
-    output_betas = False
-    rescale = True 
-
-    ####  Main section
-    #---------------------------------------
-
-    # Read in age-standardized data
-    df_as = pd.read_csv(fp_df_as) 
-
-    # Filter to our specified cause
-    df_as = df_as[df_as['acause'] == acause]
+    # ── Subset data ──
+    if subset_type == 'high_prev':
+        df = df_full[df_full[strat_col] == 1].copy()
+        subset_label = 'High-Prevalence States'
+    elif subset_type == 'low_prev':
+        df = df_full[df_full[strat_col] == 0].copy()
+        subset_label = 'Low-Prevalence States'
+    else:
+        df = df_full.copy()
+        subset_label = 'All States'
     
-    # Read in covariate data
-    df_cov = pd.read_csv(fp_df_cov)
-
-    # Filter covariate data to match age-standardized data's years
-    as_years = [2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019]
-    df_cov = df_cov[df_cov['year_id'].isin(as_years)]
-
-    # Merge age-standardized data & covariate data
-    df = pd.merge(df_as, 
-              df_cov, 
-              on=['location_id', 'year_id'])
-    df.drop(columns=["location_name_y"], inplace=True)
-    df.rename(columns={"location_name_x": "location_name"}, inplace=True)
-
-    #df.rename(columns={'year': 'year_id', spending_var: 'adj_exp_pc'}, inplace=True) (skipped this)
-
-    # drop DC (outlier) (skipped this)
-    #df = df[df['location_name'] != 'District of Columbia']
-
-    # preserve spending/prevalence ratio pre normalization
-    df['as_spend_prev_ratio_copy'] = df[spend_prev_col]
-
-    # covariate mean normalization (z-score standardization)
-    for cov in np.unique(covs + [spend_prev_col]):
-        df[cov] = (df[cov] - df[cov].mean())/df[cov].std()
-
-    # lower envelope of the ratio - make it negative (original draw_column)
-    df[mort_prev_col] = -df[mort_prev_col]
+    print(f"\n{'=' * 70}")
+    print(f"SFMA HIV FRONTIER: {subset_label.upper()}")
+    print(f"  Model: {variant_config['label']}")
+    print(f"  Covariates: {cov_cols}")
+    print(f"  n = {len(df)}")
+    print(f"{'=' * 70}")
     
-    # take median of the variance
-    df[variance_column] = np.median(df[variance_column])
+    # ── Drop NaN in key variables ──
+    key_vars = [mort_col, spend_col] + cov_cols + [variance_col]
+    n_before = len(df)
+    df = df.dropna(subset=key_vars).copy()
+    if len(df) < n_before:
+        print(f"  Dropped {n_before - len(df)} rows with NaN")
     
-    # Very important to sort here! Will prevent indexes from getting messed up while plotting and pulling inefficiency
-    df.sort_values(spend_prev_col, inplace = True)
-
-    def get_model(df, covs, variance_column, obs_column, spline_column):
+    # ── Preserve original spending for plotting (pre-normalization) ──
+    df['log_spend_copy'] = df[spend_col].copy()
     
-        # set priors on covariates
-        no_prior_covs_model = list(set(covs).intersection(set(no_prior_covs)))
-        pos_covs = list(set(['pct_NHwhite', 'phys_act_10', 'edu_yrs', 'ldi_pc', 'adj_exp_pc']).intersection(set(covs).difference(set(no_prior_covs))))
-        neg_covs = list(set(['obesity', 'age65', 'cig_pc', 'cig_pc_15','cig_pc_10', 'density_g.1000', 'prop_homeless']).intersection(set(covs).difference(set(no_prior_covs))))
+    # ── Z-score normalize all model variables ──
+    for var in all_model_vars:
+        df[var] = (df[var] - df[var].mean()) / df[var].std()
+    
+    # ── Negate outcome for SFMA ──
+    df[mort_col] = -1.0 * df[mort_col]
+    
+    # ── Standard error (use median variance, matching H's approach) ──
+    df['standard_error'] = np.sqrt(np.median(df[variance_col]))
+    
+    # ── Sort by spending (critical for index alignment) ──
+    df.sort_values(spend_col, inplace=True)
+    df.reset_index(drop=True, inplace=True)
+    
+    # ══════════════════════════════════════════════════════════════════════
+    # BUILD SFMA MODEL
+    # ══════════════════════════════════════════════════════════════════════
+    
+    covs = cov_cols.copy()
+    pre_selected_covs = []  # spending always in via SplineVariable
+    
+    test_cov_direction = True
+    trimming = True
+    rescale = True
+    l_tail = r_tail = True
+    
+    def get_model(df, covs_to_use):
+        """Build SFMA model with covariates and spending spline."""
         
-        # make weights 
-        df['standard_error'] = np.sqrt(df[variance_column])
-            
-        # create data object
-        data = Data(
-            obs = obs_column,
-            obs_se = 'standard_error',
-        )
-
-        # create variables and set prior signs
-        variables = [Variable(Component("intercept", default_value=1.0))] + [
-            Variable(name, priors=[UniformPrior(lb=0.0, ub=np.inf)])
-            for name in pos_covs
-        ] + [
-            Variable(name, priors=[UniformPrior(lb=-np.inf, ub=0.0)])
-            for name in neg_covs
-        ] +[
-            Variable(name)
-            for name in no_prior_covs_model
+        data = Data(obs=mort_col, obs_se='standard_error')
+        
+        # Linear covariate Variables with direction priors
+        variables = [Variable(Component("intercept", default_value=1.0))]
+        
+        for cov in covs_to_use:
+            if cov == spend_col:
+                continue
+            elif cov in pos_prior_vars:
+                variables.append(Variable(cov, priors=[UniformPrior(lb=0.0, ub=np.inf)]))
+            elif cov in neg_prior_vars:
+                variables.append(Variable(cov, priors=[UniformPrior(lb=-np.inf, ub=0.0)]))
+            else:
+                variables.append(Variable(cov))
+        
+        # Spending as SplineVariable: increasing + concave
+        spline_priors = [
+            SplinePriorGetter(UniformPrior(lb=0.0, ub=np.inf), order=1, size=100),   # increasing
+            SplinePriorGetter(UniformPrior(lb=-np.inf, ub=0.0), order=2, size=100),  # concave
         ]
         
-        # convex prior and monotonic decreasing prior
-        priors = [SplinePriorGetter(UniformPrior(lb=-np.inf, ub=0.0), order=2, size=100),
-              SplinePriorGetter(UniformPrior(lb=0.0, ub=np.inf), order=1, size=100)]
-        
-        if spline_variable_name is not None:
-            variables.append(
-                SplineVariable(
-                    spline_column,
-                    spline = SplineGetter(
-                        knots=np.array([0.0, 0.05, 0.01,  1.0]),
-                        degree=3,
-                        knots_type='rel_freq',
-                        include_first_basis=False,
-                        l_linear = l_tail,
-                        r_linear = r_tail
-                    ),
-                    priors = priors
-                )
+        variables.append(
+            SplineVariable(
+                spend_col,
+                spline=SplineGetter(
+                    knots=np.array([0.0, 0.33, 0.67, 1.0]),
+                    degree=3,
+                    knots_type='rel_domain',
+                    include_first_basis=False,
+                    l_linear=l_tail,
+                    r_linear=r_tail,
+                ),
+                priors=spline_priors,
             )
+        )
         
         model = SFMAModel(data, variables, include_re=False)
         model.attach(df)
         
         return model
-
-    # create model object
-    model = get_model(df, covs, variance_column, mort_prev_col, spline_variable_name)
-
-    # drop covariates with very low beta under the prior and rerun #
+    
+    # ── Initial model with all covariates ──
+    model = get_model(df, covs)
+    
+    # ── Covariate selection ──
+    selected_covs = covs.copy()
+    
     if test_cov_direction:
+        print(f"  Testing covariate directions...")
         model.eta = 0.1
         model.beta.fill(1.0)
         model.fit(
             verbose=True, max_iter=10, tol=1e-3,
-            #beta_options={"solver_type": "ip", "max_iter": 1000, "verbose": False, "xtol": 0.0, "gtol": 1e-6, "update_mu_every": 10}
-            beta_options={"max_iter": 1000, "verbose": False, "xtol": 0.0, "gtol": 1e-6} # "solver_type" and "update_mu_every" parameters not accepted? throws error
+            beta_options={"max_iter": 1000, "verbose": False, "xtol": 0.0, "gtol": 1e-6}
         )
         
         beta = model.get_beta_dict()
-        
         selected_covs = []
         for name, value in beta.items():
             if value.size == 1 and name != "intercept" and np.abs(value[0]) > 1e-5:
                 selected_covs.append(name)
-        for cov in pre_selected_covs:
-            if cov not in selected_covs:
-                selected_covs.append(cov)
-        print(selected_covs)
-
-        model = get_model(df, selected_covs, variance_column, mort_prev_col, spline_variable_name)
-
-
-    if trimming:        
-        # fit model with 5% trimming
+        print(f"  Selected covariates: {selected_covs}")
+        
+        model = get_model(df, selected_covs)
+    
+    # ── Final fit ──
+    if trimming:
+        print(f"  Fitting with 5% trimming...")
         model.eta = 0.1
         model.beta.fill(1.0)
         model.fit(
             outlier_pct=0.05, trim_max_iter=5,
             verbose=True, max_iter=5, tol=1e-3,
-            #beta_options={"solver_type": "ip", "max_iter": 1000, "verbose": False, "xtol": 0.0, "gtol": 1e-6, "update_mu_every": 10}
             beta_options={"max_iter": 1000, "verbose": False, "xtol": 0.0, "gtol": 1e-6}
-        ) 
+        )
     else:
-        # fit model without trimming
+        print(f"  Fitting without trimming...")
         model.eta = 0.1
         model.beta.fill(1.0)
         model.fit(
             verbose=True, max_iter=10, tol=1e-3,
-            #beta_options={"solver_type": "ip", "max_iter": 1000, "verbose": False, "xtol": 0.0, "gtol": 1e-6, "update_mu_every": 10}
             beta_options={"max_iter": 1000, "verbose": False, "xtol": 0.0, "gtol": 1e-6}
-        )     
-        
-    # return covariate information
-    if len(selected_covs) > 0:
-        covs_df = pd.DataFrame({
-            'selected_covs': selected_covs,
-            'acause': acause
-        })
-        
-        # add beta information
-        beta = model.get_beta_dict()
-        
-    else:
-        covs_df = pd.DataFrame({
-            'selected_covs': ["no covs selected"],
-            'acause': acause
-        })
-        
-    # Add on betas to cov df
-    betas = model.get_beta_dict()
-
-    for name, value in betas.items():
-      if value.size == 1 and name != 'adj_exp_pc':
-          update_index = covs_df['selected_covs'] == name
-          covs_df.loc[update_index, 'beta'] = value
-
-    # output betas if specified
-    if output_betas:
-        beta = model.get_beta_dict()
-
-        # add draw and cause id columns
-        betas['acause'] = acause
-
-    # otherwise output inefficiency & the values needed to make the frontier plot
-    else:
-
-        ## X values
-        X = df[spend_prev_col].values
-        ## Y values
-        Y = df[mort_prev_col].values
-        ## Predictions
-        Y_hat = model.predict(df)
-        ## Prediction excluding the impact of the covariates
-        df_null_covs = df.copy()
-        df_null_covs[list(set(covs).difference([spend_prev_col]))] = 0.0
-        Y_hat_adj = model.predict(df_null_covs)
-        ## Impact of the covariates
-        cov_hat = Y_hat-Y_hat_adj
-        ## Y minus the impact of the covariates
-        Y_adj = Y - cov_hat
-        ## Inefficiency
-        ineff = model.get_inefficiency()
-        
-        ## make results table
-        results = pd.DataFrame({
-            spend_prev_col: X, 
-            mort_prev_col: Y, 
-            'ineff': ineff, 
-            'y_adj': -Y_adj, 
-            'y_adj_hat': -Y_hat_adj
-        })
-        results.sort_values(spend_prev_col, inplace = True)
-        # keep the preserved spending column
-        out = df[['location_name', 'location_id', 'year_id', spend_prev_col, 'as_spend_prev_ratio_copy',
-                  'cause_id', 'acause', 'cause_name'
-                   ]].merge(results, on=spend_prev_col)
+        )
     
-    # normalize to 0-1 and keep unscaled either way
+    print(f"  Fitted! eta={model.eta:.6f}")
+    betas = model.get_beta_dict()
+    print(f"  Betas: {betas}")
+    
+    # ══════════════════════════════════════════════════════════════════════
+    # EXTRACT RESULTS
+    # ══════════════════════════════════════════════════════════════════════
+    
+    X = df[spend_col].values
+    Y = df[mort_col].values
+    Y_hat = model.predict(df)
+    
+    # Prediction with covariates zeroed → spending-only frontier
+    df_null_covs = df.copy()
+    covs_to_zero = [c for c in selected_covs if c != spend_col]
+    if covs_to_zero:
+        df_null_covs[covs_to_zero] = 0.0
+    Y_hat_adj = model.predict(df_null_covs)
+    
+    cov_hat = Y_hat - Y_hat_adj
+    Y_adj = Y - cov_hat
+    ineff = model.get_inefficiency()
+    
+    # Build output
+    out = df[['location_name', 'location_id', 'year_id', 'cause_id', 'acause', 'cause_name',
+              spend_col, 'log_spend_copy',
+              strat_col]].copy()
+    
+    out[mort_col] = Y
+    out['ineff'] = ineff
+    out['y_adj'] = -Y_adj
+    out['y_adj_hat'] = -Y_hat_adj
+    out['y_adj_log'] = out['y_adj']
+    out['y_adj_hat_log'] = out['y_adj_hat']
+    out['subset_type'] = subset_type
+    out['model_variant'] = model_variant
+    
+    out.sort_values(spend_col, inplace=True)
+    
+    # Covariate info
+    covs_only = [c for c in selected_covs if c != spend_col]
+    if len(covs_only) > 0:
+        covs_df = pd.DataFrame({'selected_covs': covs_only, 'acause': acause,
+                                'subset_type': subset_type, 'model_variant': model_variant})
+    else:
+        covs_df = pd.DataFrame({'selected_covs': ['no covs selected'], 'acause': acause,
+                                'subset_type': subset_type, 'model_variant': model_variant})
+    
+    for name, value in betas.items():
+        if value.size == 1 and name != spend_col:
+            update_idx = covs_df['selected_covs'] == name
+            covs_df.loc[update_idx, 'beta'] = value[0]
+    
+    # Rescale inefficiency to 0–1
     if rescale:
         out['ineff_raw'] = out['ineff']
-        
-        out['ineff'] = (out['ineff'] - out.ineff.min()) / (out.ineff.max() - out.ineff.min())
-
-        if out.loc[out.ineff.isnull()].shape[0]:
+        if out['ineff'].max() > out['ineff'].min():
+            out['ineff'] = (out['ineff'] - out.ineff.min()) / (out.ineff.max() - out.ineff.min())
+        else:
             out['ineff'] = 0
-    else:
-        out['ineff_scaled'] = (out['ineff'] - out.ineff.min()) / (out.ineff.max() - out.ineff.min())
-
-        if out.loc[out.ineff_scaled.isnull()].shape[0]:
-            out['ineff_scaled'] = 0
-            
+    
+    # Summary
+    print(f"\n  Results Summary ({subset_label}, {variant_config['label']}):")
+    print(f"    N observations:     {len(out)}")
+    print(f"    Mean inefficiency:  {out['ineff_raw'].mean():.4f}")
+    print(f"    Median ineff:       {out['ineff_raw'].median():.4f}")
+    print(f"    Min/Max ineff:      {out['ineff_raw'].min():.4f} / {out['ineff_raw'].max():.4f}")
+    print(f"    eta:                {model.eta:.6f}")
+    
     return out, covs_df
 
-"""
-# H's 
-def runSFA(cause, draw, variant, testplot=False):
 
-    #### Default parameters ####
-    #---------------------------------------
+# ═══════════════════════════════════════════════════════════════════════════════
+# PLOTTING
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def plot_frontier(df_output, title_suffix="", save_path=None):
+    """
+    Frontier visualization in log-log space.
+    X-axis: original log(spending) (pre-normalization)
+    Y-axis: covariate-adjusted log(mortality)
+    """
     
-    df_path = '/mnt/share/resource_tracking/us_value/data/input_data/agg/best/demean_MI_MP_draws.csv' 
-    cov_df_path = '/ihme/resource_tracking/us_value/data/sfa_covars2021_shea.csv'
-
+    fig, ax = plt.subplots(figsize=(10, 7))
     
-    covs = ['obesity', 'age65', 'cig_pc_10',
-            'phys_act_10', 'edu_yrs', 'adj_exp_pc']
-            
-    pre_selected_covs = ['adj_exp_pc']
-    #no_prior_covs = ['adj_exp_pc']
-    no_prior_covs = []
+    ax.scatter(
+        df_output['log_spend_copy'],
+        df_output['y_adj_log'],
+        alpha=0.6, s=50,
+        label='Observed (covariate-adjusted)',
+        c='steelblue', edgecolors='white', linewidth=0.5
+    )
     
-    draw_column = 'demeaned_draw_{}'.format(draw)
-    variance_column = 'variance_demeaned'
-    spline_variable_name = None
-    spending_var = 'spending_adj_pc'
+    df_sorted = df_output.sort_values('log_spend_copy')
+    ax.plot(
+        df_sorted['log_spend_copy'],
+        df_sorted['y_adj_hat_log'],
+        color='darkorange', linewidth=3,
+        label='Estimated Frontier',
+        zorder=5
+    )
     
-    test_cov_direction = True # drop covariates that aren't in right direction and rerun
-    trimming = True #5%
-    l_tail = r_tail = True # doesn't matter since default is no spline
-    output_betas = False
-    rescale = True 
+    ax.set_xlabel('log(Spending per Prevalent Case) [Between-State Mean]', fontsize=12)
+    ax.set_ylabel('log(Mortality per Prevalent Case) [Covariate-Adjusted]', fontsize=12)
+    ax.set_title(f'HIV Healthcare Efficiency Frontier: {title_suffix}\n(n={len(df_output)}, Log-Log Space)',
+                 fontsize=14, fontweight='bold')
+    ax.legend(loc='upper right', fontsize=10)
+    ax.grid(True, alpha=0.3, linestyle='--')
     
-    #### Set up sensitivity parameters #####
-    #---------------------------------------
+    # Get model variant for annotation
+    variant = df_output['model_variant'].iloc[0] if 'model_variant' in df_output.columns else 'primary'
+    cov_text = MODEL_VARIANTS.get(variant, {}).get('cov_cols', [])
     
-    if variant == 'all_covs':
-        covs = ['obesity', 'age65', 'cig_pc',
-            'phys_act_10', 'edu_yrs', 'ldi_pc', 'adj_exp_pc']
-            
-    elif variant == "treatment_nospline_w_unemployment":
-        covs = ['obesity', 'age65', 'cig_pc_10',
-            'phys_act_10', 'unemployment_rate', 'adj_exp_pc']
-
-    elif variant == "treatment_nospline_w_homelessness":
-        covs = ['obesity', 'age65', 'cig_pc_10',
-            'phys_act_10', 'edu_yrs', 'adj_exp_pc', 'prop_homeless']
+    fig.text(
+        0.5, 0.01,
+        f'Note: Points above frontier = inefficient. Frontier = best achievable mortality at each spending level.\n'
+        f'Covariates: {", ".join(cov_text)}',
+        ha='center', fontsize=8, style='italic', color='gray'
+    )
     
-    elif variant == "treatment_nospline_w_racecovs1":
-        cov_df_path = '/ihme/resource_tracking/us_value/data/sfa_covars_w_race_fractions.csv'
-        covs = ['obesity', 'age65', 'cig_pc_10',
-            'phys_act_10', 'edu_yrs', 'adj_exp_pc', 'race_prop_BLCK', 'race_prop_AIAN', 'race_prop_HISP']
-        no_prior_covs = ['race_prop_BLCK', 'race_prop_AIAN', 'race_prop_HISP']
-        
-    elif variant == "treatment_nospline_w_racecovs2":
-        cov_df_path = '/ihme/resource_tracking/us_value/data/sfa_covars_w_race_fractions.csv'
-        covs = ['obesity', 'age65', 'cig_pc_10',
-            'phys_act_10', 'edu_yrs', 'adj_exp_pc', 'race_prop_WHT']
-        no_prior_covs = ['race_prop_WHT']
-        
-    elif variant == "treatment_nospline_w_racecovs_hisp":
-        cov_df_path = '/ihme/resource_tracking/us_value/data/sfa_covars_w_race_fractions.csv'
-        covs = ['obesity', 'age65', 'cig_pc_10',
-            'phys_act_10', 'edu_yrs', 'adj_exp_pc', 'race_prop_HISP']
-        no_prior_covs = ['race_prop_HISP']
-        
-    elif variant == "treatment_nospline_w_racecovs_black":
-        cov_df_path = '/ihme/resource_tracking/us_value/data/sfa_covars_w_race_fractions.csv'
-        covs = ['obesity', 'age65', 'cig_pc_10',
-            'phys_act_10', 'edu_yrs', 'adj_exp_pc', 'race_prop_BLCK']
-        no_prior_covs = ['race_prop_BLCK']
-        
-    elif variant == "treatment_nospline_w_racecovs_api":
-        cov_df_path = '/ihme/resource_tracking/us_value/data/sfa_covars_w_race_fractions.csv'
-        covs = ['obesity', 'age65', 'cig_pc_10',
-            'phys_act_10', 'edu_yrs', 'adj_exp_pc', 'race_prop_API']
-        no_prior_covs = ['race_prop_API']
-        
-        
-    elif variant == "treatment_nospline_no_covs":
-        covs = ['adj_exp_pc']
+    plt.tight_layout(rect=[0, 0.05, 1, 1])
     
-    elif variant=="treatment_nospline_ranked_postagg":
-        df_path = '/mnt/share/resource_tracking/us_value/data/input_data/agg/2022_07_05_ranked_postagg/demean_MI_MP_draws.csv' 
-        
-    elif variant == "treatment_spline":
-        covs = ['obesity', 'age65', 'cig_pc_10',
-            'phys_act_10', 'edu_yrs']
-        pre_selected_covs = []
-        no_prior_covs = []
-        spline_variable_name = 'adj_exp_pc'
-
-    ####  Main section
-    #---------------------------------------
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"  Plot saved to: {save_path}")
     
-    # read in data and keep cause and draw to run
-    cols = ['year_id', 'cause_id', 'location_id', draw_column, variance_column]
-
-    df = pd.read_csv(df_path, usecols=cols) 
-    df = df[df['cause_id'] == cause]
-    # We only have spend through 2020
-    df = df[df['year_id'] < 2021]
-    
-    cov_df = pd.read_csv(cov_df_path)
-
-    df = pd.merge(df, 
-              cov_df, 
-              on=['location_id', 'year_id'])
-              
-    # df = pd.merge(df, 
-    #           cov_df[['location_id', 'location_name', 'year_id', 'obesity', 
-    #                 'cig_pc', 'age65', 'edu_yrs', 'phys_act_10', 'ldi_pc',
-    #                 'cig_pc_15', 'cig_pc_10',
-    #                 'density_l.150', 'density_g.1000', spending_var]], 
-    #           on=['location_id', 'year_id'])
-
-    df.rename(columns={'year': 'year_id', spending_var: 'adj_exp_pc'}, inplace=True)
-
-    # drop DC (outlier)
-    df = df[df['location_name'] != 'District of Columbia']
-
-    # preserve spending pre normalization
-    df['adj_exp_pc_c'] = df['adj_exp_pc']
-
-    # covariate mean normalization
-    #for cov in covs:
-    for cov in np.unique(covs +['adj_exp_pc']):
-        df[cov] = (df[cov] - df[cov].mean())/df[cov].std()
-
-    # lower envelope of the ratio draw - make it negative
-    df[draw_column] = -df[draw_column]
-    
-    # take median of the variance within a draw
-    df[variance_column] = np.median(df[variance_column])
-    
-    # Very important to sort here! Will prevent indexes from getting messed up while plotting and pulling inefficiency
-    df.sort_values('adj_exp_pc', inplace = True)
-
-    def get_model(df, covs, variance_column, obs_column, spline_column):
-    
-        # set priors on covariates
-        no_prior_covs_model = list(set(covs).intersection(set(no_prior_covs)))
-        pos_covs = list(set(['pct_NHwhite', 'phys_act_10', 'edu_yrs', 'ldi_pc', 'adj_exp_pc']).intersection(set(covs).difference(set(no_prior_covs))))
-        neg_covs = list(set(['obesity', 'age65', 'cig_pc', 'cig_pc_15','cig_pc_10', 'density_g.1000', 'prop_homeless']).intersection(set(covs).difference(set(no_prior_covs))))
-        
-        # make weights 
-        df['standard_error'] = np.sqrt(df[variance_column])
-            
-        # create data object
-        data = Data(
-            obs = obs_column,
-            obs_se = 'standard_error',
-        )
-
-        # create variables and set prior signs
-        variables = [Variable(Component("intercept", default_value=1.0))] + [
-            Variable(name, priors=[UniformPrior(lb=0.0, ub=np.inf)])
-            for name in pos_covs
-        ] + [
-            Variable(name, priors=[UniformPrior(lb=-np.inf, ub=0.0)])
-            for name in neg_covs
-        ] +[
-            Variable(name)
-            for name in no_prior_covs_model
-        ]
-        
-        # convex prior and monotonic decreasing prior
-        priors = [SplinePriorGetter(UniformPrior(lb=-np.inf, ub=0.0), order=2, size=100),
-              SplinePriorGetter(UniformPrior(lb=0.0, ub=np.inf), order=1, size=100)]
-        
-        if spline_variable_name is not None:
-            variables.append(
-                SplineVariable(
-                    spline_column,
-                    spline = SplineGetter(
-                        knots=np.array([0.0, 0.05, 0.01,  1.0]),
-                        degree=3,
-                        knots_type='rel_freq',
-                        include_first_basis=False,
-                        l_linear = l_tail,
-                        r_linear = r_tail
-                    ),
-                    priors = priors
-                )
-            )
-        
-        model = SFMAModel(data, variables, include_re=False)
-        model.attach(df)
-        
-        return model
+    plt.close(fig)
+    return fig
 
 
-    # create model object
-    model = get_model(df, covs, variance_column, draw_column, spline_variable_name)
-
-    # drop covariates with very low beta under the prior and rerun #
-    if test_cov_direction:
-        model.eta = 0.1
-        model.beta.fill(1.0)
-        model.fit(
-            verbose=True, max_iter=10, tol=1e-3,
-            beta_options={"solver_type": "ip", "max_iter": 1000, "verbose": False, "xtol": 0.0, "gtol": 1e-6, "update_mu_every": 10}
-        )
-        
-        beta = model.get_beta_dict()
-        
-        selected_covs = []
-        for name, value in beta.items():
-            if value.size == 1 and name != "intercept" and np.abs(value[0]) > 1e-5:
-                selected_covs.append(name)
-        for cov in pre_selected_covs:
-            if cov not in selected_covs:
-                selected_covs.append(cov)
-        print(selected_covs)
-
-        model = get_model(df, selected_covs, variance_column, draw_column, spline_variable_name)
-
-
-    if trimming:        
-        # fit model with 5% trimming
-        model.eta = 0.1
-        model.beta.fill(1.0)
-        model.fit(
-            outlier_pct=0.05, trim_max_iter=5,
-            verbose=True, max_iter=5, tol=1e-3,
-            beta_options={"solver_type": "ip", "max_iter": 1000, "verbose": False, "xtol": 0.0, "gtol": 1e-6, "update_mu_every": 10}
-        )
-        
-        
-    else:
-        # fit model without trimming
-        model.eta = 0.1
-        model.beta.fill(1.0)
-        model.fit(
-            verbose=True, max_iter=10, tol=1e-3,
-            beta_options={"solver_type": "ip", "max_iter": 1000, "verbose": False, "xtol": 0.0, "gtol": 1e-6, "update_mu_every": 10}
-        )     
-        
-    # return covariate information
-    if len(selected_covs) > 0:
-        covs_df = pd.DataFrame({
-            'selected_covs': selected_covs,
-            'draw': draw,
-            'cause_id': cause
-        })
-        
-        # add beta information
-        beta = model.get_beta_dict()
-        
-    else:
-        covs_df = pd.DataFrame({
-            'selected_covs': ["no covs selected"],
-            'draw': draw,
-            'cause_id': cause
-        })
-        
-    # Add on betas to cov df
-    betas = model.get_beta_dict()
-
-    for name, value in betas.items():
-      if value.size == 1 and name != 'adj_exp_pc':
-          update_index = covs_df['selected_covs'] == name
-          covs_df.loc[update_index, 'beta'] = value
-
-    # output betas if specified
-    if output_betas:
-        beta = model.get_beta_dict()
-
-        # add draw and cause id columns
-        betas['draw'] = draw
-        betas['cause_id'] = cause
-
-    # otherwise output inefficiency & the values needed to make the frontier plot
-    else:
-
-        ## X values
-        X = df['adj_exp_pc'].values
-        ## Y values
-        Y = df[draw_column].values
-        ## Predictions
-        Y_hat = model.predict(df)
-        ## Prediction excluding the impact of the covariates
-        df_null_covs = df.copy()
-        df_null_covs[list(set(covs).difference(["adj_exp_pc"]))] = 0.0
-        Y_hat_adj = model.predict(df_null_covs)
-        ## Impact of the covariates
-        cov_hat = Y_hat-Y_hat_adj
-        ## Y minus the impact of the covariates
-        Y_adj = Y - cov_hat
-        ## Inefficiency
-        ineff = model.get_inefficiency()
-        
-        ## make results table
-        results = pd.DataFrame({
-            'adj_exp_pc': X, 
-            'mi_ratio': Y, 
-            'ineff': ineff, 
-            'y_adj': -Y_adj, 
-            'y_adj_hat': -Y_hat_adj
-        })
-        results.sort_values('adj_exp_pc', inplace = True)
-        # keep the preserved spending column
-        out = df[['location_name', 'year_id', 'adj_exp_pc', 'cause_id', 'adj_exp_pc_c']].merge(results, on='adj_exp_pc')
-
-        # add draw column
-        out['draw'] = draw
-    
-    # normalize to 0-1 and keep unscaled either way
-    if rescale:
-        out['ineff_raw'] = out['ineff']
-        
-        out['ineff'] = (out['ineff'] - out.ineff.min()) / (out.ineff.max() - out.ineff.min())
-
-        if out.loc[out.ineff.isnull()].shape[0]:
-            out['ineff'] = 0
-    else:
-        out['ineff_scaled'] = (out['ineff'] - out.ineff.min()) / (out.ineff.max() - out.ineff.min())
-
-        if out.loc[out.ineff_scaled.isnull()].shape[0]:
-            out['ineff_scaled'] = 0
-            
-    return out, covs_df
-"""
+# ═══════════════════════════════════════════════════════════════════════════════
+# MAIN EXECUTION
+# ═══════════════════════════════════════════════════════════════════════════════
 
 if __name__ == '__main__':
-    # Set output directory
-    today_yyyymmdd = date.today().strftime("%Y%m%d")
-    dir_output = Path('/ihme/homes/idrisov/aim_outputs/Aim2/C_frontier_analysis/')
-    dir_output = dir_output / today_yyyymmdd
-    Path(dir_output).mkdir(parents=True, exist_ok=True)
-
-    # Set dated folder for age-standardized data from C_frontier_analysis.R
-    as_dated_folder = '20260104'
-
-    # Specify acause for model run
-    acause = "_subs" # can be "hiv" or "_subs"
-
-    # Run model, return outputs to variables
-    model_output = runSFA(acause, as_dated_folder)
-    df_output = model_output[0]
-    df_covariates = model_output[1]
-
-    # Write to csv    
-    df_output.to_csv(os.path.join(dir_output, '{}_output.csv'.format(acause)), index = False)
-    df_covariates.to_csv(os.path.join(dir_output, '{}_covariates.csv'.format(acause)), index = False)
+    
+    print("\n" + "=" * 70)
+    print("SFMA FRONTIER ANALYSIS - HIV BETWEEN-STATE MODEL")
+    print("=" * 70)
+    print(f"\n  Input:  {fp_input}")
+    print(f"  Output: {dir_output}\n")
+    
+    # ── Read data ──
+    df = pd.read_csv(fp_input)
+    print(f"  Loaded {len(df)} observations")
+    print(f"  States: {df['location_name'].nunique()}")
+    print(f"  Years:  {sorted(df['year_id'].unique())}")
+    
+    # ── Run both model variants for each stratification ──
+    all_results = {}
+    
+    for variant_key in ['primary', 'secondary_homeless']:
+        variant_label = MODEL_VARIANTS[variant_key]['label']
+        
+        for subset_key, subset_name in [('all', 'All States'), ('high_prev', 'High-Prevalence'), ('low_prev', 'Low-Prevalence')]:
+            
+            run_key = f"{variant_key}__{subset_key}"
+            
+            print(f"\n\n{'#' * 70}")
+            print(f"# {variant_label} — {subset_name}")
+            print(f"{'#' * 70}")
+            
+            out, covs = runSFA_HIV(df, subset_type=subset_key, model_variant=variant_key)
+            all_results[run_key] = (out, covs)
+            
+            # File naming: hiv_between_{variant}_{subset}_output.csv
+            fname_prefix = f"hiv_between_{variant_key}_{subset_key}"
+            
+            out.to_csv(dir_output / f'{fname_prefix}_output.csv', index=False)
+            covs.to_csv(dir_output / f'{fname_prefix}_covariates.csv', index=False)
+            
+            plot_frontier(
+                out,
+                title_suffix=f"{subset_name} ({variant_label})",
+                save_path=dir_output / f'{fname_prefix}_frontier.png'
+            )
+    
+    # ─────────────────────────────────────────────────────────────────────
+    # SUMMARY COMPARISON
+    # ─────────────────────────────────────────────────────────────────────
+    print("\n\n" + "=" * 90)
+    print("SUMMARY COMPARISON: ALL MODELS")
+    print("=" * 90)
+    
+    print(f"\n{'Variant':<25} {'Subset':<20} {'N':>6} {'Mean Ineff':>12} {'Med Ineff':>12} {'Max Ineff':>12}")
+    print("-" * 90)
+    
+    for run_key, (out_df, _) in all_results.items():
+        variant_key, subset_key = run_key.split('__')
+        print(f"{variant_key:<25} {subset_key:<20} {len(out_df):>6} "
+              f"{out_df['ineff_raw'].mean():>12.4f} {out_df['ineff_raw'].median():>12.4f} "
+              f"{out_df['ineff_raw'].max():>12.4f}")
+    
+    print("\n" + "=" * 90)
+    print("ANALYSIS COMPLETE!")
+    print(f"Output files saved to: {dir_output}")
+    print("=" * 90)
+    
+    print("\nOutput files generated:")
+    for f in sorted(dir_output.glob('hiv_between_*')):
+        print(f"  - {f.name}")
