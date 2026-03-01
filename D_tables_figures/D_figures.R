@@ -14,8 +14,8 @@ library(lbd.loader, lib.loc = sprintf("/share/geospatial/code/geospatial-librari
 if("dex.dbr"%in% (.packages())) detach("package:dex.dbr", unload=TRUE)
 library(dex.dbr, lib.loc = lbd.loader::pkg_loc("dex.dbr"))
 suppressMessages(devtools::load_all(path = "/ihme/homes/idrisov/repo/dex_us_county/"))
-.libPaths(c(file.path(h, "R_packages"), .libPaths()))
-library(ggpol)
+
+
 
 # Needed to use the below code to install "ggpol" for using the facet_share function which somehow we used before and now R can't find the function anymore? Makes no sense
 # install.packages(
@@ -41,6 +41,8 @@ if (Sys.info()["sysname"] == 'Linux'){
 }
 
 library(plotly)
+.libPaths(c(file.path(h, "R_packages"), .libPaths()))
+library(ggpol)
 
 ##----------------------------------------------------------------
 ## 0.1 Functions
@@ -79,6 +81,9 @@ fp_dex <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_dex, "/compiled_
 
 date_ushd <- "20251204"
 fp_ushd <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_ushd, "/compiled_ushd_data_2010_2019.parquet")
+
+date_gbd <- "20260131"
+fp_gbd <- file.path(h, "/aim_outputs/Aim2/A_data_preparation/", date_gbd, "/GBD/df_gbd.parquet")
 
 # Ryan White Data
 fp_rw_t1 <- file.path(h, "/aim_outputs/Aim2/R_resources/ryan_white_data/rw_title1.xls") # Marcus
@@ -181,6 +186,9 @@ df_dex <- open_dataset(fp_dex)
 
 # USHD Data - UNUSED ATM
 #df_ushd <- read_parquet(fp_ushd)
+
+# GBD Data
+df_gbd <- read_parquet(fp_gbd)
 
 # Ryan White Data
 df_rw_t1 <- read_excel(fp_rw_t1)
@@ -619,6 +627,172 @@ f1_hiv_rw
 
 # Save plot
 save_plot(f1_hiv_rw, "F1_HIV_spending_by_insurance_plus_RW", dir_output)
+
+##----------------------------------------------------------------
+## 1.2 Figure 1 - Spending total + RW, spending per case HIV Only
+##
+## The values in the plot are derived from the sum of all the spending across 2010 ~ 2019
+## and then summing the prevalent cases across that same time period for the respective sex & age groups
+## then dividing the spending / prevalence counts
+##
+## In plain English, it represents the HIV spending per case for the entire span of years 2010 ~ 2019
+##----------------------------------------------------------------
+
+# HIV + RW data #
+
+# Collapse on TOC, payer, location (which is all national), year
+df_f2_hiv_rw <- df_dex %>%
+  filter(geo == "national") %>%
+  filter(acause == "hiv") %>%
+  filter(payer == "all") %>%
+  collect()
+
+df_f2_hiv_rw <- df_f2_hiv_rw %>%
+  dplyr::group_by(age_name, sex_name) %>%
+  dplyr::summarise(
+    spend_mean = sum(spend_mean, na.rm = TRUE), # should this be mean or sum? I think sum
+    .groups = "drop"
+  )
+
+# Collapse on age groups to match RW age groups: "25 - <35" "35 - <45" "45 - <55" "55 - <65" "65+" 
+df_f2_hiv_rw <- df_f2_hiv_rw %>%
+  mutate(
+    age_name_rw = case_when(
+      age_name %in% c("25 - <30", "30 - <35") ~ "25 - <35",
+      age_name %in% c("35 - <40", "40 - <45") ~ "35 - <45",
+      age_name %in% c("45 - <50", "50 - <55") ~ "45 - <55",
+      age_name %in% c("55 - <60", "60 - <65") ~ "55 - <65",
+      age_name %in% c("65 - <70", "70 - <75", "75 - <80", "80 - <85", "85+") ~ "65+",
+      TRUE ~ NA_character_   # non-overlapping ages: 0-<25, etc.
+    )
+  )
+
+df_f2_hiv_rw <- df_f2_hiv_rw %>%
+  filter(!is.na(age_name_rw))
+
+df_f2_hiv_rw <- df_f2_hiv_rw %>%
+  dplyr::group_by(sex_name, age_name_rw) %>%
+  dplyr::summarize(spend_mean = sum(spend_mean))
+
+df_f2_hiv_rw <- df_f2_hiv_rw %>%
+  rename(
+    age_name = age_name_rw
+  )
+
+# Add "payer" column label for DEX data
+df_f2_hiv_rw$payer <- "DEX_all_TOC"
+
+# Collapse RW data
+df_f2_rw_data <- df_rw_long %>%
+  dplyr::group_by(age_name, sex_name) %>%
+  dplyr::summarise(
+    spend_mean = sum(rw_funding, na.rm = TRUE), # should this be mean or sum? I think sum
+    .groups = "drop"
+  )
+
+# Filter out <13 and 13-24 age groups from RW data
+df_f2_rw_data <- df_f2_rw_data %>%
+  filter(!age_name %in% c("<13", "13–24"))
+
+# Add "payer" column label for RW
+df_f2_rw_data$payer <- "ryan_white"
+
+# Sum up DEX total spending + RW data
+df_f2_hiv_rw_fig_data <- df_f2_hiv_rw_fig_data %>%
+  dplyr::group_by(sex_name, age_name) %>%
+  dplyr::summarize(spend_mean = sum(spend_mean))
+
+# Format GBD data
+df_f2_gbd <- df_gbd %>%
+  filter(cause_name == "HIV/AIDS") %>%
+  dplyr::group_by(age_group_name, sex_id) %>%
+  dplyr::summarize(prevalence_counts = sum(prevalence_counts))
+
+# Collapse on age groups to match RW age groups: "25 - <35" "35 - <45" "45 - <55" "55 - <65" "65+" 
+df_f2_gbd <- df_f2_gbd %>%
+  mutate(
+    age_name_rw = case_when(
+      age_group_name %in% c("25 to 29", "30 to 34") ~ "25 - <35",
+      age_group_name %in% c("35 to 39", "40 to 44") ~ "35 - <45",
+      age_group_name %in% c("45 to 49", "50 to 54") ~ "45 - <55",
+      age_group_name %in% c("55 to 59", "60 to 64") ~ "55 - <65",
+      age_group_name %in% c("65 to 69", "70 to 74", "75 to 79", "80 to 84", "85+") ~ "65+",
+      TRUE ~ NA_character_   # non-overlapping ages: 0-<25, etc.
+    )
+  )
+
+df_f2_gbd <- df_f2_gbd %>%
+  filter(!is.na(age_name_rw))
+
+df_f2_gbd <- df_f2_gbd %>%
+  dplyr::group_by(sex_id, age_name_rw) %>%
+  dplyr::summarize(prevalence_counts = sum(prevalence_counts))
+
+df_f2_gbd <- df_f2_gbd %>%
+  rename(
+    age_name = age_name_rw
+  )
+
+df_f2_gbd <- df_f2_gbd %>%
+  mutate(
+    sex_name = case_when(
+      sex_id == 1 ~ "Male",
+      sex_id == 2 ~ "Female"
+    )
+  )
+
+# Combine DEX + RW data
+df_f2_hiv_rw_fig_data <- rbind(df_f2_hiv_rw, df_f2_rw_data)
+
+# Merge w/ GBD data to calculate spending per prevalent case
+df_f2_hiv_rw_fig_data <- left_join(
+  x = df_f2_hiv_rw_fig_data,
+  y = df_f2_gbd,
+  by = c("sex_name", "age_name")
+)
+
+# Create spending per case column
+df_f2_hiv_rw_fig_data$spend_per_case <- df_f2_hiv_rw_fig_data$spend_mean / df_f2_hiv_rw_fig_data$prevalence_counts
+
+# Set male spend_per_case as negative
+df_f2_hiv_rw_fig_data <- df_f2_hiv_rw_fig_data %>%
+  mutate(spend_per_case_inverse = ifelse(sex_name == "Male", spend_per_case*-1, spend_per_case))
+
+# Create factors
+df_f2_hiv_rw_fig_data$age_name <- factor(df_f2_hiv_rw_fig_data$age_name, levels = age_factor_rw) 
+df_f2_hiv_rw_fig_data$sex_name <- factor(df_f2_hiv_rw_fig_data$sex_name, levels = sex_factor) 
+
+# Make plot 
+# TODO - Have x-axis be the same for both male and female, also fix the age axis labels to make them look more neat
+# basically copy from the original script, they are already typed out
+# https://github.com/ihmeuw/Resource_Tracking_US_DEX/blob/main/DEX_Capstone_2025/04_figures/figure_1.R
+f2_hiv_rw <- ggplot(data = df_f2_hiv_rw_fig_data, aes(age_name, spend_per_case_inverse, fill = sex_name)) +
+  facet_share(~ sex_name, scales = "free", reverse_num = FALSE) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  #scale_fill_manual(values = payer_colors, labels = payer_list, name = "Payer") +
+  scale_y_continuous(
+    #limits = (),
+    #breaks = seq(-800000, 800000, 200000),
+    labels = function(x) scales::dollar(abs(x))
+  ) +
+  theme_classic() +
+  labs(y = "Inflation Adjusted Spending (2019 USD)",
+       x = "",
+       title = "HIV spending per case by sex and age group, DEX + Ryan White spending, 2010 - 2019") +
+  theme_settings +
+  guides(
+    fill = guide_legend(
+      title.position = "top",  # put title above the keys
+      title.hjust = 0.5,       # center the title
+      nrow = 1                 # keep items in one row
+    )) + theme(legend.position = "none")
+    #+ geom_col(color = "black", width = 1, size = 0.3) 
+
+f2_hiv_rw
+
+# Save plot
+save_plot(f2_hiv_rw, "F1_HIV_spending_per_case_RW", dir_output)
 
 ##----------------------------------------------------------------
 ## 2. Figure 2 - Spending by TOC using payer=all
