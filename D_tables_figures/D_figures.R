@@ -15,8 +15,6 @@ if("dex.dbr"%in% (.packages())) detach("package:dex.dbr", unload=TRUE)
 library(dex.dbr, lib.loc = lbd.loader::pkg_loc("dex.dbr"))
 suppressMessages(devtools::load_all(path = "/ihme/homes/idrisov/repo/dex_us_county/"))
 
-
-
 # Needed to use the below code to install "ggpol" for using the facet_share function which somehow we used before and now R can't find the function anymore? Makes no sense
 # install.packages(
 #   "/ihme/homes/idrisov/ggpol_0.0.7.tar.gz",
@@ -43,6 +41,14 @@ if (Sys.info()["sysname"] == 'Linux'){
 library(plotly)
 .libPaths(c(file.path(h, "R_packages"), .libPaths()))
 library(ggpol)
+library(dplyr)
+
+library(conflicted)
+
+conflict_prefer("summarise", "dplyr")
+conflict_prefer("summarize", "dplyr")
+conflict_prefer("filter", "dplyr")
+conflict_prefer("lag", "dplyr")
 
 ##----------------------------------------------------------------
 ## 0.1 Functions
@@ -1265,6 +1271,165 @@ f3_file_name <- "F3_SUD_spending_by_county_map.pdf"
 pdf(file = file.path(dir_output, f3_file_name), width = 14, height = 16)
 grid.draw(f3_layout)
 dev.off()
+
+##----------------------------------------------------------------
+## 3. Figure 3 - HIV - USA State level spending per prevalent case, all payers because prevalence is not payer specific
+## 
+## Notes: WIP - not finished 3/1
+##----------------------------------------------------------------
+# # Prepare data used for mapping
+# 
+# # Payer Strata by STATE - group by and summarize to get spend_mean (named "value" for plot)
+# # Collapse on sex, age group, toc, year, spend_mean is the MEAN of all years
+# df_f3_hiv_state <- df_dex %>%
+#   filter(geo == "state") %>%
+#   filter(payer == "all") %>%
+#   filter(acause == "hiv") %>%
+#   collect()
+# 
+# df_f3_hiv_state <- df_f3_hiv_state %>%
+#   group_by(location_name, fips) %>%
+#   summarize(
+#     "value" = mean(spend_mean)
+#   )
+# 
+# # Maps - Payer Strata --
+# f3_payer_plot_list <- list()
+# for(p in c("mdcr", "mdcd", "priv", "oop")){
+#   if(length(f3_payer_plot_list) >= 4){
+#     f3_payer_plot_list = list()
+#   }
+#   print(p)
+#   
+#   # Filter DF by payer
+#   map_df <- df_f3_hiv_payer %>% filter(payer == p)
+#   
+#   # Create value breaks
+#   brks <- c(quantile(map_df$value, .0, na.rm = TRUE),
+#             quantile(map_df$value, .2, na.rm = TRUE),
+#             quantile(map_df$value, .4, na.rm = TRUE),
+#             quantile(map_df$value, .6, na.rm = TRUE),
+#             quantile(map_df$value, .8, na.rm = TRUE),
+#             quantile(map_df$value, 1, na.rm = TRUE))
+#   labs <- paste0("$",format(comma(round(brks[-length(brks)]))), " - $", format(comma(round(brks[-1]))))
+#   map_df$plot_val <- cut(map_df$value, breaks = c(brks), labels = labs)
+#   
+#   # Colors / labels for plot
+#   cols = payer_colors_maps[[p]]
+#   payer_title <- payer_list[[p]]
+#   if(p == "oop"){
+#     denom = "capita"
+#   } else {
+#     denom = "beneficiary"
+#   }
+#   
+#   # Merge map_df with the county shapefile
+#   map_df <- merge(mcnty_shapefile, map_df, by = "mcnty")
+#   
+#   # Create plot
+#   map <- ggplot(data = map_df)+
+#     geom_sf(aes(fill = plot_val, geometry = geometry), color = NA)+
+#     geom_sf(data = state_shapefile, fill = NA, linewidth = .4) +
+#     # labs(title = paste0(payer_title, " spending per ",denom),
+#     labs(title = paste0(payer_title, " spending"),
+#          fill = "") +
+#     scale_fill_manual(values = cols, 
+#                       breaks = levels(factor(map_df$plot_val))[levels(factor(map_df$plot_val)) != "NA"],
+#                       na.value = "#838484")+
+#     theme(legend.position = "bottom",
+#           legend.justification = "top",
+#           legend.margin = margin(t = -10, unit = "pt"),  # Adjust top margin of the legend to pull it closer
+#           legend.spacing.y = unit(0, "cm"),
+#           plot.margin = margin(0, 0, 1, 0, "cm"),
+#           title = element_text(size = 12),
+#           text = element_text(size = 10),
+#           axis.ticks = element_blank(),
+#           axis.text = element_blank(),
+#           panel.background = element_blank()) 
+#   
+#   # Append plot to plot list
+#   f3_payer_plot_list[[length(f3_payer_plot_list) + 1]] <- map
+# }
+# 
+# ## Arranging PDF layout of maps
+# f3_payer_maps <- arrangeGrob(grobs = f3_payer_plot_list, nrow = 2, ncol = 2) 
+# f3_title_grob <- text_grob("Estimated HIV average annual spending by US county (2010 - 2019)", size = 16)
+# 
+# # make county map a grob object to make compatible with arrangeGrob
+# f3_hiv_overall_county_map_grob <- ggplotGrob(f3_hiv_overall_county_map) 
+# 
+# # create complete layout
+# f3_layout <- arrangeGrob(f3_title_grob, f3_hiv_overall_county_map_grob, f3_payer_maps, nrow=3, ncol=1, heights=c(0.05, 1, 1.5))
+# 
+# # Save out
+# f3_file_name <- "F3_HIV_spending_by_county_map.pdf"
+# pdf(file = file.path(dir_output, f3_file_name), width = 14, height = 16)
+# grid.draw(f3_layout)
+# dev.off()
+
+##----------------------------------------------------------------
+## 4. Figure 4 - HIV % of Population
+#
+# Title: Change in US national population HIV % (2019 − 2010)
+#
+# Basically if we pull HIV prevalence counts, and also combine that with general population data stratified 
+# by age bracket and by year and by sex, we can divide the prelance counts by population to get HIV% of that 
+# population for the strata, then basically plot, or put all the data in table to show over time how the HIV% population AND normal population changes
+#
+# Notes: 
+##----------------------------------------------------------------
+# Group by age, year, sex for HIV, sum prevalence counts and population
+df_f4 <- df_gbd %>%
+  filter(cause_name == "HIV/AIDS") %>%
+  dplyr::group_by(age_group_name, year_id, sex_id) %>%
+  dplyr::summarize(
+    prevalence_counts = sum(prevalence_counts),
+    population = sum(population))
+
+# Create HIV % of population metric
+df_f4 <- df_f4 %>%
+  mutate(`hiv_%` = prevalence_counts / population)
+
+# Create sex names
+df_f4 <- df_f4 %>%
+  mutate(sex_name = case_when(sex_id == 1 ~ "Male", 
+                              sex_id == 2 ~ "Female"))
+
+# Create plot
+age_factor <- c("0 - <1", "1 - <5", "5 to 9", "10 to 14", "15 to 19", "20 to 24", "25 to 29", 
+                "30 to 34", "35 to 39", "40 to 44", "45 to 49",  "50 to 54", 
+                "55 to 59", "60 to 64", "65 to 69", "70 to 74", "75 to 79", "80 to 84", "85+")
+
+sex_factor <- c("Male", "Female")
+
+# 1) Compute delta (2019 - 2010) by age_group_name (optionally stratified by sex_name)
+df_f4_delta <- df_f4 %>%
+  filter(year_id %in% c(2010, 2019)) %>%
+  mutate(
+    sex_name = factor(sex_name, levels = sex_factor),
+    age_group_name = factor(age_group_name, levels = age_factor)
+  ) %>%
+  group_by(age_group_name, sex_name, year_id) %>%
+  summarise(hiv = mean(`hiv_%`, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = year_id, values_from = hiv) %>%
+  mutate(delta = `2019` - `2010`)
+
+f4_hiv_pop_percent <- ggplot(df_f4_delta, aes(x = delta, y = age_group_name, fill = delta > 0)) +
+  geom_col() +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  facet_grid(rows = vars(sex_name)) +
+  scale_fill_manual(values = c("TRUE" = "steelblue", "FALSE" = "firebrick")) +
+  scale_x_continuous(labels = label_percent(accuracy = 0.01)) +
+  labs(
+    title = "Change in US national population HIV % (2019 − 2010)",
+    x = "Δ HIV%",
+    y = NULL
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# Save plot
+save_plot(f4_hiv_pop_percent, "F4_HIV_population_percent", dir_output)
 
 
 ### REFERENCE CODE - SAFE TO DELETE

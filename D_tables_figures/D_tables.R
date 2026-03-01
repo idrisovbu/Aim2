@@ -60,6 +60,9 @@ fp_dex <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_dex, "/compiled_
 date_ushd <- "20251123"
 fp_ushd <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_ushd, "/compiled_ushd_data_2010_2019.parquet")
 
+date_gbd <- "20260131"
+fp_gbd <- file.path(h, "/aim_outputs/Aim2/A_data_preparation/", date_gbd, "/GBD/df_gbd.parquet")
+
 # Age-standardized State level GBD + Dex data
 date_as <- "20260127"
 fp_as <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_as, "/df_as.csv")
@@ -83,6 +86,9 @@ df_dex <- open_dataset(fp_dex)
 
 # USHD Data
 #df_ushd <- read_parquet(fp_ushd)
+
+# GBD Data
+df_gbd <- read_parquet(fp_gbd)
 
 # Age-standardized State level GBD + Dex data
 df_as <- read.csv(fp_as)
@@ -267,6 +273,72 @@ for (a in acauses) {
 # Write to CSV
 write.csv(df_t2_hiv, file.path(dir_output, "T2_HIV.csv"), row.names = FALSE)
 write.csv(df_t2_subs, file.path(dir_output, "T2_SUD.csv"), row.names = FALSE)
+
+##----------------------------------------------------------------
+## 2.1 Table 2 - HIV & SUD JUST 2019
+# 
+# T2 - ALL State level table, HIV & SUD separate tables, states are ordered alphabetically
+# 
+# Columns: State, Spending per prevalence (total spending for state / total summed prevalence count),
+# Total spending (cumulative total state spending), 
+# 4 total spending by payer (medicaid, medicare, private, oop), 
+# prevalence count, 
+# prevalence rate, 
+# mortality per case (mortality count / prevalence count),
+# incidence count, 
+# incidence rate
+##----------------------------------------------------------------
+acauses <- c("hiv", "_subs")
+
+t2_2019_cols <- c("cause_name", "location_name", "spend_per_prev", "spend_all", 
+             "spend_mdcd", "spend_mdcr", "spend_oop", "spend_priv", "prevalence_counts", 
+             "prevalence_rates", "as_mort_prev_ratio", "incidence_counts", "incidence_rates"
+)
+
+t2_dol_cols <-  c("spend_per_prev", "spend_all", 
+                  "spend_mdcd", "spend_mdcr", "spend_oop", "spend_priv")
+
+for (a in acauses) {
+  
+  df_tmp <- df_as %>%
+    filter(acause == a) %>%
+    filter(year_id == 2019)
+  
+  # Create columns
+  df_tmp$spend_per_prev <- df_tmp$spend_all / df_tmp$prevalence_counts
+  
+  # Select columns
+  df_tmp <- df_tmp %>%
+    select(all_of(t2_2019_cols))
+  
+  # Convert to dollars
+  df_tmp <- convert_to_dollars(df_tmp, t2_dol_cols)
+  
+  # Rename columns
+  df_tmp <- df_tmp %>%
+    rename(
+      Cause = cause_name,
+      State = location_name,
+      `Spending per prevalence` = spend_per_prev,
+      `Total spending - All` = spend_all,
+      `Total spending - Medicare` = spend_mdcr,
+      `Total spending - Medicaid` = spend_mdcd,
+      `Total spending - Out of pocket` = spend_oop,
+      `Total spending - Private` = spend_priv,
+      `Prevalence Count` = prevalence_counts,
+      `Prevalence Rate` = prevalence_rates,
+      `Mortality per case (AS)` = as_mort_prev_ratio,
+      `Incidence Count` = incidence_counts,
+      `Incidence Rate` = incidence_rates
+    )
+  
+  # Assign to df_t2_hiv or df_t2_subs
+  assign(paste0("df_t2_2019_", gsub("^_", "", a)), df_tmp, envir = .GlobalEnv)
+}
+
+# Write to CSV
+write.csv(df_t2_2019_hiv, file.path(dir_output, "T2_HIV_2019.csv"), row.names = FALSE)
+write.csv(df_t2_2019_subs, file.path(dir_output, "T2_SUD_2019.csv"), row.names = FALSE)
 
 ##----------------------------------------------------------------
 ## 3. Table 3 - HIV & SUD 
