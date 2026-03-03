@@ -318,14 +318,241 @@ cat(sprintf("\nResults saved to: %s\n", dir_output))
 # ============================================================================
 # STEP 7: Visualization of Decomposition Results
 # ============================================================================
+# 
+# # ----------------------------------------------------------------------------
+# # 7.1: Prepare data for plotting
+# # ----------------------------------------------------------------------------
+# 
+# # Reshape by_state to long format for stacked bar
+# plot_data <- by_state %>%
+#   select(location_id, location_name, delta_spend,
+#          pop_size_effect, prevalence_rate_effect, 
+#          case_composition_effect, spend_intensity_effect) %>%
+#   pivot_longer(
+#     cols = c(pop_size_effect, prevalence_rate_effect, 
+#              case_composition_effect, spend_intensity_effect),
+#     names_to = "factor",
+#     values_to = "effect"
+#   ) %>%
+#   mutate(
+#     # Clean factor names for legend
+#     factor = case_when(
+#       factor == "pop_size_effect" ~ "Population Size",
+#       factor == "prevalence_rate_effect" ~ "Prevalence Rate",
+#       factor == "case_composition_effect" ~ "Case Composition (Age-Sex)",
+#       factor == "spend_intensity_effect" ~ "Spending Intensity"
+#     ),
+#     # Order factors for stacking
+#     factor = factor(factor, levels = c("Population Size", 
+#                                        "Prevalence Rate",
+#                                        "Case Composition (Age-Sex)", 
+#                                        "Spending Intensity"))
+#   )
+# # ----------------------------------------------------------------------------
+# # 7.3: State-Level Stacked Horizontal Bar Chart (ALL STATES)
+# # ----------------------------------------------------------------------------
+# 
+# # Prepare plot data for ALL states
+# plot_data_all <- plot_data %>%
+#   mutate(
+#     # Reorder states by total spending change
+#     location_name = factor(location_name, 
+#                            levels = by_state %>% 
+#                              arrange(delta_spend) %>% 
+#                              pull(location_name))
+#   )
+# 
+# # Create stacked horizontal bar chart for ALL STATES
+# p_states_all <- ggplot(plot_data_all, aes(x = location_name, y = effect/1e6, fill = factor)) +
+#   geom_bar(stat = "identity", position = "stack", width = 0.7) +
+#   geom_hline(yintercept = 0, linetype = "dashed", color = "black", alpha = 0.5) +
+#   # Add total change marker
+#   geom_point(data = by_state %>% 
+#                mutate(location_name = factor(location_name, 
+#                                              levels = by_state %>% 
+#                                                arrange(delta_spend) %>% 
+#                                                pull(location_name))),
+#              aes(x = location_name, y = delta_spend/1e6),
+#              inherit.aes = FALSE, shape = 18, size = 2.5, color = "black") +
+#   coord_flip() +
+#   scale_fill_brewer(palette = "Set2") +
+#   scale_y_continuous(labels = dollar_format(suffix = "M")) +
+#   labs(
+#     title = "HIV/AIDS Spending Decomposition by State (2010-2019)",
+#     subtitle = "All states ordered by total spending change | Diamond = Total Change",
+#     x = "",
+#     y = "Effect on Spending Change (Millions $)",
+#     fill = "Factor"
+#   ) +
+#   # theme_minimal() +
+#   theme(
+#     plot.title = element_text(size = 14, face = "bold"),
+#     plot.subtitle = element_text(size = 10),
+#     axis.text.y = element_text(size = 7),
+#     legend.position = "bottom",
+#     legend.title = element_text(size = 10),
+#     panel.grid.minor = element_blank()
+#   ) +
+#   guides(fill = guide_legend(nrow = 1)) + 
+#   theme_bw() +
+#   theme(
+#     plot.background  = element_rect(fill = "white", color = NA),
+#     panel.background = element_rect(fill = "white", color = NA),
+#     panel.grid.major = element_line(color = "grey80", size = 0.3),
+#     panel.grid.minor = element_line(color = "grey90", size = 0.2),
+#     legend.position = "bottom"
+#   )
+# 
+# print(p_states_all)
+# ggsave(file.path(dir_output, "F4_HIV_decomp_all_states_stacked_bar.png"), p_states_all, 
+#        width = 10, height = 14, dpi = 300)
+# 
+# # ----------------------------------------------------------------------------
+# # 7.4: National Bar Chart (Separate Figure)
+# # ----------------------------------------------------------------------------
+# 
+# # National bar chart (horizontal to match state style)
+# national_plot_data <- national %>%
+#   select(pop_size_effect, prevalence_rate_effect, 
+#          case_composition_effect, spend_intensity_effect) %>%
+#   pivot_longer(
+#     cols = everything(),
+#     names_to = "factor",
+#     values_to = "effect"
+#   ) %>%
+#   mutate(
+#     factor = case_when(
+#       factor == "pop_size_effect" ~ "Population Size",
+#       factor == "prevalence_rate_effect" ~ "Prevalence Rate",
+#       factor == "case_composition_effect" ~ "Case Composition (Age-Sex)",
+#       factor == "spend_intensity_effect" ~ "Spending Intensity"
+#     ),
+#     factor = factor(factor, levels = c("Population Size", 
+#                                        "Prevalence Rate",
+#                                        "Case Composition (Age-Sex)", 
+#                                        "Spending Intensity")),
+#     location_name = "United States"
+#   )
+# 
+# p_national <- ggplot(national_plot_data, aes(x = location_name, y = effect/1e9, fill = factor)) +
+#   geom_bar(stat = "identity", position = "stack", width = 0.5) +
+#   geom_hline(yintercept = 0, linetype = "dashed", color = "black", alpha = 0.5) +
+#   geom_point(aes(x = location_name, y = national$delta_spend/1e9),
+#              inherit.aes = FALSE, shape = 18, size = 4, color = "black") +
+#   coord_flip() +
+#   scale_fill_brewer(palette = "Set2") +
+#   scale_y_continuous(labels = dollar_format(suffix = "B")) +
+#   labs(
+#     title = "National HIV/AIDS Spending Decomposition (2010-2019)",
+#     subtitle = paste0("Total spending change: $", 
+#                       format(round(national$delta_spend/1e9, 2), nsmall = 2), 
+#                       " billion | Diamond = Total Change"),
+#     x = "",
+#     y = "Effect on Spending Change (Billions $)",
+#     fill = "Factor"
+#   ) +
+#   # theme_minimal() +
+#   theme(
+#     plot.title = element_text(size = 14, face = "bold"),
+#     plot.subtitle = element_text(size = 10),
+#     axis.text.y = element_text(size = 12, face = "bold"),
+#     legend.position = "bottom",
+#     legend.title = element_text(size = 10),
+#     panel.grid.minor = element_blank()
+#   ) +
+#   guides(fill = guide_legend(nrow = 1)) + 
+#   theme_bw() +
+#   theme(
+#     plot.background  = element_rect(fill = "white", color = NA),
+#     panel.background = element_rect(fill = "white", color = NA),
+#     panel.grid.major = element_line(color = "grey80", size = 0.3),
+#     panel.grid.minor = element_line(color = "grey90", size = 0.2),
+#     legend.position = "bottom"
+#   )
+# 
+# print(p_national)
+# ggsave(file.path(dir_output, "F5_HIV_decomp_national_bar.png"), p_national, 
+#        width = 10, height = 4, dpi = 300)
+# 
+# 
+# # ----------------------------------------------------------------------------
+# # 7.3: State-Level Stacked Horizontal Bar Chart (Top 15 States)
+# # ----------------------------------------------------------------------------
+# # Select top 15 states by absolute spending change
+# 
+# top_states <- by_state %>%
+#   arrange(desc(abs(delta_spend))) %>%
+#   head(15) %>%
+#   pull(location_name)
+# plot_data_top <- plot_data %>%
+#   filter(location_name %in% top_states) %>%
+#   mutate(
+#     # Reorder states by total spending change
+#     location_name = factor(location_name, 
+#                            levels = by_state %>% 
+#                              filter(location_name %in% top_states) %>%
+#                              arrange(delta_spend) %>% 
+#                              pull(location_name))
+#   )
+# # Create stacked horizontal bar chart
+# p_states <- ggplot(plot_data_top, aes(x = location_name, y = effect/1e6, fill = factor)) +
+#   geom_bar(stat = "identity", position = "stack", width = 0.7) +
+#   geom_hline(yintercept = 0, linetype = "dashed", color = "black", alpha = 0.5) +
+#   # Add total change marker
+#   geom_point(data = by_state %>% 
+#                filter(location_name %in% top_states) %>%
+#                mutate(location_name = factor(location_name, 
+#                                              levels = by_state %>% 
+#                                                filter(location_name %in% top_states) %>%
+#                                                arrange(delta_spend) %>% 
+#                                                pull(location_name))),
+#              aes(x = location_name, y = delta_spend/1e6),
+#              inherit.aes = FALSE, shape = 18, size = 3, color = "black") +
+#   coord_flip() +
+#   scale_fill_brewer(palette = "Set2") +
+#   scale_y_continuous(labels = dollar_format(suffix = "M")) +
+#   labs(
+#     title = "HIV/AIDS Spending Decomposition by State (2010-2019)",
+#     subtitle = "Top 15 states by absolute spending change | Diamond = Total Change",
+#     x = "",
+#     y = "Effect on Spending Change (Millions $)",
+#     fill = "Factor"
+#   ) +
+#   # theme_minimal() +
+#   theme(
+#     plot.title = element_text(size = 14, face = "bold"),
+#     legend.position = "bottom",
+#     legend.title = element_text(size = 10),
+#     panel.grid.minor = element_blank()
+#   ) +
+#   guides(fill = guide_legend(nrow = 2)) + 
+#   theme_bw() +
+#   theme(
+#     plot.background  = element_rect(fill = "white", color = NA),
+#     panel.background = element_rect(fill = "white", color = NA),
+#     panel.grid.major = element_line(color = "grey80", size = 0.3),
+#     panel.grid.minor = element_line(color = "grey90", size = 0.2),
+#     legend.position = "bottom"
+#   )
+# 
+# print(p_states)
+# ggsave(file.path(dir_output, "F6_HIV_decomp_15_states_stacked_bar.png"), p_states, 
+#        width = 10, height = 8, dpi = 300)
+# 
+# 
+# cat("\n=========== VISUALIZATIONS SAVED ===========\n")
+# cat(sprintf("Files saved to: %s\n", dir_output))
+# cat("  - decomp_all_states_stacked_bar.png (all 51 states)\n")
+# cat("  - decomp_national_bar.png\n")
+
 
 # ----------------------------------------------------------------------------
-# 7.1: Prepare data for plotting
+# 7.1: Prepare data for plotting (PERCENT SPACE)
 # ----------------------------------------------------------------------------
 
 # Reshape by_state to long format for stacked bar
 plot_data <- by_state %>%
-  select(location_id, location_name, delta_spend,
+  select(location_id, location_name, delta_spend, spend_2010,
          pop_size_effect, prevalence_rate_effect, 
          case_composition_effect, spend_intensity_effect) %>%
   pivot_longer(
@@ -335,6 +562,9 @@ plot_data <- by_state %>%
     values_to = "effect"
   ) %>%
   mutate(
+    # Convert to percent of 2010 baseline
+    effect_pct = 100 * effect / spend_2010,
+    delta_pct  = 100 * delta_spend / spend_2010,
     # Clean factor names for legend
     factor = case_when(
       factor == "pop_size_effect" ~ "Population Size",
@@ -348,6 +578,7 @@ plot_data <- by_state %>%
                                        "Case Composition (Age-Sex)", 
                                        "Spending Intensity"))
   )
+
 # ----------------------------------------------------------------------------
 # 7.3: State-Level Stacked Horizontal Bar Chart (ALL STATES)
 # ----------------------------------------------------------------------------
@@ -355,7 +586,16 @@ plot_data <- by_state %>%
 # Prepare plot data for ALL states
 plot_data_all <- plot_data %>%
   mutate(
-    # Reorder states by total spending change
+    location_name = factor(location_name, 
+                           levels = by_state %>% 
+                             arrange(delta_spend) %>% 
+                             pull(location_name))
+  )
+
+# Prepare delta_pct for the diamond markers (one row per state)
+diamond_data_all <- by_state %>%
+  mutate(
+    delta_pct = 100 * delta_spend / spend_2010,
     location_name = factor(location_name, 
                            levels = by_state %>% 
                              arrange(delta_spend) %>% 
@@ -363,28 +603,23 @@ plot_data_all <- plot_data %>%
   )
 
 # Create stacked horizontal bar chart for ALL STATES
-p_states_all <- ggplot(plot_data_all, aes(x = location_name, y = effect/1e6, fill = factor)) +
+p_states_all <- ggplot(plot_data_all, aes(x = location_name, y = effect_pct, fill = factor)) +
   geom_bar(stat = "identity", position = "stack", width = 0.7) +
   geom_hline(yintercept = 0, linetype = "dashed", color = "black", alpha = 0.5) +
   # Add total change marker
-  geom_point(data = by_state %>% 
-               mutate(location_name = factor(location_name, 
-                                             levels = by_state %>% 
-                                               arrange(delta_spend) %>% 
-                                               pull(location_name))),
-             aes(x = location_name, y = delta_spend/1e6),
+  geom_point(data = diamond_data_all,
+             aes(x = location_name, y = delta_pct),
              inherit.aes = FALSE, shape = 18, size = 2.5, color = "black") +
   coord_flip() +
   scale_fill_brewer(palette = "Set2") +
-  scale_y_continuous(labels = dollar_format(suffix = "M")) +
+  scale_y_continuous(labels = scales::percent_format(scale = 1)) +
   labs(
     title = "HIV/AIDS Spending Decomposition by State (2010-2019)",
-    subtitle = "All states ordered by total spending change | Diamond = Total Change",
+    subtitle = "All states ordered by total spending change | Diamond = Total % Change from 2010 Baseline",
     x = "",
-    y = "Effect on Spending Change (Millions $)",
+    y = "Effect as % of 2010 Spending",
     fill = "Factor"
   ) +
-  theme_minimal() +
   theme(
     plot.title = element_text(size = 14, face = "bold"),
     plot.subtitle = element_text(size = 10),
@@ -393,7 +628,15 @@ p_states_all <- ggplot(plot_data_all, aes(x = location_name, y = effect/1e6, fil
     legend.title = element_text(size = 10),
     panel.grid.minor = element_blank()
   ) +
-  guides(fill = guide_legend(nrow = 1))
+  guides(fill = guide_legend(nrow = 1)) + 
+  theme_bw() +
+  theme(
+    plot.background  = element_rect(fill = "white", color = NA),
+    panel.background = element_rect(fill = "white", color = NA),
+    panel.grid.major = element_line(color = "grey80", size = 0.3),
+    panel.grid.minor = element_line(color = "grey90", size = 0.2),
+    legend.position = "bottom"
+  )
 
 print(p_states_all)
 ggsave(file.path(dir_output, "F4_HIV_decomp_all_states_stacked_bar.png"), p_states_all, 
@@ -403,7 +646,7 @@ ggsave(file.path(dir_output, "F4_HIV_decomp_all_states_stacked_bar.png"), p_stat
 # 7.4: National Bar Chart (Separate Figure)
 # ----------------------------------------------------------------------------
 
-# National bar chart (horizontal to match state style)
+# National bar chart in percent space
 national_plot_data <- national %>%
   select(pop_size_effect, prevalence_rate_effect, 
          case_composition_effect, spend_intensity_effect) %>%
@@ -413,6 +656,7 @@ national_plot_data <- national %>%
     values_to = "effect"
   ) %>%
   mutate(
+    effect_pct = 100 * effect / national$spend_2010,
     factor = case_when(
       factor == "pop_size_effect" ~ "Population Size",
       factor == "prevalence_rate_effect" ~ "Prevalence Rate",
@@ -426,24 +670,25 @@ national_plot_data <- national %>%
     location_name = "United States"
   )
 
-p_national <- ggplot(national_plot_data, aes(x = location_name, y = effect/1e9, fill = factor)) +
+national_delta_pct <- 100 * national$delta_spend / national$spend_2010
+
+p_national <- ggplot(national_plot_data, aes(x = location_name, y = effect_pct, fill = factor)) +
   geom_bar(stat = "identity", position = "stack", width = 0.5) +
   geom_hline(yintercept = 0, linetype = "dashed", color = "black", alpha = 0.5) +
-  geom_point(aes(x = location_name, y = national$delta_spend/1e9),
+  geom_point(aes(x = location_name, y = national_delta_pct),
              inherit.aes = FALSE, shape = 18, size = 4, color = "black") +
   coord_flip() +
   scale_fill_brewer(palette = "Set2") +
-  scale_y_continuous(labels = dollar_format(suffix = "B")) +
+  scale_y_continuous(labels = scales::percent_format(scale = 1)) +
   labs(
     title = "National HIV/AIDS Spending Decomposition (2010-2019)",
-    subtitle = paste0("Total spending change: $", 
-                      format(round(national$delta_spend/1e9, 2), nsmall = 2), 
-                      " billion | Diamond = Total Change"),
+    subtitle = paste0("Total spending change: ", 
+                      format(round(national_delta_pct, 1), nsmall = 1), 
+                      "% of 2010 baseline | Diamond = Total % Change"),
     x = "",
-    y = "Effect on Spending Change (Billions $)",
+    y = "Effect as % of 2010 Spending",
     fill = "Factor"
   ) +
-  theme_minimal() +
   theme(
     plot.title = element_text(size = 14, face = "bold"),
     plot.subtitle = element_text(size = 10),
@@ -452,73 +697,92 @@ p_national <- ggplot(national_plot_data, aes(x = location_name, y = effect/1e9, 
     legend.title = element_text(size = 10),
     panel.grid.minor = element_blank()
   ) +
-  guides(fill = guide_legend(nrow = 1))
+  guides(fill = guide_legend(nrow = 1)) + 
+  theme_bw() +
+  theme(
+    plot.background  = element_rect(fill = "white", color = NA),
+    panel.background = element_rect(fill = "white", color = NA),
+    panel.grid.major = element_line(color = "grey80", size = 0.3),
+    panel.grid.minor = element_line(color = "grey90", size = 0.2),
+    legend.position = "bottom"
+  )
 
 print(p_national)
 ggsave(file.path(dir_output, "F5_HIV_decomp_national_bar.png"), p_national, 
        width = 10, height = 4, dpi = 300)
 
-
 # ----------------------------------------------------------------------------
 # 7.3: State-Level Stacked Horizontal Bar Chart (Top 15 States)
 # ----------------------------------------------------------------------------
-# Select top 15 states by absolute spending change
 
 top_states <- by_state %>%
   arrange(desc(abs(delta_spend))) %>%
   head(15) %>%
   pull(location_name)
+
 plot_data_top <- plot_data %>%
   filter(location_name %in% top_states) %>%
   mutate(
-    # Reorder states by total spending change
     location_name = factor(location_name, 
                            levels = by_state %>% 
                              filter(location_name %in% top_states) %>%
                              arrange(delta_spend) %>% 
                              pull(location_name))
   )
-# Create stacked horizontal bar chart
-p_states <- ggplot(plot_data_top, aes(x = location_name, y = effect/1e6, fill = factor)) +
+
+diamond_data_top <- by_state %>%
+  filter(location_name %in% top_states) %>%
+  mutate(
+    delta_pct = 100 * delta_spend / spend_2010,
+    location_name = factor(location_name, 
+                           levels = by_state %>% 
+                             filter(location_name %in% top_states) %>%
+                             arrange(delta_spend) %>% 
+                             pull(location_name))
+  )
+
+p_states <- ggplot(plot_data_top, aes(x = location_name, y = effect_pct, fill = factor)) +
   geom_bar(stat = "identity", position = "stack", width = 0.7) +
   geom_hline(yintercept = 0, linetype = "dashed", color = "black", alpha = 0.5) +
-  # Add total change marker
-  geom_point(data = by_state %>% 
-               filter(location_name %in% top_states) %>%
-               mutate(location_name = factor(location_name, 
-                                             levels = by_state %>% 
-                                               filter(location_name %in% top_states) %>%
-                                               arrange(delta_spend) %>% 
-                                               pull(location_name))),
-             aes(x = location_name, y = delta_spend/1e6),
+  geom_point(data = diamond_data_top,
+             aes(x = location_name, y = delta_pct),
              inherit.aes = FALSE, shape = 18, size = 3, color = "black") +
   coord_flip() +
   scale_fill_brewer(palette = "Set2") +
-  scale_y_continuous(labels = dollar_format(suffix = "M")) +
+  scale_y_continuous(labels = scales::percent_format(scale = 1)) +
   labs(
     title = "HIV/AIDS Spending Decomposition by State (2010-2019)",
-    subtitle = "Top 15 states by absolute spending change | Diamond = Total Change",
+    subtitle = "Top 15 states by absolute spending change | Diamond = Total % Change from 2010 Baseline",
     x = "",
-    y = "Effect on Spending Change (Millions $)",
+    y = "Effect as % of 2010 Spending",
     fill = "Factor"
   ) +
-  theme_minimal() +
   theme(
     plot.title = element_text(size = 14, face = "bold"),
     legend.position = "bottom",
     legend.title = element_text(size = 10),
     panel.grid.minor = element_blank()
   ) +
-  guides(fill = guide_legend(nrow = 2))
+  guides(fill = guide_legend(nrow = 2)) + 
+  theme_bw() +
+  theme(
+    plot.background  = element_rect(fill = "white", color = NA),
+    panel.background = element_rect(fill = "white", color = NA),
+    panel.grid.major = element_line(color = "grey80", size = 0.3),
+    panel.grid.minor = element_line(color = "grey90", size = 0.2),
+    legend.position = "bottom"
+  )
+
 print(p_states)
 ggsave(file.path(dir_output, "F6_HIV_decomp_15_states_stacked_bar.png"), p_states, 
        width = 10, height = 8, dpi = 300)
 
-
 cat("\n=========== VISUALIZATIONS SAVED ===========\n")
 cat(sprintf("Files saved to: %s\n", dir_output))
-cat("  - decomp_all_states_stacked_bar.png (all 51 states)\n")
-cat("  - decomp_national_bar.png\n")
+cat("  - F4_HIV_decomp_all_states_stacked_bar.png (all 51 states)\n")
+cat("  - F5_HIV_decomp_national_bar.png\n")
+cat("  - F6_HIV_decomp_15_states_stacked_bar.png (top 15 states)\n")
+
 
 ###############################################
 

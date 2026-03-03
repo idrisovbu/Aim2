@@ -38,7 +38,7 @@ if (Sys.info()["sysname"] == 'Linux'){
   l <- 'L:/'
 }
 
-library(plotly)
+#library(plotly)
 .libPaths(c(file.path(h, "R_packages"), .libPaths()))
 library(ggpol)
 library(dplyr)
@@ -404,7 +404,7 @@ df_rw_long <- df_rw_long %>%
   )
 
 ##----------------------------------------------------------------
-## 1. Figure 1 - Spending by insurance
+## 1. Figure 1a - Spending by insurance 2019
 ## What are the differences in spending for patients with HIV / SUD for each age group
 ## based on different types of insurance (Medicare, Medicaid, Private)? (all years, all counties)
 ##
@@ -413,17 +413,18 @@ df_rw_long <- df_rw_long %>%
 
 # HIV #
 
-# Collapse on TOC, location (which is all national), year
+# Collapse on TOC, location (which is all national)
 df_f1_hiv <- df_dex %>%
   filter(geo == "national") %>%
   filter(acause == "hiv") %>%
+  filter(year_id == 2019) %>%
   filter(payer != "all") %>%
   collect()
   
 df_f1_hiv <- df_f1_hiv %>%
   dplyr::group_by(payer, age_name, sex_name) %>%
   dplyr::summarise(
-    spend_mean = mean(spend_mean, na.rm = TRUE),
+    spend_mean = sum(spend_mean, na.rm = TRUE),
     .groups = "drop"
   )
 
@@ -455,7 +456,7 @@ f1_hiv <- ggplot(data = df_f1_hiv, aes(age_name, spend_mean_inverse, fill = fact
   theme_classic() +
   labs(y = "Inflation Adjusted Spending (2019 USD)",
        x = "",
-       title = "Mean annual HIV spending for each insurance type by sex and age group, 2010 - 2019") +
+       title = "HIV spending for each insurance type by sex and age group in 2019") +
   theme_settings +
   guides(
     fill = guide_legend(
@@ -466,7 +467,7 @@ f1_hiv <- ggplot(data = df_f1_hiv, aes(age_name, spend_mean_inverse, fill = fact
   geom_col(color = "black", width = 1, size = 0.3) 
 
 # Save plot
-save_plot(f1_hiv, "F1_HIV_spending_by_insurance", dir_output)
+save_plot(f1_hiv, "F1a_HIV_spending_by_insurance", dir_output)
 
 # SUD #
 
@@ -474,13 +475,14 @@ save_plot(f1_hiv, "F1_HIV_spending_by_insurance", dir_output)
 df_f1_sud <- df_dex %>%
   filter(geo == "national") %>%
   filter(acause %in% subs_causes) %>%
+  filter(year_id == 2019) %>%
   filter(payer != "all") %>%
   collect()
 
 df_f1_sud <- df_f1_sud %>%
   group_by(payer, age_name, sex_name) %>%
   summarize(
-    "spend_mean" = mean(spend_mean)
+    "spend_mean" = sum(spend_mean)
   )
 
 # Remove spaces from "age_name"
@@ -511,7 +513,7 @@ f1_sud <- ggplot(data = df_f1_sud, aes(age_name, spend_mean_inverse, fill = fact
   theme_classic() +
   labs(y = "Inflation Adjusted Spending (2019 USD)",
        x = "",
-       title = "Mean annual SUD spending for each insurance type by sex and age group, 2010 - 2019") +
+       title = "SUD spending for each insurance type by sex and age group in 2019") +
   theme_settings +
   guides(
     fill = guide_legend(
@@ -519,13 +521,18 @@ f1_sud <- ggplot(data = df_f1_sud, aes(age_name, spend_mean_inverse, fill = fact
       title.hjust = 0.5,       # center the title
       nrow = 1                 # keep items in one row
     )) +
-  geom_col(color = "black", width = 1, size = 0.3) 
+  geom_col(color = "black", width = 1, size = 0.3) +
+  theme(
+    plot.margin = margin(t = 10, r = , b = 0, l = 0)
+  )
+
+f1_sud
 
 # Save plot
-save_plot(f1_sud, "F1_SUD_spending_by_insurance", dir_output)
+save_plot(f1_sud, "F1a_SUD_spending_by_insurance", dir_output, width = 16)
 
 ##----------------------------------------------------------------
-## 1.1 Figure 1 - Spending by insurance + RW, HIV Only
+## 1.1 Figure 1b - Spending by insurance + RW, HIV Only, 2019
 ## What are the differences in spending for patients with HIV / SUD for each age group
 ## based on different types of insurance (Medicare, Medicaid, Private)? (all years, all counties)
 ##----------------------------------------------------------------
@@ -538,13 +545,14 @@ save_plot(f1_sud, "F1_SUD_spending_by_insurance", dir_output)
 df_f1_hiv_rw <- df_dex %>%
   filter(geo == "national") %>%
   filter(acause == "hiv") %>%
+  filter(year_id == 2019) %>%
   filter(payer != "all") %>%
   collect()
 
 df_f1_hiv_rw <- df_f1_hiv_rw %>%
   dplyr::group_by(payer, age_name, sex_name) %>%
   dplyr::summarise(
-    spend_mean = mean(spend_mean, na.rm = TRUE),
+    spend_mean = sum(spend_mean, na.rm = TRUE),
     .groups = "drop"
   )
 
@@ -575,9 +583,10 @@ df_f1_hiv_rw <- df_f1_hiv_rw %>%
 
 # Collapse RW data
 df_f1_rw_data <- df_rw_long %>%
+  filter(year_id == 2019) %>%
   dplyr::group_by(age_name, sex_name) %>%
   dplyr::summarise(
-    spend_mean = mean(rw_funding, na.rm = TRUE),
+    spend_mean = sum(rw_funding, na.rm = TRUE),
     .groups = "drop"
   )
 
@@ -619,7 +628,7 @@ f1_hiv_rw <- ggplot(data = df_f1_hiv_rw_fig_data, aes(age_name, spend_mean_inver
   theme_classic() +
   labs(y = "Inflation Adjusted Spending (2019 USD)",
        x = "",
-       title = "Mean annual HIV spending for each insurance type & Ryan White by sex and age group, 2010 - 2019") +
+       title = "HIV spending for each insurance type & Ryan White by sex and age group in 2019") +
   theme_settings +
   guides(
     fill = guide_legend(
@@ -629,19 +638,17 @@ f1_hiv_rw <- ggplot(data = df_f1_hiv_rw_fig_data, aes(age_name, spend_mean_inver
     )) +
   geom_col(color = "black", width = 1, size = 0.3) 
 
-f1_hiv_rw
-
 # Save plot
-save_plot(f1_hiv_rw, "F1_HIV_spending_by_insurance_plus_RW", dir_output)
+save_plot(f1_hiv_rw, "F1b_HIV_spending_by_insurance_plus_RW", dir_output)
 
 ##----------------------------------------------------------------
-## 1.2 Figure 1 - Spending total + RW, spending per case HIV Only
+## 1.2 Figure 1c - Spending total + RW, spending per case HIV Only, 2019
 ##
-## The values in the plot are derived from the sum of all the spending across 2010 ~ 2019
+## The values in the plot are derived from the sum of all the spending for 2019
 ## and then summing the prevalent cases across that same time period for the respective sex & age groups
 ## then dividing the spending / prevalence counts
 ##
-## In plain English, it represents the HIV spending per case for the entire span of years 2010 ~ 2019
+## In plain English, it represents the HIV spending per case for 2019
 ##----------------------------------------------------------------
 
 # HIV + RW data #
@@ -650,13 +657,14 @@ save_plot(f1_hiv_rw, "F1_HIV_spending_by_insurance_plus_RW", dir_output)
 df_f2_hiv_rw <- df_dex %>%
   filter(geo == "national") %>%
   filter(acause == "hiv") %>%
+  filter(year_id == 2019) %>%
   filter(payer == "all") %>%
   collect()
 
 df_f2_hiv_rw <- df_f2_hiv_rw %>%
   dplyr::group_by(age_name, sex_name) %>%
   dplyr::summarise(
-    spend_mean = sum(spend_mean, na.rm = TRUE), # should this be mean or sum? I think sum
+    spend_mean = sum(spend_mean, na.rm = TRUE), 
     .groups = "drop"
   )
 
@@ -690,9 +698,10 @@ df_f2_hiv_rw$payer <- "DEX_all_TOC"
 
 # Collapse RW data
 df_f2_rw_data <- df_rw_long %>%
+  filter(year_id == 2019) %>%
   dplyr::group_by(age_name, sex_name) %>%
   dplyr::summarise(
-    spend_mean = sum(rw_funding, na.rm = TRUE), # should this be mean or sum? I think sum
+    spend_mean = sum(rw_funding, na.rm = TRUE),
     .groups = "drop"
   )
 
@@ -703,6 +712,9 @@ df_f2_rw_data <- df_f2_rw_data %>%
 # Add "payer" column label for RW
 df_f2_rw_data$payer <- "ryan_white"
 
+# Combine DEX + RW data
+df_f2_hiv_rw_fig_data <- rbind(df_f2_hiv_rw, df_f2_rw_data)
+
 # Sum up DEX total spending + RW data
 df_f2_hiv_rw_fig_data <- df_f2_hiv_rw_fig_data %>%
   dplyr::group_by(sex_name, age_name) %>%
@@ -711,6 +723,7 @@ df_f2_hiv_rw_fig_data <- df_f2_hiv_rw_fig_data %>%
 # Format GBD data
 df_f2_gbd <- df_gbd %>%
   filter(cause_name == "HIV/AIDS") %>%
+  filter(year_id == 2019) %>%
   dplyr::group_by(age_group_name, sex_id) %>%
   dplyr::summarize(prevalence_counts = sum(prevalence_counts))
 
@@ -747,9 +760,6 @@ df_f2_gbd <- df_f2_gbd %>%
     )
   )
 
-# Combine DEX + RW data
-df_f2_hiv_rw_fig_data <- rbind(df_f2_hiv_rw, df_f2_rw_data)
-
 # Merge w/ GBD data to calculate spending per prevalent case
 df_f2_hiv_rw_fig_data <- left_join(
   x = df_f2_hiv_rw_fig_data,
@@ -785,20 +795,23 @@ f2_hiv_rw <- ggplot(data = df_f2_hiv_rw_fig_data, aes(age_name, spend_per_case_i
   theme_classic() +
   labs(y = "Inflation Adjusted Spending (2019 USD)",
        x = "",
-       title = "HIV spending per case by sex and age group, DEX + Ryan White spending, 2010 - 2019") +
+       title = "HIV spending per case by sex and age group, All Payers + Ryan White spending in 2019") +
   theme_settings +
   guides(
     fill = guide_legend(
       title.position = "top",  # put title above the keys
       title.hjust = 0.5,       # center the title
       nrow = 1                 # keep items in one row
-    )) + theme(legend.position = "none")
+    )) + theme(legend.position = "none") +
+    theme(
+      plot.margin = margin(t = 10, r = 90, b = 0, l = 0)
+    )
     #+ geom_col(color = "black", width = 1, size = 0.3) 
 
 f2_hiv_rw
 
 # Save plot
-save_plot(f2_hiv_rw, "F1_HIV_spending_per_case_RW", dir_output)
+save_plot(f2_hiv_rw, "F1c_HIV_spending_per_case_RW", dir_output)
 
 ##----------------------------------------------------------------
 ## 2. Figure 2 - Spending by TOC using payer=all
@@ -812,13 +825,14 @@ save_plot(f2_hiv_rw, "F1_HIV_spending_per_case_RW", dir_output)
 df_f2_hiv <- df_dex %>%
   filter(geo == 'national') %>%
   filter(acause == "hiv") %>%
+  filter(year_id == 2019) %>%
   filter(payer == "all") %>%
   collect() 
 
 df_f2_hiv <- df_f2_hiv %>%
   group_by(toc, age_name, sex_name) %>%
   summarize(
-    "spend_mean" = mean(spend_mean)
+    "spend_mean" = sum(spend_mean)
   )
 
 # Remove spaces from "age_name"
@@ -850,7 +864,7 @@ f2_hiv <- ggplot(data = df_f2_hiv, aes(age_name, spend_mean_inverse, fill = toc)
   theme_classic() +
   labs(y = "Inflation Adjusted Spending (2019 USD)",
        x = "",
-       title = "Mean annual HIV spending for each type of care by sex and age group, 2010 - 2019") +
+       title = "HIV spending for each type of care by sex and age group in 2019") +
   theme_settings +
   guides(
     fill = guide_legend(
@@ -869,13 +883,14 @@ save_plot(f2_hiv, "F2_HIV_spending_by_toc", dir_output)
 df_f2_sud <- df_dex %>%
   filter(geo == 'national') %>%
   filter(acause %in% subs_causes) %>%
+  filter(year_id == 2019) %>%
   filter(payer == "all") %>%
   collect()
 
 df_f2_sud <- df_f2_sud %>%
   group_by(toc, age_name, sex_name) %>%
   summarize(
-    "spend_mean" = mean(spend_mean)
+    "spend_mean" = sum(spend_mean)
   )
 
 # Remove spaces from "age_name"
@@ -909,7 +924,7 @@ f2_sud <- ggplot(data = df_f2_sud, aes(age_name, spend_mean_inverse, fill = toc)
   theme_classic() +
   labs(y = "Inflation Adjusted Spending (2019 USD)",
        x = "",
-       title = "Mean annual SUD spending for each type of care by sex and age group, 2010 - 2019") +
+       title = "SUD spending for each type of care by sex and age group in 2019") +
   theme_settings +
   guides(
     fill = guide_legend(
@@ -917,25 +932,29 @@ f2_sud <- ggplot(data = df_f2_sud, aes(age_name, spend_mean_inverse, fill = toc)
       title.hjust = 0.5,
       nrow = 1
     )) +
-  geom_col(color = "black", width = 1, size = 0.3)
+  geom_col(color = "black", width = 1, size = 0.3) +
+  theme(
+    plot.margin = margin(t = 10, r = 70, b = 0, l = 0)
+  )
 
 # Save plot
-save_plot(f2_sud, "F2_SUD_spending_by_toc", dir_output)
+save_plot(f2_sud, "F2_SUD_spending_by_toc", dir_output, width = 16)
 
 ##----------------------------------------------------------------
-## 3. Figure 3 - HIV - USA County Plot Per Bene
+## 3. Figure 3a - HIV - USA County Plot Per Bene
 ## Visually, how does the spending per beneficiary look like stratified based on 
 ## insurance (medicare, medicaid, private insurance) when plotted by county across
-## the US, all years, both sexes, all toc, for HIV? (big USA plot)
+## the US, 2019, both sexes, all toc, for HIV? (big USA plot)
 ##
 ## Notes: TODO - fix title, possibly change how the data is cut (upper quintile is WAY too big)
 ##----------------------------------------------------------------
 # Prepare data used for mapping
 
 # Payer Strata by County - group by and summarize to get spend_mean (named "value" for plot)
-# Collapse on sex, age group, toc, year, spend_mean is the MEAN of all years
+# Collapse on sex, age group, toc
 df_f3_hiv_payer <- df_dex %>%
   filter(geo == "county") %>%
+  filter(year_id == 2019) %>%
   filter(payer != "all") %>%
   filter(acause == "hiv") %>%
   collect()
@@ -943,12 +962,13 @@ df_f3_hiv_payer <- df_dex %>%
 df_f3_hiv_payer <- df_f3_hiv_payer %>%
   group_by(payer, state_name, location_name, fips) %>%
   summarize(
-    "value" = mean(spend_mean)
+    "value" = sum(spend_mean)
   )
 
 # Overall Spending by County - group by and summarize to get spend_mean (named "value" for plot)
 df_f3_hiv_overall <- df_dex %>%
   filter(geo == "county") %>%
+  filter(year_id == 2019) %>%
   filter(payer == "all") %>%
   filter(acause == "hiv") %>%
   collect()
@@ -956,7 +976,7 @@ df_f3_hiv_overall <- df_dex %>%
 df_f3_hiv_overall <- df_f3_hiv_overall %>%
   group_by(state_name, location_name, fips) %>%
   summarize(
-    "value" = mean(spend_mean)
+    "value" = sum(spend_mean)
   )
 
 # Merge with df_loc_ids to get "mcnty" column, used to merge with shapefile
@@ -981,7 +1001,9 @@ for(p in c("mdcr", "mdcd", "priv", "oop")){
             quantile(map_df$value, .6, na.rm = TRUE),
             quantile(map_df$value, .8, na.rm = TRUE),
             quantile(map_df$value, 1, na.rm = TRUE))
-  labs <- paste0("$",format(comma(round(brks[-length(brks)]))), " - $", format(comma(round(brks[-1]))))
+  labs <- paste0("$", format(comma(round(brks[-length(brks)])), trim = TRUE),
+                 " - $", format(comma(round(brks[-1])), trim = TRUE))
+  labs[length(labs)] <- paste0("$", format(comma(round(brks[length(brks) - 1])), trim = TRUE), "+")
   map_df$plot_val <- cut(map_df$value, breaks = c(brks), labels = labs)
   
   # Colors / labels for plot
@@ -1010,7 +1032,7 @@ for(p in c("mdcr", "mdcd", "priv", "oop")){
           legend.justification = "top",
           legend.margin = margin(t = -10, unit = "pt"),  # Adjust top margin of the legend to pull it closer
           legend.spacing.y = unit(0, "cm"),
-          plot.margin = margin(0, 0, 1, 0, "cm"),
+          plot.margin = margin(0.5, 1, 1.5, 1, "cm"),
           title = element_text(size = 12),
           text = element_text(size = 10),
           axis.ticks = element_blank(),
@@ -1024,40 +1046,57 @@ for(p in c("mdcr", "mdcd", "priv", "oop")){
 
 # Maps - Overall Spending ---
 
-# THIS SECTION NEEDS CLEANING UP - BEGINNING  ---
-# Basically the scale for the all TOC map most likely needs to be manually defined, the code in this section
-# is messy and needs to be cleaned up, but maybe can come at a time when we decide on how we want the plot to look
+# # THIS SECTION NEEDS CLEANING UP - BEGINNING  ---
+# # Basically the scale for the all TOC map most likely needs to be manually defined, the code in this section
+# # is messy and needs to be cleaned up, but maybe can come at a time when we decide on how we want the plot to look
+# 
+# # set breaks and labels for 7 bins
+# # f5_overall_brks <- sapply(seq(0, 1, by = 1/10), function(x) quantile(df_f3_hiv_overall$value, x))
+# # f5_overall_brks[1] <- f5_overall_brks[1]-1
+# # labs <- paste0("$",format(comma(round(f5_overall_brks[-length(f5_overall_brks)]))), " - $", format(comma(round(f5_overall_brks[-1]))))
+# 
+# manual_brks <- c(0, 1000, 5000, 10000, 20000, 50000, 100000, 500000, ceiling(max(df_f3_hiv_overall$value)))
+# labs <- paste0("$",format(comma(round(manual_brks[-length(manual_brks)]))), " - $", format(comma(round(manual_brks[-1]))))
+# 
+# # cut data into bins
+# df_f3_hiv_overall$plot_val <- cut(df_f3_hiv_overall$value, breaks = manual_brks, labels = labs)
+# 
+# #### COLORS ###
+# # assign colors to bins
+# # cols = c("#f1f1f1", "#e9d3eb", "#e0b5e4", "#d696de", "#cb77d7", "#be56d0", "#b12bc9") # static 7 colors
+# 
+# # cols_8 <- colorRampPalette(cols)(10) # this is linear color assignment
+# 
+# # Define endpoints (white → purple)
+# pal_fun <- colorRampPalette(c("#F1F1F1", "#B12BC9"))
+# 
+# # Create a bias function: low values spaced out, highs compressed into darker range
+# n <- 8
+# bias <- 1   # >1 makes it get dark faster; try 2–3
+# vals <- rescale((1:n)^bias, to = c(0, 1))
+# 
+# # Generate colors
+# cols_8_biased <- pal_fun(100)[round(vals * 99) + 1]
+# #### COLORS ###
+# 
+# # THIS SECTION NEEDS CLEANING UP - END  ---
 
-# set breaks and labels for 7 bins
-# f5_overall_brks <- sapply(seq(0, 1, by = 1/10), function(x) quantile(df_f3_hiv_overall$value, x))
-# f5_overall_brks[1] <- f5_overall_brks[1]-1
-# labs <- paste0("$",format(comma(round(f5_overall_brks[-length(f5_overall_brks)]))), " - $", format(comma(round(f5_overall_brks[-1]))))
 
-manual_brks <- c(0, 1000, 5000, 10000, 20000, 50000, 100000, 500000, ceiling(max(df_f3_hiv_overall$value)))
-labs <- paste0("$",format(comma(round(manual_brks[-length(manual_brks)]))), " - $", format(comma(round(manual_brks[-1]))))
+# Quintile breaks (0%, 20%, 40%, 60%, 80%, 100%)
+brks <- quantile(df_f3_hiv_overall$value, probs = c(0, .2, .4, .6, .8, 1), na.rm = TRUE)
+brks[1] <- brks[1] - 1  # nudge down so cut() includes the minimum
 
-# cut data into bins
-df_f3_hiv_overall$plot_val <- cut(df_f3_hiv_overall$value, breaks = manual_brks, labels = labs)
+# Labels
+labs <- paste0("$", format(comma(round(brks[-length(brks)])), trim = TRUE),
+               " - $", format(comma(round(brks[-1])), trim = TRUE))
+labs[length(labs)] <- paste0("$", format(comma(round(brks[length(brks) - 1])), trim = TRUE), "+")
 
-#### COLORS ###
-# assign colors to bins
-# cols = c("#f1f1f1", "#e9d3eb", "#e0b5e4", "#d696de", "#cb77d7", "#be56d0", "#b12bc9") # static 7 colors
+# Cut into bins
+df_f3_hiv_overall$plot_val <- cut(df_f3_hiv_overall$value, breaks = brks, labels = labs, include.lowest = TRUE)
 
-# cols_8 <- colorRampPalette(cols)(10) # this is linear color assignment
-
-# Define endpoints (white → purple)
+# 5 colors: white → purple
 pal_fun <- colorRampPalette(c("#F1F1F1", "#B12BC9"))
-
-# Create a bias function: low values spaced out, highs compressed into darker range
-n <- 8
-bias <- 1   # >1 makes it get dark faster; try 2–3
-vals <- rescale((1:n)^bias, to = c(0, 1))
-
-# Generate colors
-cols_8_biased <- pal_fun(100)[round(vals * 99) + 1]
-#### COLORS ###
-
-# THIS SECTION NEEDS CLEANING UP - END  ---
+cols_5 <- pal_fun(5)
 
 # make sf object with county shapefile
 df_f3_hiv_overall_map_object <- merge(mcnty_shapefile, df_f3_hiv_overall, by = "mcnty")
@@ -1068,7 +1107,7 @@ f3_hiv_overall_county_map <-  ggplot(data = df_f3_hiv_overall_map_object) +
   geom_sf(data = state_shapefile, fill = NA, linewidth = .4) +
   labs(title = paste0("All payer spending"),
        fill = "") +
-  scale_fill_manual(values = cols_8_biased,
+  scale_fill_manual(values = cols_5,
                     breaks = levels(factor(df_f3_hiv_overall$plot_val))[levels(factor(df_f3_hiv_overall$plot_val)) != "NA"],
                     na.value = "#838484") +
   theme(legend.position = "bottom",
@@ -1084,8 +1123,9 @@ f3_hiv_overall_county_map <-  ggplot(data = df_f3_hiv_overall_map_object) +
   guides(fill = guide_legend(nrow = 1))
 
 ## Arranging PDF layout of maps
-f3_payer_maps <- arrangeGrob(grobs = f3_payer_plot_list, nrow = 2, ncol = 2) 
-f3_title_grob <- text_grob("Estimated HIV average annual spending by US county (2010 - 2019)", size = 16)
+f3_payer_maps <- arrangeGrob(grobs = f3_payer_plot_list, nrow = 2, ncol = 2,
+                             padding = unit(20, "cm"))
+f3_title_grob <- text_grob("HIV annual spending by US county in 2019", size = 16)
 
 # make county map a grob object to make compatible with arrangeGrob
 f3_hiv_overall_county_map_grob <- ggplotGrob(f3_hiv_overall_county_map) 
@@ -1094,16 +1134,16 @@ f3_hiv_overall_county_map_grob <- ggplotGrob(f3_hiv_overall_county_map)
 f3_layout <- arrangeGrob(f3_title_grob, f3_hiv_overall_county_map_grob, f3_payer_maps, nrow=3, ncol=1, heights=c(0.05, 1, 1.5))
 
 # Save out
-f3_file_name <- "F3_HIV_spending_by_county_map.pdf"
-pdf(file = file.path(dir_output, f3_file_name), width = 14, height = 16)
+f3_file_name <- "F3a_HIV_spending_by_county_map.pdf"
+pdf(file = file.path(dir_output, f3_file_name), width = 16, height = 16)
 grid.draw(f3_layout)
 dev.off()
 
 ##----------------------------------------------------------------
-## 3. Figure 3 - SUD - USA County Plot Per Bene
+## 3. Figure 3a - SUD - USA County Plot Per Bene
 ## Visually, how does the spending per beneficiary look like stratified based on 
 ## insurance (medicare, medicaid, private insurance) when plotted by county across
-## the US, all years, both sexes, all toc, for SUD? (big USA plot)
+## the US, 2019, both sexes, all toc, for SUD? (big USA plot)
 ##
 ## Notes: TODO - fix title, possibly change how the data is cut (upper quintile is WAY too big)
 ##----------------------------------------------------------------
@@ -1111,9 +1151,10 @@ dev.off()
 # Prepare data used for mapping
 
 # Payer Strata by County - group by and summarize to get spend_mean (named "value" for plot)
-# Collapse on sex, age group, toc, year, spend_mean is the MEAN of all years
+# Collapse on sex, age group, toc
 df_f3_sud_payer <- df_dex %>%
   filter(geo == "county") %>%
+  filter(year_id == 2019) %>%
   filter(acause %in% subs_causes) %>%
   filter(payer != "all") %>%
   collect()
@@ -1121,12 +1162,13 @@ df_f3_sud_payer <- df_dex %>%
 df_f3_sud_payer <- df_f3_sud_payer %>%
   group_by(payer, state_name, location_name, fips) %>%
   summarize(
-    "value" = mean(spend_mean)
+    "value" = sum(spend_mean)
   )
 
 # Overall Spending by County - group by and summarize to get spend_mean (named "value" for plot)
 df_f3_sud_overall <- df_dex %>%
   filter(geo == "county") %>%
+  filter(year_id == 2019) %>%
   filter(acause %in% subs_causes) %>%
   filter(payer == "all") %>%
   collect()
@@ -1134,7 +1176,7 @@ df_f3_sud_overall <- df_dex %>%
 df_f3_sud_overall <- df_f3_sud_overall %>%
   group_by(state_name, location_name, fips) %>%
   summarize(
-    "value" = mean(spend_mean)
+    "value" = sum(spend_mean)
   )
 
 # Merge with df_loc_ids to get "mcnty" column, used to merge with shapefile
@@ -1159,7 +1201,9 @@ for(p in c("mdcr", "mdcd", "priv", "oop")){
             quantile(map_df$value, .6, na.rm = TRUE),
             quantile(map_df$value, .8, na.rm = TRUE),
             quantile(map_df$value, 1, na.rm = TRUE))
-  labs <- paste0("$",format(comma(round(brks[-length(brks)]))), " - $", format(comma(round(brks[-1]))))
+  labs <- paste0("$", format(comma(round(brks[-length(brks)])), trim = TRUE),
+                 " - $", format(comma(round(brks[-1])), trim = TRUE))
+  labs[length(labs)] <- paste0("$", format(comma(round(brks[length(brks) - 1])), trim = TRUE), "+")
   map_df$plot_val <- cut(map_df$value, breaks = c(brks), labels = labs)
   
   # Colors / labels for plot
@@ -1188,7 +1232,7 @@ for(p in c("mdcr", "mdcd", "priv", "oop")){
           legend.justification = "top",
           legend.margin = margin(t = -10, unit = "pt"),  # Adjust top margin of the legend to pull it closer
           legend.spacing.y = unit(0, "cm"),
-          plot.margin = margin(0, 0, 1, 0, "cm"),
+          plot.margin = margin(0.5, 1, 1.5, 1, "cm"),
           title = element_text(size = 12),
           text = element_text(size = 10),
           axis.ticks = element_blank(),
@@ -1198,42 +1242,59 @@ for(p in c("mdcr", "mdcd", "priv", "oop")){
 }
 
 # Maps - Overall Spending ---
+# 
+# # THIS SECTION NEEDS CLEANING UP - BEGINNING  ---
+# # Basically the scale for the all TOC map most likely needs to be manually defined, the code in this section
+# # is messy and needs to be cleaned up, but maybe can come at a time when we decide on how we want the plot to look
+# 
+# # Overall Spending by County
+# # set breaks and labels for 7 bins
+# # f5_overall_brks <- sapply(seq(0, 1, by = 1/10), function(x) quantile(df_f3_sud_overall$value, x))
+# # f5_overall_brks[1] <- f5_overall_brks[1]-1
+# # labs <- paste0("$",format(comma(round(f5_overall_brks[-length(f5_overall_brks)]))), " - $", format(comma(round(f5_overall_brks[-1]))))
+# 
+# manual_brks <- c(0, 1000, 5000, 10000, 20000, 50000, 100000, 250000, ceiling(max(df_f3_sud_overall$value)))
+# labs <- paste0("$",format(comma(round(manual_brks[-length(manual_brks)]))), " - $", format(comma(round(manual_brks[-1]))))
+# 
+# # cut data into bins
+# df_f3_sud_overall$plot_val <- cut(df_f3_sud_overall$value, breaks = manual_brks, labels = labs)
+# 
+# #### COLORS ###
+# # assign colors to bins
+# # cols = c("#f1f1f1", "#e9d3eb", "#e0b5e4", "#d696de", "#cb77d7", "#be56d0", "#b12bc9") # static 7 colors
+# 
+# # cols_8 <- colorRampPalette(cols)(10) # this is linear color assignment
+# 
+# # Define endpoints (white → purple)
+# pal_fun <- colorRampPalette(c("#F1F1F1", "#B12BC9"))
+# 
+# # Create a bias function: low values spaced out, highs compressed into darker range
+# n <- 8
+# bias <- 0.5   # >1 makes it get dark faster; try 2–3
+# vals <- rescale((1:n)^bias, to = c(0, 1))
+# 
+# # Generate colors
+# cols_8_biased <- pal_fun(100)[round(vals * 99) + 1]
+# #### COLORS ###
+# 
+# # THIS SECTION NEEDS CLEANING UP - END  ---
 
-# THIS SECTION NEEDS CLEANING UP - BEGINNING  ---
-# Basically the scale for the all TOC map most likely needs to be manually defined, the code in this section
-# is messy and needs to be cleaned up, but maybe can come at a time when we decide on how we want the plot to look
+# Quintile breaks (0%, 20%, 40%, 60%, 80%, 100%)
+brks <- quantile(df_f3_sud_overall$value, probs = c(0, .2, .4, .6, .8, 1), na.rm = TRUE)
+brks[1] <- brks[1] - 1  # nudge down so cut() includes the minimum
 
-# Overall Spending by County
-# set breaks and labels for 7 bins
-# f5_overall_brks <- sapply(seq(0, 1, by = 1/10), function(x) quantile(df_f3_sud_overall$value, x))
-# f5_overall_brks[1] <- f5_overall_brks[1]-1
-# labs <- paste0("$",format(comma(round(f5_overall_brks[-length(f5_overall_brks)]))), " - $", format(comma(round(f5_overall_brks[-1]))))
+# Labels
+labs <- paste0("$", format(comma(round(brks[-length(brks)])), trim = TRUE),
+               " - $", format(comma(round(brks[-1])), trim = TRUE))
+labs[length(labs)] <- paste0("$", format(comma(round(brks[length(brks) - 1])), trim = TRUE), "+")
 
-manual_brks <- c(0, 1000, 5000, 10000, 20000, 50000, 100000, 250000, ceiling(max(df_f3_sud_overall$value)))
-labs <- paste0("$",format(comma(round(manual_brks[-length(manual_brks)]))), " - $", format(comma(round(manual_brks[-1]))))
+# Cut into bins
+df_f3_sud_overall$plot_val <- cut(df_f3_sud_overall$value, breaks = brks, labels = labs, include.lowest = TRUE)
 
-# cut data into bins
-df_f3_sud_overall$plot_val <- cut(df_f3_sud_overall$value, breaks = manual_brks, labels = labs)
-
-#### COLORS ###
-# assign colors to bins
-# cols = c("#f1f1f1", "#e9d3eb", "#e0b5e4", "#d696de", "#cb77d7", "#be56d0", "#b12bc9") # static 7 colors
-
-# cols_8 <- colorRampPalette(cols)(10) # this is linear color assignment
-
-# Define endpoints (white → purple)
+# 5 colors: white → purple
 pal_fun <- colorRampPalette(c("#F1F1F1", "#B12BC9"))
+cols_5 <- pal_fun(5)
 
-# Create a bias function: low values spaced out, highs compressed into darker range
-n <- 8
-bias <- 0.5   # >1 makes it get dark faster; try 2–3
-vals <- rescale((1:n)^bias, to = c(0, 1))
-
-# Generate colors
-cols_8_biased <- pal_fun(100)[round(vals * 99) + 1]
-#### COLORS ###
-
-# THIS SECTION NEEDS CLEANING UP - END  ---
 # Merge with shapefile
 df_f3_sud_overall_map_object <- merge(mcnty_shapefile, df_f3_sud_overall, by = "mcnty")
 
@@ -1259,116 +1320,129 @@ f3_sud_overall_county_map <-  ggplot(data = df_f3_sud_overall_map_object) +
   guides(fill = guide_legend(nrow = 1))
 
 ## Arranging PDF layout of maps
-f3_payer_maps <- arrangeGrob(grobs = f3_payer_plot_list, nrow = 2, ncol = 2) 
-f3_title_grob <- text_grob("Estimated SUD average annual spending by US county (2010 - 2019)", size = 16)
+f3_payer_maps <- arrangeGrob(grobs = f3_payer_plot_list, nrow = 2, ncol = 2,
+                             padding = unit(20, "cm"))
+f3_title_grob <- text_grob("SUD annual spending by US county in 2019", size = 16)
 
 # make county map a grob object to make compatible with arrangeGrob
 f3_sud_overall_county_map_grob <- ggplotGrob(f3_sud_overall_county_map) 
 f3_layout <- arrangeGrob(f3_title_grob, f3_sud_overall_county_map_grob, f3_payer_maps, nrow=3, ncol=1, heights=c(0.05, 1, 1.5))
 
 # Save plot
-f3_file_name <- "F3_SUD_spending_by_county_map.pdf"
-pdf(file = file.path(dir_output, f3_file_name), width = 14, height = 16)
+f3_file_name <- "F3a_SUD_spending_by_county_map.pdf"
+pdf(file = file.path(dir_output, f3_file_name), width = 18, height = 16)
 grid.draw(f3_layout)
 dev.off()
 
 ##----------------------------------------------------------------
-## 3. Figure 3 - HIV - USA State level spending per prevalent case, all payers because prevalence is not payer specific
-## 
-## Notes: WIP - not finished 3/1
+## 3. Figure 3b - HIV - USA State Level Spending per case
+## State-level HIV spending per prevalent case choropleth
 ##----------------------------------------------------------------
-# # Prepare data used for mapping
-# 
-# # Payer Strata by STATE - group by and summarize to get spend_mean (named "value" for plot)
-# # Collapse on sex, age group, toc, year, spend_mean is the MEAN of all years
-# df_f3_hiv_state <- df_dex %>%
-#   filter(geo == "state") %>%
-#   filter(payer == "all") %>%
-#   filter(acause == "hiv") %>%
-#   collect()
-# 
-# df_f3_hiv_state <- df_f3_hiv_state %>%
-#   group_by(location_name, fips) %>%
-#   summarize(
-#     "value" = mean(spend_mean)
-#   )
-# 
-# # Maps - Payer Strata --
-# f3_payer_plot_list <- list()
-# for(p in c("mdcr", "mdcd", "priv", "oop")){
-#   if(length(f3_payer_plot_list) >= 4){
-#     f3_payer_plot_list = list()
-#   }
-#   print(p)
-#   
-#   # Filter DF by payer
-#   map_df <- df_f3_hiv_payer %>% filter(payer == p)
-#   
-#   # Create value breaks
-#   brks <- c(quantile(map_df$value, .0, na.rm = TRUE),
-#             quantile(map_df$value, .2, na.rm = TRUE),
-#             quantile(map_df$value, .4, na.rm = TRUE),
-#             quantile(map_df$value, .6, na.rm = TRUE),
-#             quantile(map_df$value, .8, na.rm = TRUE),
-#             quantile(map_df$value, 1, na.rm = TRUE))
-#   labs <- paste0("$",format(comma(round(brks[-length(brks)]))), " - $", format(comma(round(brks[-1]))))
-#   map_df$plot_val <- cut(map_df$value, breaks = c(brks), labels = labs)
-#   
-#   # Colors / labels for plot
-#   cols = payer_colors_maps[[p]]
-#   payer_title <- payer_list[[p]]
-#   if(p == "oop"){
-#     denom = "capita"
-#   } else {
-#     denom = "beneficiary"
-#   }
-#   
-#   # Merge map_df with the county shapefile
-#   map_df <- merge(mcnty_shapefile, map_df, by = "mcnty")
-#   
-#   # Create plot
-#   map <- ggplot(data = map_df)+
-#     geom_sf(aes(fill = plot_val, geometry = geometry), color = NA)+
-#     geom_sf(data = state_shapefile, fill = NA, linewidth = .4) +
-#     # labs(title = paste0(payer_title, " spending per ",denom),
-#     labs(title = paste0(payer_title, " spending"),
-#          fill = "") +
-#     scale_fill_manual(values = cols, 
-#                       breaks = levels(factor(map_df$plot_val))[levels(factor(map_df$plot_val)) != "NA"],
-#                       na.value = "#838484")+
-#     theme(legend.position = "bottom",
-#           legend.justification = "top",
-#           legend.margin = margin(t = -10, unit = "pt"),  # Adjust top margin of the legend to pull it closer
-#           legend.spacing.y = unit(0, "cm"),
-#           plot.margin = margin(0, 0, 1, 0, "cm"),
-#           title = element_text(size = 12),
-#           text = element_text(size = 10),
-#           axis.ticks = element_blank(),
-#           axis.text = element_blank(),
-#           panel.background = element_blank()) 
-#   
-#   # Append plot to plot list
-#   f3_payer_plot_list[[length(f3_payer_plot_list) + 1]] <- map
-# }
-# 
-# ## Arranging PDF layout of maps
-# f3_payer_maps <- arrangeGrob(grobs = f3_payer_plot_list, nrow = 2, ncol = 2) 
-# f3_title_grob <- text_grob("Estimated HIV average annual spending by US county (2010 - 2019)", size = 16)
-# 
-# # make county map a grob object to make compatible with arrangeGrob
-# f3_hiv_overall_county_map_grob <- ggplotGrob(f3_hiv_overall_county_map) 
-# 
-# # create complete layout
-# f3_layout <- arrangeGrob(f3_title_grob, f3_hiv_overall_county_map_grob, f3_payer_maps, nrow=3, ncol=1, heights=c(0.05, 1, 1.5))
-# 
-# # Save out
-# f3_file_name <- "F3_HIV_spending_by_county_map.pdf"
-# pdf(file = file.path(dir_output, f3_file_name), width = 14, height = 16)
-# grid.draw(f3_layout)
-# dev.off()
+# make sure tables from the table script have been run
+##---------------------------------------------------------------
+
+make_state_spend_map <- function(table_name,
+                                 out_stub,
+                                 title_text,
+                                 dir_output,
+                                 state_shapefile) {
+  
+  table_fp <- file.path(dir_output, table_name)
+  df <- read.csv(table_fp, stringsAsFactors = FALSE, check.names = FALSE)
+  
+  # Parse "$#,###.##" -> numeric
+  df$spend_per_prev_num <- suppressWarnings(
+    as.numeric(gsub("[^0-9.\\-]", "", trimws(df$`Spending per prevalence`)))
+  )
+  
+  # Prep state names
+  df$State <- trimws(df$State)
+  
+  # Sanity check: state name alignment
+  missing_states <- dplyr::anti_join(df, state_shapefile, by = c("State" = "state_name"))
+  if (nrow(missing_states) > 0) {
+    message("States in ", table_name, " not found in shapefile: ",
+            paste(missing_states$State, collapse = ", "))
+  }
+  if (nrow(missing_states) > 5) stop("Too many unmatched states (", nrow(missing_states), "). Check name alignment.")
+  
+  # Join onto sf
+  map_state_df <- dplyr::left_join(state_shapefile, df, by = c("state_name" = "State"))
+  
+  # Quintile breaks
+  brks <- quantile(map_state_df$spend_per_prev_num, probs = c(0, .2, .4, .6, .8, 1), na.rm = TRUE)
+  brks[1] <- brks[1] - 1
+  
+  # Labels
+  labs <- paste0("$", format(scales::comma(round(brks[-length(brks)])), trim = TRUE),
+                 " - $", format(scales::comma(round(brks[-1])), trim = TRUE))
+  
+  # Bin
+  map_state_df$plot_val <- cut(map_state_df$spend_per_prev_num,
+                               breaks = brks, labels = labs, include.lowest = TRUE)
+  
+  # Palette (avoid near-white)
+  pal_fun <- colorRampPalette(c("#E9D3EB", "#B12BC9"))
+  cols_5 <- pal_fun(5)
+  
+  # Plot
+  p <- ggplot2::ggplot(data = map_state_df) +
+    ggplot2::geom_sf(ggplot2::aes(fill = plot_val, geometry = geometry),
+                     color = "grey30", linewidth = 0.3) +
+    ggplot2::labs(title = title_text, fill = "") +
+    ggplot2::scale_fill_manual(
+      values = cols_5,
+      breaks = levels(map_state_df$plot_val),
+      na.value = "#838484"
+    ) +
+    ggplot2::theme(
+      legend.position = "bottom",
+      legend.justification = "center",
+      legend.direction = "horizontal",
+      legend.box = "horizontal",
+      title = ggplot2::element_text(size = 14),
+      text = ggplot2::element_text(size = 10),
+      plot.margin = ggplot2::margin(0.5, 0, 1, 0, "cm"),
+      axis.ticks = ggplot2::element_blank(),
+      axis.text = ggplot2::element_blank(),
+      panel.background = ggplot2::element_blank()
+    ) +
+    ggplot2::guides(fill = ggplot2::guide_legend(nrow = 1))
+  
+  # Save
+  save_plot(p, out_stub, dir_output)
+  
+  # Optional diagnostics (prints to console)
+  message("NA spend_per_prev_num: ", sum(is.na(map_state_df$spend_per_prev_num)))
+  print(table(map_state_df$plot_val, useNA = "ifany"))
+  
+  invisible(list(plot = p, map_df = map_state_df, data = df))
+}
+
+##---------------------------------------------------------------
+## HIV map
+##---------------------------------------------------------------
+res_hiv <- make_state_spend_map(
+  table_name = "T1_HIV_2019.csv",
+  out_stub   = "F3b_HIV_state_spend_per_prev",
+  title_text = "HIV 2019 spending per prevalent case by state (2019 USD)",
+  dir_output = dir_output,
+  state_shapefile = state_shapefile
+)
+
+##---------------------------------------------------------------
+## SUD map
+##---------------------------------------------------------------
+res_sud <- make_state_spend_map(
+  table_name = "T1_SUD_2019.csv",
+  out_stub   = "F3b_SUD_spend_per_prev",
+  title_text = "SUD 2019 spending per prevalent case by state (2019 USD)",
+  dir_output = dir_output,
+  state_shapefile = state_shapefile
+)
 
 ##----------------------------------------------------------------
-## 4. Figure 4 - HIV % of Population
+## 4. Figure 7 - HIV % of Population
 #
 # Title: Change in US national population HIV % (2019 − 2010)
 #
@@ -1379,7 +1453,7 @@ dev.off()
 # Notes: 
 ##----------------------------------------------------------------
 # Group by age, year, sex for HIV, sum prevalence counts and population
-df_f4 <- df_gbd %>%
+df_f7 <- df_gbd %>%
   filter(cause_name == "HIV/AIDS") %>%
   dplyr::group_by(age_group_name, year_id, sex_id) %>%
   dplyr::summarize(
@@ -1387,11 +1461,11 @@ df_f4 <- df_gbd %>%
     population = sum(population))
 
 # Create HIV % of population metric
-df_f4 <- df_f4 %>%
+df_f7 <- df_f7 %>%
   mutate(`hiv_%` = prevalence_counts / population)
 
 # Create sex names
-df_f4 <- df_f4 %>%
+df_f7 <- df_f7 %>%
   mutate(sex_name = case_when(sex_id == 1 ~ "Male", 
                               sex_id == 2 ~ "Female"))
 
@@ -1403,7 +1477,7 @@ age_factor <- c("0 - <1", "1 - <5", "5 to 9", "10 to 14", "15 to 19", "20 to 24"
 sex_factor <- c("Male", "Female")
 
 # 1) Compute delta (2019 - 2010) by age_group_name (optionally stratified by sex_name)
-df_f4_delta <- df_f4 %>%
+df_f7_delta <- df_f7 %>%
   filter(year_id %in% c(2010, 2019)) %>%
   mutate(
     sex_name = factor(sex_name, levels = sex_factor),
@@ -1414,14 +1488,14 @@ df_f4_delta <- df_f4 %>%
   pivot_wider(names_from = year_id, values_from = hiv) %>%
   mutate(delta = `2019` - `2010`)
 
-f4_hiv_pop_percent <- ggplot(df_f4_delta, aes(x = delta, y = age_group_name, fill = delta > 0)) +
+f7_hiv_pop_percent <- ggplot(df_f7_delta, aes(x = delta, y = age_group_name, fill = delta > 0)) +
   geom_col() +
   geom_vline(xintercept = 0, linetype = "dashed") +
   facet_grid(rows = vars(sex_name)) +
   scale_fill_manual(values = c("TRUE" = "steelblue", "FALSE" = "firebrick")) +
   scale_x_continuous(labels = label_percent(accuracy = 0.01)) +
   labs(
-    title = "Change in US national population HIV % (2019 − 2010)",
+    title = "Change in US national population HIV % (2010−2019)",
     x = "Δ HIV%",
     y = NULL
   ) +
@@ -1429,7 +1503,15 @@ f4_hiv_pop_percent <- ggplot(df_f4_delta, aes(x = delta, y = age_group_name, fil
   theme(legend.position = "none")
 
 # Save plot
-save_plot(f4_hiv_pop_percent, "F4_HIV_population_percent", dir_output)
+save_plot(f7_hiv_pop_percent, "F7_HIV_population_percent", dir_output)
+
+
+
+
+
+
+#####
+
 
 
 ### REFERENCE CODE - SAFE TO DELETE
