@@ -84,6 +84,10 @@ df_decomp_p <- df_decomp %>%
 df_decomp_p <- df_decomp_p %>%
   filter(cause_name == "HIV/AIDS")
 
+# df_decomp_p <- df_decomp_p %>%
+#   filter(cause_name == "Substance use disorders")
+
+
 ###############################################################################
 # Das Gupta 4-Factor Decomposition (CORRECTED)
 # 

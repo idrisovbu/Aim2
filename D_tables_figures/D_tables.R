@@ -439,6 +439,256 @@ df_t3_subs <- df_t3 %>% filter(Cause == "Substance use disorders") %>% select(!c
 #
 # Columns: (State or Year), Medicaid %, Medicaid $, ..., RW %, RW $
 ##----------------------------------------------------------------
+## below 
+
+##----------------------------------------------------------------
+## 4. Table 4 - HIV & SUD (one table by Year, one table by State each)
+##
+## Title: Percent of Total Spending by Payer
+##
+## HIV includes Ryan White; SUD does not.
+## Year tables include YoY % change columns.
+##----------------------------------------------------------------
+
+# ══════════════════════════════════════════════════════════════════
+# 4a. HIV — Year
+# ══════════════════════════════════════════════════════════════════
+df_t4_hiv_year <- df_cov %>%
+  filter(acause == "hiv") %>%
+  select(cause_id, year_id, location_id, location_name,
+         acause, cause_name,
+         spend_mdcd, spend_mdcr, spend_oop, spend_priv, ryan_white_funding_final) %>%
+  group_by(cause_id, year_id, acause, cause_name) %>%
+  summarise(
+    spend_mdcd = sum(spend_mdcd),
+    spend_mdcr = sum(spend_mdcr),
+    spend_oop  = sum(spend_oop),
+    spend_priv = sum(spend_priv),
+    spend_rw   = sum(ryan_white_funding_final),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    total_spend = spend_mdcd + spend_mdcr + spend_oop + spend_priv + spend_rw,
+    spend_mdcr_pct = (spend_mdcr / total_spend) * 100,
+    spend_mdcd_pct = (spend_mdcd / total_spend) * 100,
+    spend_oop_pct  = (spend_oop  / total_spend) * 100,
+    spend_priv_pct = (spend_priv / total_spend) * 100,
+    spend_rw_pct   = (spend_rw   / total_spend) * 100
+  ) %>%
+  arrange(year_id) %>%
+  mutate(
+    yoy_total = (total_spend - lag(total_spend)) / lag(total_spend) * 100,
+    yoy_mdcr  = (spend_mdcr - lag(spend_mdcr)) / lag(spend_mdcr) * 100,
+    yoy_mdcd  = (spend_mdcd - lag(spend_mdcd)) / lag(spend_mdcd) * 100,
+    yoy_oop   = (spend_oop  - lag(spend_oop))  / lag(spend_oop)  * 100,
+    yoy_priv  = (spend_priv - lag(spend_priv)) / lag(spend_priv) * 100,
+    yoy_rw    = (spend_rw   - lag(spend_rw))   / lag(spend_rw)   * 100
+  )
+
+# Format YoY as strings
+for (col in c("yoy_total", "yoy_mdcr", "yoy_mdcd", "yoy_oop", "yoy_priv", "yoy_rw")) {
+  df_t4_hiv_year[[col]] <- ifelse(is.na(df_t4_hiv_year[[col]]), "",
+                                  paste0(round(df_t4_hiv_year[[col]], 2), "%"))
+}
+
+# Convert to dollars
+df_t4_hiv_year <- convert_to_dollars(df_t4_hiv_year,
+                                     c("spend_mdcd", "spend_mdcr", "spend_oop", "spend_priv", "spend_rw", "total_spend"))
+
+# Select and rename
+df_t4_hiv_year <- df_t4_hiv_year %>%
+  ungroup() %>%
+  select(year_id, total_spend, yoy_total,
+         spend_mdcr_pct, spend_mdcr, yoy_mdcr,
+         spend_mdcd_pct, spend_mdcd, yoy_mdcd,
+         spend_oop_pct,  spend_oop,  yoy_oop,
+         spend_priv_pct, spend_priv, yoy_priv,
+         spend_rw_pct,   spend_rw,   yoy_rw) %>%
+  setnames(
+    old = names(.),
+    new = c("Year",
+            "Total Spending (2019 USD)", "YoY Change Total",
+            "Medicare %", "Medicare (2019 USD)", "YoY Change Medicare",
+            "Medicaid %", "Medicaid (2019 USD)", "YoY Change Medicaid",
+            "Out of pocket %", "Out of pocket (2019 USD)", "YoY Change OOP",
+            "Private %", "Private (2019 USD)", "YoY Change Private",
+            "Ryan White %", "Ryan White (2019 USD)", "YoY Change Ryan White")
+  )
+
+write.csv(df_t4_hiv_year, file.path(dir_output, "T4b_HIV_year.csv"), row.names = FALSE)
+
+
+# ══════════════════════════════════════════════════════════════════
+# 4b. HIV — State
+# ══════════════════════════════════════════════════════════════════
+df_t4_hiv_state <- df_cov %>%
+  filter(acause == "hiv") %>%
+  select(cause_id, year_id, location_id, location_name,
+         acause, cause_name,
+         spend_mdcd, spend_mdcr, spend_oop, spend_priv, ryan_white_funding_final) %>%
+  group_by(cause_id, location_id, location_name, acause, cause_name) %>%
+  summarise(
+    spend_mdcd = sum(spend_mdcd),
+    spend_mdcr = sum(spend_mdcr),
+    spend_oop  = sum(spend_oop),
+    spend_priv = sum(spend_priv),
+    spend_rw   = sum(ryan_white_funding_final),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    total_spend = spend_mdcd + spend_mdcr + spend_oop + spend_priv + spend_rw,
+    spend_mdcr_pct = (spend_mdcr / total_spend) * 100,
+    spend_mdcd_pct = (spend_mdcd / total_spend) * 100,
+    spend_oop_pct  = (spend_oop  / total_spend) * 100,
+    spend_priv_pct = (spend_priv / total_spend) * 100,
+    spend_rw_pct   = (spend_rw   / total_spend) * 100
+  )
+
+df_t4_hiv_state <- convert_to_dollars(df_t4_hiv_state,
+                                      c("spend_mdcd", "spend_mdcr", "spend_oop", "spend_priv", "spend_rw", "total_spend"))
+
+df_t4_hiv_state <- df_t4_hiv_state %>%
+  ungroup() %>%
+  select(location_name, total_spend,
+         spend_mdcr_pct, spend_mdcr,
+         spend_mdcd_pct, spend_mdcd,
+         spend_oop_pct,  spend_oop,
+         spend_priv_pct, spend_priv,
+         spend_rw_pct,   spend_rw) %>%
+  setnames(
+    old = names(.),
+    new = c("State",
+            "Total Spending (2019 USD)",
+            "Medicare %", "Medicare (2019 USD)",
+            "Medicaid %", "Medicaid (2019 USD)",
+            "Out of pocket %", "Out of pocket (2019 USD)",
+            "Private %", "Private (2019 USD)",
+            "Ryan White %", "Ryan White (2019 USD)")
+  )
+
+write.csv(df_t4_hiv_state, file.path(dir_output, "T4a_HIV_state.csv"), row.names = FALSE)
+
+
+# ══════════════════════════════════════════════════════════════════
+# 4c. SUD — Year (no Ryan White)
+# ══════════════════════════════════════════════════════════════════
+df_t4_sud_year <- df_cov %>%
+  filter(acause == "_subs") %>%
+  select(cause_id, year_id, location_id, location_name,
+         acause, cause_name,
+         spend_mdcd, spend_mdcr, spend_oop, spend_priv) %>%
+  group_by(cause_id, year_id, acause, cause_name) %>%
+  summarise(
+    spend_mdcd = sum(spend_mdcd),
+    spend_mdcr = sum(spend_mdcr),
+    spend_oop  = sum(spend_oop),
+    spend_priv = sum(spend_priv),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    total_spend = spend_mdcd + spend_mdcr + spend_oop + spend_priv,
+    spend_mdcr_pct = (spend_mdcr / total_spend) * 100,
+    spend_mdcd_pct = (spend_mdcd / total_spend) * 100,
+    spend_oop_pct  = (spend_oop  / total_spend) * 100,
+    spend_priv_pct = (spend_priv / total_spend) * 100
+  ) %>%
+  arrange(year_id) %>%
+  mutate(
+    yoy_total = (total_spend - lag(total_spend)) / lag(total_spend) * 100,
+    yoy_mdcr  = (spend_mdcr - lag(spend_mdcr)) / lag(spend_mdcr) * 100,
+    yoy_mdcd  = (spend_mdcd - lag(spend_mdcd)) / lag(spend_mdcd) * 100,
+    yoy_oop   = (spend_oop  - lag(spend_oop))  / lag(spend_oop)  * 100,
+    yoy_priv  = (spend_priv - lag(spend_priv)) / lag(spend_priv) * 100
+  )
+
+# Format YoY as strings
+for (col in c("yoy_total", "yoy_mdcr", "yoy_mdcd", "yoy_oop", "yoy_priv")) {
+  df_t4_sud_year[[col]] <- ifelse(is.na(df_t4_sud_year[[col]]), "",
+                                  paste0(round(df_t4_sud_year[[col]], 2), "%"))
+}
+
+df_t4_sud_year <- convert_to_dollars(df_t4_sud_year,
+                                     c("spend_mdcd", "spend_mdcr", "spend_oop", "spend_priv", "total_spend"))
+
+df_t4_sud_year <- df_t4_sud_year %>%
+  ungroup() %>%
+  select(year_id, total_spend, yoy_total,
+         spend_mdcr_pct, spend_mdcr, yoy_mdcr,
+         spend_mdcd_pct, spend_mdcd, yoy_mdcd,
+         spend_oop_pct,  spend_oop,  yoy_oop,
+         spend_priv_pct, spend_priv, yoy_priv) %>%
+  setnames(
+    old = names(.),
+    new = c("Year",
+            "Total Spending (2019 USD)", "YoY Change Total",
+            "Medicare %", "Medicare (2019 USD)", "YoY Change Medicare",
+            "Medicaid %", "Medicaid (2019 USD)", "YoY Change Medicaid",
+            "Out of pocket %", "Out of pocket (2019 USD)", "YoY Change OOP",
+            "Private %", "Private (2019 USD)", "YoY Change Private")
+  )
+
+write.csv(df_t4_sud_year, file.path(dir_output, "T4b_SUD_year.csv"), row.names = FALSE)
+
+
+# ══════════════════════════════════════════════════════════════════
+# 4d. SUD — State (no Ryan White)
+# ══════════════════════════════════════════════════════════════════
+df_t4_sud_state <- df_cov %>%
+  filter(acause == "_subs") %>%
+  select(cause_id, year_id, location_id, location_name,
+         acause, cause_name,
+         spend_mdcd, spend_mdcr, spend_oop, spend_priv) %>%
+  group_by(cause_id, location_id, location_name, acause, cause_name) %>%
+  summarise(
+    spend_mdcd = sum(spend_mdcd),
+    spend_mdcr = sum(spend_mdcr),
+    spend_oop  = sum(spend_oop),
+    spend_priv = sum(spend_priv),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    total_spend = spend_mdcd + spend_mdcr + spend_oop + spend_priv,
+    spend_mdcr_pct = (spend_mdcr / total_spend) * 100,
+    spend_mdcd_pct = (spend_mdcd / total_spend) * 100,
+    spend_oop_pct  = (spend_oop  / total_spend) * 100,
+    spend_priv_pct = (spend_priv / total_spend) * 100
+  )
+
+df_t4_sud_state <- convert_to_dollars(df_t4_sud_state,
+                                      c("spend_mdcd", "spend_mdcr", "spend_oop", "spend_priv", "total_spend"))
+
+df_t4_sud_state <- df_t4_sud_state %>%
+  ungroup() %>%
+  select(location_name, total_spend,
+         spend_mdcr_pct, spend_mdcr,
+         spend_mdcd_pct, spend_mdcd,
+         spend_oop_pct,  spend_oop,
+         spend_priv_pct, spend_priv) %>%
+  setnames(
+    old = names(.),
+    new = c("State",
+            "Total Spending (2019 USD)",
+            "Medicare %", "Medicare (2019 USD)",
+            "Medicaid %", "Medicaid (2019 USD)",
+            "Out of pocket %", "Out of pocket (2019 USD)",
+            "Private %", "Private (2019 USD)")
+  )
+
+write.csv(df_t4_sud_state, file.path(dir_output, "T4a_SUD_state.csv"), row.names = FALSE)
+
+
+
+#below 
+
+##----------------------------------------------------------------
+## 4. Table 4 - HIV only (one table by Year, one table by State)
+##
+## Title: HIV Percent of Total Spending
+##
+## Break down of percentage and dollar amount per (State or Year) for each payer group, plus RW spending.
+## Includes total spending from all sources and Year-over-Year % change for each payer.
+##----------------------------------------------------------------
+
 # Year #
 df_t4_year <- df_cov %>%
   filter(acause == "hiv") %>%
@@ -452,18 +702,42 @@ df_t4_year <- df_cov %>%
     spend_oop = sum(spend_oop),
     spend_priv = sum(spend_priv),
     spend_rw = sum(ryan_white_funding_final),
-    total_spend_plus_rw = sum(spend_mdcd, spend_mdcr, spend_oop, spend_priv, ryan_white_funding_final),
-    spend_mdcd_percentage = (spend_mdcd / total_spend_plus_rw)*100,
-    spend_mdcr_percentage = (spend_mdcr / total_spend_plus_rw)*100,
-    spend_oop_percentage = (spend_oop / total_spend_plus_rw)*100,
-    spend_priv_percentage = (spend_priv / total_spend_plus_rw)*100,
-    spend_rw_percentage = (spend_rw / total_spend_plus_rw)*100,
+    .groups = "drop"
+  ) %>%
+  mutate(
+    total_spend_plus_rw = spend_mdcd + spend_mdcr + spend_oop + spend_priv + spend_rw,
+    spend_mdcd_percentage = (spend_mdcd / total_spend_plus_rw) * 100,
+    spend_mdcr_percentage = (spend_mdcr / total_spend_plus_rw) * 100,
+    spend_oop_percentage = (spend_oop / total_spend_plus_rw) * 100,
+    spend_priv_percentage = (spend_priv / total_spend_plus_rw) * 100,
+    spend_rw_percentage = (spend_rw / total_spend_plus_rw) * 100
+  ) %>%
+  arrange(year_id)
+
+# ── Compute YoY % change for each payer and total ────────────────
+df_t4_year <- df_t4_year %>%
+  mutate(
+    yoy_total = (total_spend_plus_rw - lag(total_spend_plus_rw)) / lag(total_spend_plus_rw) * 100,
+    yoy_mdcr  = (spend_mdcr - lag(spend_mdcr)) / lag(spend_mdcr) * 100,
+    yoy_mdcd  = (spend_mdcd - lag(spend_mdcd)) / lag(spend_mdcd) * 100,
+    yoy_oop   = (spend_oop - lag(spend_oop)) / lag(spend_oop) * 100,
+    yoy_priv  = (spend_priv - lag(spend_priv)) / lag(spend_priv) * 100,
+    yoy_rw    = (spend_rw - lag(spend_rw)) / lag(spend_rw) * 100
   )
 
-# Convert to dollars
-t4_dol_cols <- c("spend_mdcd", 
-                 "spend_mdcr", "spend_oop", "spend_priv", "spend_rw", "total_spend_plus_rw")
+# Format YoY as "X.XX%" strings (NA for first year)
+yoy_cols <- c("yoy_total", "yoy_mdcr", "yoy_mdcd", "yoy_oop", "yoy_priv", "yoy_rw")
+for (col in yoy_cols) {
+  df_t4_year[[col]] <- ifelse(
+    is.na(df_t4_year[[col]]),
+    "",
+    paste0(round(df_t4_year[[col]], 2), "%")
+  )
+}
 
+# Convert spending to dollars
+t4_dol_cols <- c("spend_mdcd", "spend_mdcr", "spend_oop", "spend_priv",
+                 "spend_rw", "total_spend_plus_rw")
 df_t4_year <- convert_to_dollars(df_t4_year, t4_dol_cols)
 
 # Drop unnecessary columns
@@ -471,13 +745,16 @@ df_t4_year <- df_t4_year %>%
   ungroup() %>%
   select(!c("cause_id", "acause", "cause_name"))
 
-# Reorder columns
-t4_year_col_order <- c("year_id", 
-                       "spend_mdcr_percentage", "spend_mdcr",
-                       "spend_mdcd_percentage", "spend_mdcd", 
-                       "spend_oop_percentage", "spend_oop",
-                       "spend_priv_percentage", "spend_priv",
-                       "spend_rw_percentage", "spend_rw")
+# Reorder columns: Year, Total + YoY, then each payer (%, $, YoY)
+t4_year_col_order <- c(
+  "year_id",
+  "total_spend_plus_rw", "yoy_total",
+  "spend_mdcr_percentage", "spend_mdcr", "yoy_mdcr",
+  "spend_mdcd_percentage", "spend_mdcd", "yoy_mdcd",
+  "spend_oop_percentage", "spend_oop", "yoy_oop",
+  "spend_priv_percentage", "spend_priv", "yoy_priv",
+  "spend_rw_percentage", "spend_rw", "yoy_rw"
+)
 
 df_t4_year <- df_t4_year %>%
   select(all_of(t4_year_col_order))
@@ -486,13 +763,17 @@ df_t4_year <- df_t4_year %>%
 df_t4_year <- df_t4_year %>%
   setnames(
     old = t4_year_col_order,
-    new = c("Year", 
-            "Medicare %", "Medicare (2019 USD)",
-            "Medicaid %", "Medicaid (2019 USD)",
-            "Out of pocket %", "Out of pocket (2019 USD)",
-            "Private %", "Private (2019 USD)", 
-            "Ryan White Funding %", "Ryan White Funding (2019 USD)")
+    new = c("Year",
+            "Total Spending (2019 USD)", "YoY Change Total",
+            "Medicare %", "Medicare (2019 USD)", "YoY Change Medicare",
+            "Medicaid %", "Medicaid (2019 USD)", "YoY Change Medicaid",
+            "Out of pocket %", "Out of pocket (2019 USD)", "YoY Change OOP",
+            "Private %", "Private (2019 USD)", "YoY Change Private",
+            "Ryan White Funding %", "Ryan White Funding (2019 USD)", "YoY Change Ryan White")
   )
+
+# Write to CSV
+write.csv(df_t4_year, file.path(dir_output, "T4b_HIV_year.csv"), row.names = FALSE)
 
 
 # State #
@@ -552,7 +833,7 @@ df_t4_state <- df_t4_state %>%
 
 # Write to CSV
 write.csv(df_t4_state, file.path(dir_output, "T4a_HIV_state.csv"), row.names = FALSE)
-write.csv(df_t4_year, file.path(dir_output, "T4b_HIV_year.csv"), row.names = FALSE)
+
 
 ##----------------------------------------------------------------
 ## 5. Table 5 - HIV & SUD

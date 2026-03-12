@@ -78,6 +78,15 @@ save_plot <- function(ggplot_obj, ggplot_name, output_path, width = 14, height =
   message("Plot saved as: ", normalizePath(file_path))
 }
 
+axis_dollar_mb <- function(x) {
+  abs_x <- abs(x)
+  ifelse(
+    abs_x >= 1e9,
+    paste0("$", format(round(abs_x / 1e9, 1), nsmall = 1), "B"),
+    paste0("$", format(round(abs_x / 1e6, 0), big.mark = ","), "M")
+  )
+}
+
 ##----------------------------------------------------------------
 ## 0.2 Set directories for DEX estimate data / county estimates
 ##----------------------------------------------------------------
@@ -123,7 +132,7 @@ payer_colors <- list("priv" =	"#FFCB8D",
                      "mdcr" =	"#3188BD", 
                      "mdcd" =	"#ACDABA", 
                      "oop" =	"#D58192",
-                     "ryan_white" =	"#bc53f5")
+                     "ryan_white" =	"#6A51A3")
 
 payer_colors_maps <- list("priv" =	c("#f1f1f1", "#f5dbbc", "#f4c788", "#efb353", "#E69F00"),
                              "mdcr" =	c("#f1f1f1","#c2c9e0", "#93a4d0","#6080bf","#0E5EAE"),
@@ -403,543 +412,520 @@ df_rw_long <- df_rw_long %>%
     )
   )
 
-##----------------------------------------------------------------
-## 1. Figure 1a - Spending by insurance 2019
-## What are the differences in spending for patients with HIV / SUD for each age group
-## based on different types of insurance (Medicare, Medicaid, Private)? (all years, all counties)
-##
-## Notes: TODO calculate CI correctly, needs some research for this
-##----------------------------------------------------------------
-
-# HIV #
-
-# Collapse on TOC, location (which is all national)
-df_f1_hiv <- df_dex %>%
-  filter(geo == "national") %>%
-  filter(acause == "hiv") %>%
-  filter(year_id == 2019) %>%
-  filter(payer != "all") %>%
-  collect()
+# Ryan White broad age bins -> DEX age bins using exact age-overlap split
+rw_age_split <- tribble(
+  ~rw_age,     ~age_name,   ~split_weight,
   
-df_f1_hiv <- df_f1_hiv %>%
-  dplyr::group_by(payer, age_name, sex_name) %>%
-  dplyr::summarise(
-    spend_mean = sum(spend_mean, na.rm = TRUE),
-    .groups = "drop"
-  )
-
-# Remove spaces from "age_name"
-df_f1_hiv$age_name <- str_replace_all(df_f1_hiv$age_name, " ", "")
-
-# Set male spending as negative
-df_f1_hiv <- df_f1_hiv %>%
-  mutate(spend_mean_inverse = ifelse(sex_name == "Male", spend_mean*-1, spend_mean))
-
-# Create factors
-df_f1_hiv$age_name <- factor(df_f1_hiv$age_name, levels = age_factor) 
-df_f1_hiv$sex_name <- factor(df_f1_hiv$sex_name, levels = sex_factor) 
-
-# Make plot 
-# TODO - Have x-axis be the same for both male and female, also fix the age axis labels to make them look more neat
-# basically copy from the original script, they are already typed out
-# https://github.com/ihmeuw/Resource_Tracking_US_DEX/blob/main/DEX_Capstone_2025/04_figures/figure_1.R
-f1_hiv <- ggplot(data = df_f1_hiv, aes(age_name, spend_mean_inverse, fill = factor(payer, levels = c("mdcr", "mdcd", "priv", "oop")))) +
-  facet_share(~ sex_name, scales = "free", reverse_num = FALSE) +
-  geom_bar(stat = "identity") +
-  coord_flip() +
-  scale_fill_manual(values = payer_colors, labels = payer_list, name = "Payer") +
-  scale_y_continuous(
-    #limits = (),
-    #breaks = seq(-800000, 800000, 200000),
-    labels = function(x) scales::dollar(abs(x))
-    ) +
-  theme_classic() +
-  labs(y = "Inflation Adjusted Spending (2019 USD)",
-       x = "",
-       title = "HIV spending for each insurance type by sex and age group in 2019") +
-  theme_settings +
-  guides(
-    fill = guide_legend(
-      title.position = "top",  # put title above the keys
-      title.hjust = 0.5,       # center the title
-      nrow = 1                 # keep items in one row
-    )) +
-  geom_col(color = "black", width = 1, size = 0.3) 
-
-# Save plot
-save_plot(f1_hiv, "F1a_HIV_spending_by_insurance", dir_output)
-
-# SUD #
-
-# Collapse on TOC, location (which is all national), year
-df_f1_sud <- df_dex %>%
-  filter(geo == "national") %>%
-  filter(acause %in% subs_causes) %>%
-  filter(year_id == 2019) %>%
-  filter(payer != "all") %>%
-  collect()
-
-df_f1_sud <- df_f1_sud %>%
-  group_by(payer, age_name, sex_name) %>%
-  summarize(
-    "spend_mean" = sum(spend_mean)
-  )
-
-# Remove spaces from "age_name"
-df_f1_sud$age_name <- str_replace_all(df_f1_sud$age_name, " ", "")
-
-# Set male spending as negative
-df_f1_sud <- df_f1_sud %>%
-  mutate(spend_mean_inverse = ifelse(sex_name == "Male", spend_mean*-1, spend_mean))
-
-# Create factors
-df_f1_sud$age_name <- factor(df_f1_sud$age_name, levels = age_factor) 
-df_f1_sud$sex_name <- factor(df_f1_sud$sex_name, levels = sex_factor) 
-
-# Make plot 
-# TODO - Have x-axis be the same for both male and female, also fix the age axis labels to make them look more neat
-# basically copy from the original script, they are already typed out
-# https://github.com/ihmeuw/Resource_Tracking_US_DEX/blob/main/DEX_Capstone_2025/04_figures/figure_1.R
-f1_sud <- ggplot(data = df_f1_sud, aes(age_name, spend_mean_inverse, fill = factor(payer, levels = c("mdcr", "mdcd", "priv", "oop")))) +
-  facet_share(~ sex_name, scales = "free", reverse_num = FALSE) +
-  geom_bar(stat = "identity") +
-  coord_flip() +
-  scale_fill_manual(values = payer_colors, labels = payer_list, name = "Payer") +
-  scale_y_continuous(
-    #limits = (),
-    #breaks = seq(-400000, 400000, 50000),
-    labels = function(x) scales::dollar(abs(x))
-  ) +
-  theme_classic() +
-  labs(y = "Inflation Adjusted Spending (2019 USD)",
-       x = "",
-       title = "SUD spending for each insurance type by sex and age group in 2019") +
-  theme_settings +
-  guides(
-    fill = guide_legend(
-      title.position = "top",  # put title above the keys
-      title.hjust = 0.5,       # center the title
-      nrow = 1                 # keep items in one row
-    )) +
-  geom_col(color = "black", width = 1, size = 0.3) +
-  theme(
-    plot.margin = margin(t = 10, r = , b = 0, l = 0)
-  )
-
-f1_sud
-
-# Save plot
-save_plot(f1_sud, "F1a_SUD_spending_by_insurance", dir_output, width = 16)
-
-##----------------------------------------------------------------
-## 1.1 Figure 1b - Spending by insurance + RW, HIV Only, 2019
-## What are the differences in spending for patients with HIV / SUD for each age group
-## based on different types of insurance (Medicare, Medicaid, Private)? (all years, all counties)
-##----------------------------------------------------------------
-
-# HIV + RW data #
-
-# We want just payer, age, sex left over - let's format the RW data first so we know what to match with
-
-# Collapse on TOC, location (which is all national), year
-df_f1_hiv_rw <- df_dex %>%
-  filter(geo == "national") %>%
-  filter(acause == "hiv") %>%
-  filter(year_id == 2019) %>%
-  filter(payer != "all") %>%
-  collect()
-
-df_f1_hiv_rw <- df_f1_hiv_rw %>%
-  dplyr::group_by(payer, age_name, sex_name) %>%
-  dplyr::summarise(
-    spend_mean = sum(spend_mean, na.rm = TRUE),
-    .groups = "drop"
-  )
-
-# Collapse on age groups to match RW age groups: "25 - <35" "35 - <45" "45 - <55" "55 - <65" "65+" 
-df_f1_hiv_rw <- df_f1_hiv_rw %>%
-  mutate(
-    age_name_rw = case_when(
-      age_name %in% c("25 - <30", "30 - <35") ~ "25 - <35",
-      age_name %in% c("35 - <40", "40 - <45") ~ "35 - <45",
-      age_name %in% c("45 - <50", "50 - <55") ~ "45 - <55",
-      age_name %in% c("55 - <60", "60 - <65") ~ "55 - <65",
-      age_name %in% c("65 - <70", "70 - <75", "75 - <80", "80 - <85", "85+") ~ "65+",
-      TRUE ~ NA_character_   # non-overlapping ages: 0-<25, etc.
-    )
-  )
-
-df_f1_hiv_rw <- df_f1_hiv_rw %>%
-  filter(!is.na(age_name_rw))
-
-df_f1_hiv_rw <- df_f1_hiv_rw %>%
-  group_by(payer, sex_name, age_name_rw) %>%
-  summarize(spend_mean = sum(spend_mean))
-
-df_f1_hiv_rw <- df_f1_hiv_rw %>%
-  rename(
-    age_name = age_name_rw
-  )
-
-# Collapse RW data
-df_f1_rw_data <- df_rw_long %>%
-  filter(year_id == 2019) %>%
-  dplyr::group_by(age_name, sex_name) %>%
-  dplyr::summarise(
-    spend_mean = sum(rw_funding, na.rm = TRUE),
-    .groups = "drop"
-  )
-
-# Filter out <13 and 13-24 age groups from RW data
-df_f1_rw_data <- df_f1_rw_data %>%
-  filter(!age_name %in% c("<13", "13–24"))
-
-# Add "payer" column label for RW
-df_f1_rw_data$payer <- "ryan_white"
-
-# Combine DEX + RW data
-df_f1_hiv_rw_fig_data <- rbind(df_f1_hiv_rw, df_f1_rw_data)
-
-# Remove spaces from "age_name"
-#df_f1_hiv_rw_fig_data$age_name <- str_replace_all(df_f1_hiv_rw_fig_data$age_name, " ", "")
-
-# Set male spending as negative
-df_f1_hiv_rw_fig_data <- df_f1_hiv_rw_fig_data %>%
-  mutate(spend_mean_inverse = ifelse(sex_name == "Male", spend_mean*-1, spend_mean))
-
-# Create factors
-df_f1_hiv_rw_fig_data$age_name <- factor(df_f1_hiv_rw_fig_data$age_name, levels = age_factor_rw) 
-df_f1_hiv_rw_fig_data$sex_name <- factor(df_f1_hiv_rw_fig_data$sex_name, levels = sex_factor) 
-
-# Make plot 
-# TODO - Have x-axis be the same for both male and female, also fix the age axis labels to make them look more neat
-# basically copy from the original script, they are already typed out
-# https://github.com/ihmeuw/Resource_Tracking_US_DEX/blob/main/DEX_Capstone_2025/04_figures/figure_1.R
-f1_hiv_rw <- ggplot(data = df_f1_hiv_rw_fig_data, aes(age_name, spend_mean_inverse, fill = factor(payer, levels = c("mdcr", "mdcd", "priv", "oop", "ryan_white")))) +
-  facet_share(~ sex_name, scales = "free", reverse_num = FALSE) +
-  geom_bar(stat = "identity") +
-  coord_flip() +
-  scale_fill_manual(values = payer_colors, labels = payer_list, name = "Payer") +
-  scale_y_continuous(
-    #limits = (),
-    #breaks = seq(-800000, 800000, 200000),
-    labels = function(x) scales::dollar(abs(x))
-  ) +
-  theme_classic() +
-  labs(y = "Inflation Adjusted Spending (2019 USD)",
-       x = "",
-       title = "HIV spending for each insurance type & Ryan White by sex and age group in 2019") +
-  theme_settings +
-  guides(
-    fill = guide_legend(
-      title.position = "top",  # put title above the keys
-      title.hjust = 0.5,       # center the title
-      nrow = 1                 # keep items in one row
-    )) +
-  geom_col(color = "black", width = 1, size = 0.3) 
-
-# Save plot
-save_plot(f1_hiv_rw, "F1b_HIV_spending_by_insurance_plus_RW", dir_output)
-
-##----------------------------------------------------------------
-## 1.2 Figure 1c - Spending total + RW, spending per case HIV Only, 2019
-##
-## The values in the plot are derived from the sum of all the spending for 2019
-## and then summing the prevalent cases across that same time period for the respective sex & age groups
-## then dividing the spending / prevalence counts
-##
-## In plain English, it represents the HIV spending per case for 2019
-##----------------------------------------------------------------
-
-# HIV + RW data #
-
-# Collapse on TOC, payer, location (which is all national), year
-df_f2_hiv_rw <- df_dex %>%
-  filter(geo == "national") %>%
-  filter(acause == "hiv") %>%
-  filter(year_id == 2019) %>%
-  filter(payer == "all") %>%
-  collect()
-
-df_f2_hiv_rw <- df_f2_hiv_rw %>%
-  dplyr::group_by(age_name, sex_name) %>%
-  dplyr::summarise(
-    spend_mean = sum(spend_mean, na.rm = TRUE), 
-    .groups = "drop"
-  )
-
-# Collapse on age groups to match RW age groups: "25 - <35" "35 - <45" "45 - <55" "55 - <65" "65+" 
-df_f2_hiv_rw <- df_f2_hiv_rw %>%
-  mutate(
-    age_name_rw = case_when(
-      age_name %in% c("25 - <30", "30 - <35") ~ "25 - <35",
-      age_name %in% c("35 - <40", "40 - <45") ~ "35 - <45",
-      age_name %in% c("45 - <50", "50 - <55") ~ "45 - <55",
-      age_name %in% c("55 - <60", "60 - <65") ~ "55 - <65",
-      age_name %in% c("65 - <70", "70 - <75", "75 - <80", "80 - <85", "85+") ~ "65+",
-      TRUE ~ NA_character_   # non-overlapping ages: 0-<25, etc.
-    )
-  )
-
-df_f2_hiv_rw <- df_f2_hiv_rw %>%
-  filter(!is.na(age_name_rw))
-
-df_f2_hiv_rw <- df_f2_hiv_rw %>%
-  dplyr::group_by(sex_name, age_name_rw) %>%
-  dplyr::summarize(spend_mean = sum(spend_mean))
-
-df_f2_hiv_rw <- df_f2_hiv_rw %>%
-  rename(
-    age_name = age_name_rw
-  )
-
-# Add "payer" column label for DEX data
-df_f2_hiv_rw$payer <- "DEX_all_TOC"
-
-# Collapse RW data
-df_f2_rw_data <- df_rw_long %>%
-  filter(year_id == 2019) %>%
-  dplyr::group_by(age_name, sex_name) %>%
-  dplyr::summarise(
-    spend_mean = sum(rw_funding, na.rm = TRUE),
-    .groups = "drop"
-  )
-
-# Filter out <13 and 13-24 age groups from RW data
-df_f2_rw_data <- df_f2_rw_data %>%
-  filter(!age_name %in% c("<13", "13–24"))
-
-# Add "payer" column label for RW
-df_f2_rw_data$payer <- "ryan_white"
-
-# Combine DEX + RW data
-df_f2_hiv_rw_fig_data <- rbind(df_f2_hiv_rw, df_f2_rw_data)
-
-# Sum up DEX total spending + RW data
-df_f2_hiv_rw_fig_data <- df_f2_hiv_rw_fig_data %>%
-  dplyr::group_by(sex_name, age_name) %>%
-  dplyr::summarize(spend_mean = sum(spend_mean))
-
-# Format GBD data
-df_f2_gbd <- df_gbd %>%
-  filter(cause_name == "HIV/AIDS") %>%
-  filter(year_id == 2019) %>%
-  dplyr::group_by(age_group_name, sex_id) %>%
-  dplyr::summarize(prevalence_counts = sum(prevalence_counts))
-
-# Collapse on age groups to match RW age groups: "25 - <35" "35 - <45" "45 - <55" "55 - <65" "65+" 
-df_f2_gbd <- df_f2_gbd %>%
-  mutate(
-    age_name_rw = case_when(
-      age_group_name %in% c("25 to 29", "30 to 34") ~ "25 - <35",
-      age_group_name %in% c("35 to 39", "40 to 44") ~ "35 - <45",
-      age_group_name %in% c("45 to 49", "50 to 54") ~ "45 - <55",
-      age_group_name %in% c("55 to 59", "60 to 64") ~ "55 - <65",
-      age_group_name %in% c("65 to 69", "70 to 74", "75 to 79", "80 to 84", "85+") ~ "65+",
-      TRUE ~ NA_character_   # non-overlapping ages: 0-<25, etc.
-    )
-  )
-
-df_f2_gbd <- df_f2_gbd %>%
-  filter(!is.na(age_name_rw))
-
-df_f2_gbd <- df_f2_gbd %>%
-  dplyr::group_by(sex_id, age_name_rw) %>%
-  dplyr::summarize(prevalence_counts = sum(prevalence_counts))
-
-df_f2_gbd <- df_f2_gbd %>%
-  rename(
-    age_name = age_name_rw
-  )
-
-df_f2_gbd <- df_f2_gbd %>%
-  mutate(
-    sex_name = case_when(
-      sex_id == 1 ~ "Male",
-      sex_id == 2 ~ "Female"
-    )
-  )
-
-# Merge w/ GBD data to calculate spending per prevalent case
-df_f2_hiv_rw_fig_data <- left_join(
-  x = df_f2_hiv_rw_fig_data,
-  y = df_f2_gbd,
-  by = c("sex_name", "age_name")
+  "<13",       "0-<1",      1/13,
+  "<13",       "1-<5",      4/13,
+  "<13",       "5-<10",     5/13,
+  "<13",       "10-<15",    3/13,
+  
+  "13–24",     "10-<15",    2/12,
+  "13–24",     "15-<20",    5/12,
+  "13–24",     "20-<25",    5/12,
+  
+  "25 - <35",  "25-<30",    1/2,
+  "25 - <35",  "30-<35",    1/2,
+  
+  "35 - <45",  "35-<40",    1/2,
+  "35 - <45",  "40-<45",    1/2,
+  
+  "45 - <55",  "45-<50",    1/2,
+  "45 - <55",  "50-<55",    1/2,
+  
+  "55 - <65",  "55-<60",    1/2,
+  "55 - <65",  "60-<65",    1/2,
+  
+  "65+",       "65-<70",    0.50,
+  "65+",       "70-<75",    0.25,
+  "65+",       "75-<80",    0.125,
+  "65+",       "80-<85",    0.075,
+  "65+",       "85+",       0.05
 )
 
-# Create spending per case column
-df_f2_hiv_rw_fig_data$spend_per_case <- df_f2_hiv_rw_fig_data$spend_mean / df_f2_hiv_rw_fig_data$prevalence_counts
+##================================================================
+## HELPER: Redistribute RW funding into DEX age bins
+##   - For total spending figures: use uniform age-overlap weights
+##     (rw_age_split above). This is fine because we are NOT dividing
+##     by prevalence, so no denominator distortion.
+##   - For per-case figures: use prevalence-proportional weights
+##     (built below in Section 1.1).
+##================================================================
 
-# Set male spend_per_case as negative
-df_f2_hiv_rw_fig_data <- df_f2_hiv_rw_fig_data %>%
-  mutate(spend_per_case_inverse = ifelse(sex_name == "Male", spend_per_case*-1, spend_per_case))
+# Build RW spending in DEX age bins using UNIFORM age-overlap weights
+# (used for Figure 1a — total spending by payer)
+build_rw_dex_bins_uniform <- function(df_rw_long, rw_age_split, yr = 2019) {
+  df_rw_long %>%
+    filter(year_id == yr) %>%
+    dplyr::rename(rw_age = age_name) %>%
+    dplyr::inner_join(rw_age_split, by = "rw_age", relationship = "many-to-many") %>%
+    dplyr::mutate(spend_mean = rw_funding * split_weight) %>%
+    dplyr::group_by(age_name, sex_name) %>%
+    dplyr::summarise(spend_mean = sum(spend_mean, na.rm = TRUE), .groups = "drop") %>%
+    dplyr::mutate(payer = "ryan_white")
+}
 
-# Create factors
-df_f2_hiv_rw_fig_data$age_name <- factor(df_f2_hiv_rw_fig_data$age_name, levels = age_factor_rw) 
-df_f2_hiv_rw_fig_data$sex_name <- factor(df_f2_hiv_rw_fig_data$sex_name, levels = sex_factor) 
+# Map GBD age_group_name -> DEX age_name (reusable helper)
+map_gbd_to_dex_age <- function(age_group_name) {
+  dplyr::case_when(
+    age_group_name %in% c("Under 1", "<1 year",
+                          "0 to 364 days", "0 to 11 months") ~ "0-<1",
+    age_group_name %in% c("1 to 4")   ~ "1-<5",
+    age_group_name %in% c("5 to 9")   ~ "5-<10",
+    age_group_name %in% c("10 to 14") ~ "10-<15",
+    age_group_name %in% c("15 to 19") ~ "15-<20",
+    age_group_name %in% c("20 to 24") ~ "20-<25",
+    age_group_name %in% c("25 to 29") ~ "25-<30",
+    age_group_name %in% c("30 to 34") ~ "30-<35",
+    age_group_name %in% c("35 to 39") ~ "35-<40",
+    age_group_name %in% c("40 to 44") ~ "40-<45",
+    age_group_name %in% c("45 to 49") ~ "45-<50",
+    age_group_name %in% c("50 to 54") ~ "50-<55",
+    age_group_name %in% c("55 to 59") ~ "55-<60",
+    age_group_name %in% c("60 to 64") ~ "60-<65",
+    age_group_name %in% c("65 to 69") ~ "65-<70",
+    age_group_name %in% c("70 to 74") ~ "70-<75",
+    age_group_name %in% c("75 to 79") ~ "75-<80",
+    age_group_name %in% c("80 to 84") ~ "80-<85",
+    age_group_name %in% c("85 plus", "85+", "95 plus") ~ "85+",
+    TRUE ~ NA_character_
+  )
+}
 
-# Make plot 
-# TODO - Have x-axis be the same for both male and female, also fix the age axis labels to make them look more neat
-# basically copy from the original script, they are already typed out
-# https://github.com/ihmeuw/Resource_Tracking_US_DEX/blob/main/DEX_Capstone_2025/04_figures/figure_1.R
-f2_hiv_rw <- ggplot(data = df_f2_hiv_rw_fig_data, aes(age_name, spend_per_case_inverse, fill = sex_name)) +
-  facet_share(~ sex_name, scales = "free", reverse_num = FALSE) +
-  geom_bar(stat = "identity") +
-  coord_flip() +
-  #scale_fill_manual(values = payer_colors, labels = payer_list, name = "Payer") +
-  scale_y_continuous(
-    #limits = (),
-    #breaks = seq(-800000, 800000, 200000),
-    labels = function(x) scales::dollar(abs(x))
-  ) +
-  theme_classic() +
-  labs(y = "Inflation Adjusted Spending (2019 USD)",
-       x = "",
-       title = "HIV spending per case by sex and age group, All Payers + Ryan White spending in 2019") +
-  theme_settings +
-  guides(
-    fill = guide_legend(
-      title.position = "top",  # put title above the keys
-      title.hjust = 0.5,       # center the title
-      nrow = 1                 # keep items in one row
-    )) + theme(legend.position = "none") +
-    theme(
-      plot.margin = margin(t = 10, r = 90, b = 0, l = 0)
-    )
-    #+ geom_col(color = "black", width = 1, size = 0.3) 
+##================================================================
+## 1. Figure 1a — HIV: Spending by insurance type + Ryan White, 2019
+##    (original DEX age bins, national, both sexes)
+##================================================================
 
-f2_hiv_rw
+# ── DEX HIV payer-level spending ─────────────────────────────────
+df_f1_hiv <- df_dex %>%
+  filter(geo == "national", acause == "hiv",
+         year_id == 2019, payer != "all") %>%
+  collect() %>%
+  dplyr::group_by(payer, age_name, sex_name) %>%
+  dplyr::summarise(spend_mean = sum(spend_mean, na.rm = TRUE),
+                   .groups = "drop") %>%
+  dplyr::mutate(age_name = str_replace_all(age_name, " ", ""))
 
-# Save plot
-save_plot(f2_hiv_rw, "F1c_HIV_spending_per_case_RW", dir_output)
+# ── RW redistributed into DEX bins (uniform weights) ────────────
+df_f1_rw_dexbins <- build_rw_dex_bins_uniform(df_rw_long, rw_age_split, yr = 2019)
 
-##----------------------------------------------------------------
-## 2. Figure 2 - Spending by TOC using payer=all
-## What are the differences in spending for patients with HIV for each age group based on different toc?
-##
-## Notes: TODO calculate CI correctly, needs some research for this, exclude NF just for HIV?
-##----------------------------------------------------------------
-# HIV #
-
-# Collapse on payer, location (which is all national), year
-df_f2_hiv <- df_dex %>%
-  filter(geo == 'national') %>%
-  filter(acause == "hiv") %>%
-  filter(year_id == 2019) %>%
-  filter(payer == "all") %>%
-  collect() 
-
-df_f2_hiv <- df_f2_hiv %>%
-  group_by(toc, age_name, sex_name) %>%
-  summarize(
-    "spend_mean" = sum(spend_mean)
+# ── Combine DEX payers + RW ─────────────────────────────────────
+df_f1a_hiv <- bind_rows(df_f1_hiv, df_f1_rw_dexbins) %>%
+  dplyr::mutate(
+    spend_mean_inverse = ifelse(sex_name == "Male", spend_mean * -1, spend_mean),
+    age_name = factor(age_name, levels = age_factor),
+    sex_name = factor(sex_name, levels = sex_factor)
   )
 
-# Remove spaces from "age_name"
-df_f2_hiv$age_name <- str_replace_all(df_f2_hiv$age_name, " ", "")
-
-# Set male spending as negative
-df_f2_hiv <- df_f2_hiv %>%
-  mutate(spend_mean_inverse = ifelse(sex_name == "Male", spend_mean*-1, spend_mean))
-
-# Create factors
-df_f2_hiv$age_name <- factor(df_f2_hiv$age_name, levels = age_factor) 
-df_f2_hiv$sex_name <- factor(df_f2_hiv$sex_name, levels = sex_factor) 
-df_f2_hiv$toc <- factor(df_f2_hiv$toc, levels = toc_factor)
-
-# Make plot 
-# TODO - Have x-axis be the same for both male and female, also fix the age axis labels to make them look more neat
-# basically copy from the original script, they are already typed out
-# https://github.com/ihmeuw/Resource_Tracking_US_DEX/blob/main/DEX_Capstone_2025/04_figures/figure_1.R
-f2_hiv <- ggplot(data = df_f2_hiv, aes(age_name, spend_mean_inverse, fill = toc)) +
+# ── Plot ─────────────────────────────────────────────────────────
+f1a_hiv <- ggplot(
+  data = df_f1a_hiv,
+  aes(age_name, spend_mean_inverse,
+      fill = factor(payer, levels = c("mdcr", "mdcd", "priv", "oop", "ryan_white")))
+) +
   facet_share(~ sex_name, scales = "free", reverse_num = FALSE) +
-  geom_bar(stat = "identity") +
-  coord_flip() +
-  scale_fill_manual(values = toc_colors, labels = toc_labels, name = "Type of care") +
-  scale_y_continuous(
-    #limits = (),
-    #breaks = seq(-10000000, 800000, 1000000),
-    labels = function(x) scales::dollar(abs(x))
-  ) +
-  theme_classic() +
-  labs(y = "Inflation Adjusted Spending (2019 USD)",
-       x = "",
-       title = "HIV spending for each type of care by sex and age group in 2019") +
-  theme_settings +
-  guides(
-    fill = guide_legend(
-      title.position = "top",  # put title above the keys
-      title.hjust = 0.5,       # center the title
-      nrow = 1                 # keep items in one row
-    )) +
-  geom_col(color = "black", width = 1, size = 0.3) 
-
-# Save plot
-save_plot(f2_hiv, "F2_HIV_spending_by_toc", dir_output)
-
-# SUD #
-
-# Collapse on payer, location (which is all national), year
-df_f2_sud <- df_dex %>%
-  filter(geo == 'national') %>%
-  filter(acause %in% subs_causes) %>%
-  filter(year_id == 2019) %>%
-  filter(payer == "all") %>%
-  collect()
-
-df_f2_sud <- df_f2_sud %>%
-  group_by(toc, age_name, sex_name) %>%
-  summarize(
-    "spend_mean" = sum(spend_mean)
-  )
-
-# Remove spaces from "age_name"
-df_f2_sud$age_name <- str_replace_all(df_f2_sud$age_name, " ", "")
-
-# Set male spending as negative
-df_f2_sud <- df_f2_sud %>%
-  mutate(spend_mean_inverse = ifelse(sex_name == "Male", spend_mean*-1, spend_mean))
-
-# Create factors
-df_f2_sud$age_name <- factor(df_f2_sud$age_name, levels = age_factor) 
-df_f2_sud$sex_name <- factor(df_f2_sud$sex_name, levels = sex_factor) 
-df_f2_sud$toc <- factor(df_f2_sud$toc, levels = toc_factor)
-
-# Make plot 
-# TODO - Have x-axis be the same for both male and female, also fix the age axis labels to make them look more neat
-# basically copy from the original script, they are already typed out
-# https://github.com/ihmeuw/Resource_Tracking_US_DEX/blob/main/DEX_Capstone_2025/04_figures/figure_1.R
-max_male <- max(abs(df_f2_sud$spend_mean_inverse[df_f2_sud$sex_name == "Male"]))
-max_female <- max(abs(df_f2_sud$spend_mean_inverse[df_f2_sud$sex_name == "Female"]))
-
-f2_sud <- ggplot(data = df_f2_sud, aes(age_name, spend_mean_inverse, fill = toc)) +
-  facet_share(~ sex_name, scales = "free", reverse_num = FALSE) +
-  geom_bar(stat = "identity") +
-  coord_flip() +
-  scale_fill_manual(values = toc_colors, labels = toc_labels, name = "Type of care") +
-  scale_y_continuous(
-    expand = expansion(mult = c(0.15, 0.1)),  # Add 10% padding
-    labels = function(x) scales::dollar(abs(x))
-  ) +
-  theme_classic() +
-  labs(y = "Inflation Adjusted Spending (2019 USD)",
-       x = "",
-       title = "SUD spending for each type of care by sex and age group in 2019") +
-  theme_settings +
-  guides(
-    fill = guide_legend(
-      title.position = "top",
-      title.hjust = 0.5,
-      nrow = 1
-    )) +
   geom_col(color = "black", width = 1, size = 0.3) +
-  theme(
-    plot.margin = margin(t = 10, r = 70, b = 0, l = 0)
+  coord_flip() +
+  scale_fill_manual(values = payer_colors, labels = payer_list, name = "Payer") +
+  scale_y_continuous(labels = axis_dollar_mb) +
+  theme_classic() +
+  labs(
+    y = "Inflation Adjusted Spending (2019 USD)", x = "",
+    title = "HIV spending for each insurance type and Ryan White by sex and age group in 2019"
+  ) +
+  theme_settings +
+  guides(fill = guide_legend(title.position = "top", title.hjust = 0.5, nrow = 1))
+
+save_plot(f1a_hiv, "F1a_HIV_spending_by_insurance_plus_RW", dir_output)
+
+
+##================================================================
+## 1. Figure 1a — SUD: Spending by insurance type, 2019
+##    (no Ryan White for SUD)
+##================================================================
+
+df_f1_sud <- df_dex %>%
+  filter(geo == "national", acause %in% subs_causes,
+         year_id == 2019, payer != "all") %>%
+  collect() %>%
+  dplyr::group_by(payer, age_name, sex_name) %>%
+  dplyr::summarise(spend_mean = sum(spend_mean, na.rm = TRUE),
+                   .groups = "drop") %>%
+  dplyr::mutate(
+    age_name = str_replace_all(age_name, " ", ""),
+    spend_mean_inverse = ifelse(sex_name == "Male", spend_mean * -1, spend_mean),
+    age_name = factor(age_name, levels = age_factor),
+    sex_name = factor(sex_name, levels = sex_factor)
   )
 
-# Save plot
-save_plot(f2_sud, "F2_SUD_spending_by_toc", dir_output, width = 16)
+f1a_sud <- ggplot(
+  data = df_f1_sud,
+  aes(age_name, spend_mean_inverse,
+      fill = factor(payer, levels = c("mdcr", "mdcd", "priv", "oop")))
+) +
+  facet_share(~ sex_name, scales = "free", reverse_num = FALSE) +
+  geom_col(color = "black", width = 1, size = 0.3) +
+  coord_flip() +
+  scale_fill_manual(values = payer_colors, labels = payer_list, name = "Payer") +
+  scale_y_continuous(labels = axis_dollar_mb) +
+  theme_classic() +
+  labs(
+    y = "Inflation Adjusted Spending (2019 USD)", x = "",
+    title = "SUD spending for each insurance type by sex and age group in 2019"
+  ) +
+  theme_settings +
+  guides(fill = guide_legend(title.position = "top", title.hjust = 0.5, nrow = 1)) +
+  theme(plot.margin = margin(t = 10, r = 30, b = 0, l = 0))
 
+save_plot(f1a_sud, "F1a_SUD_spending_by_insurance", dir_output, width = 16)
+
+
+##================================================================
+## 1.1 Figure 1b — HIV: Spending per prevalent case
+##     (DEX all-payer + RW, prevalence-proportional RW weights)
+##
+## WHY prevalence-proportional weights here:
+##   Uniform age-overlap splits dump substantial RW dollars into
+##   pediatric DEX bins (5-<10, 10-<15) where HIV prevalence is
+##   near zero → inflated per-case values. Prevalence-proportional
+##   weights route funding to where patients actually are.
+##================================================================
+
+# ── 1. DEX all-payer HIV spending ────────────────────────────────
+df_f1b_dex <- df_dex %>%
+  filter(geo == "national", acause == "hiv",
+         year_id == 2019, payer == "all") %>%
+  collect() %>%
+  dplyr::group_by(age_name, sex_name) %>%
+  dplyr::summarise(spend_dex = sum(spend_mean, na.rm = TRUE),
+                   .groups = "drop") %>%
+  dplyr::mutate(age_name = str_replace_all(age_name, " ", ""))
+
+# ── 2. GBD HIV prevalence by DEX age bin ─────────────────────────
+df_f1b_gbd <- df_gbd %>%
+  filter(cause_name == "HIV/AIDS", year_id == 2019) %>%
+  dplyr::group_by(age_group_name, sex_id) %>%
+  dplyr::summarise(prevalence_counts = sum(prevalence_counts, na.rm = TRUE),
+                   .groups = "drop") %>%
+  dplyr::mutate(
+    age_name = map_gbd_to_dex_age(age_group_name),
+    sex_name = dplyr::case_when(sex_id == 1 ~ "Male",
+                                sex_id == 2 ~ "Female",
+                                TRUE ~ NA_character_)
+  ) %>%
+  filter(!is.na(age_name), !is.na(sex_name)) %>%
+  dplyr::group_by(sex_name, age_name) %>%
+  dplyr::summarise(prevalence_counts = sum(prevalence_counts, na.rm = TRUE),
+                   .groups = "drop")
+
+# ── 3. Build PREVALENCE-PROPORTIONAL RW split weights ────────────
+#   For each (sex × RW broad age bin), share of HIV prevalence
+#   in each constituent DEX bin replaces the uniform split_weight.
+dex_to_rw_map <- rw_age_split %>%
+  dplyr::select(rw_age, age_name) %>%
+  dplyr::distinct()
+
+prev_weights <- df_f1b_gbd %>%
+  dplyr::inner_join(dex_to_rw_map, by = "age_name", relationship = "many-to-many") %>%
+  dplyr::group_by(sex_name, rw_age) %>%
+  dplyr::mutate(
+    total_prev = sum(prevalence_counts),
+    prev_weight = ifelse(total_prev > 0, prevalence_counts / total_prev, 0)
+  ) %>%
+  dplyr::ungroup() %>%
+  dplyr::select(-total_prev)
+
+# prev_weights <- df_f1b_gbd %>%
+#   dplyr::inner_join(dex_to_rw_map, by = "age_name") %>%
+#   dplyr::group_by(sex_name, rw_age) %>%
+#   dplyr::mutate(
+#     prev_weight = dplyr::if_else(
+#       sum(prevalence_counts) > 0,
+#       prevalence_counts / sum(prevalence_counts),
+#       0
+#     )
+#   ) %>%
+#   dplyr::ungroup()
+
+# ── DIAGNOSTIC: compare old vs new weights ───────────────────────
+message("\n=== Prevalence-proportional vs uniform RW split weights ===")
+diagnostic <- prev_weights %>%
+  dplyr::left_join(
+    rw_age_split %>% dplyr::select(rw_age, age_name, split_weight),
+    by = c("rw_age", "age_name")
+  ) %>%
+  dplyr::select(sex_name, rw_age, age_name,
+                prevalence_counts, prev_weight, split_weight) %>%
+  dplyr::arrange(rw_age, sex_name, age_name)
+print(diagnostic, n = Inf)
+
+# ── 4. Redistribute RW funding using prevalence weights ──────────
+df_f1b_rw <- df_rw_long %>%
+  filter(year_id == 2019) %>%
+  dplyr::rename(rw_age = age_name) %>%
+  dplyr::group_by(rw_age, sex_name) %>%
+  dplyr::summarise(rw_funding_total = sum(rw_funding, na.rm = TRUE),
+                   .groups = "drop") %>%
+  dplyr::inner_join(
+    prev_weights %>% dplyr::select(sex_name, rw_age, age_name, prev_weight),
+    by = c("rw_age", "sex_name")
+  ) %>%
+  dplyr::mutate(spend_rw = rw_funding_total * prev_weight) %>%
+  dplyr::group_by(age_name, sex_name) %>%
+  dplyr::summarise(spend_rw = sum(spend_rw, na.rm = TRUE),
+                   .groups = "drop")
+
+# ── 5. Combine DEX + RW, merge prevalence, compute per-case ─────
+df_f1b_hiv <- df_f1b_dex %>%
+  dplyr::full_join(df_f1b_rw, by = c("age_name", "sex_name")) %>%
+  dplyr::mutate(
+    spend_dex = tidyr::replace_na(spend_dex, 0),
+    spend_rw  = tidyr::replace_na(spend_rw, 0),
+    spend_total = spend_dex + spend_rw
+  ) %>%
+  dplyr::left_join(df_f1b_gbd, by = c("age_name", "sex_name")) %>%
+  dplyr::mutate(
+    spend_per_case = dplyr::if_else(
+      prevalence_counts > 0,
+      spend_total / prevalence_counts,
+      NA_real_
+    ),
+    spend_per_case_inverse = dplyr::if_else(
+      sex_name == "Male", spend_per_case * -1, spend_per_case
+    )
+  )
+
+# After computing df_f1b_hiv, before setting factors:
+df_f1b_hiv <- df_f1b_hiv %>%
+  filter(!age_name %in% c("0-<1", "1-<5", "5-<10", "10-<15"))
+
+# ── DIAGNOSTIC ───────────────────────────────────────────────────
+message("\n=== HIV spending per case by age/sex (DEX + RW, 2019) ===")
+print(
+  df_f1b_hiv %>%
+    dplyr::select(age_name, sex_name, spend_dex, spend_rw,
+                  spend_total, prevalence_counts, spend_per_case) %>%
+    dplyr::arrange(sex_name, age_name),
+  n = Inf
+)
+
+# ── Factors ──────────────────────────────────────────────────────
+df_f1b_hiv$age_name <- factor(df_f1b_hiv$age_name, levels = age_factor)
+df_f1b_hiv$sex_name <- factor(df_f1b_hiv$sex_name, levels = sex_factor)
+
+# ── Plot ─────────────────────────────────────────────────────────
+f1b_hiv <- ggplot(
+  data = df_f1b_hiv,
+  aes(age_name, spend_per_case_inverse, fill = sex_name)
+) +
+  facet_share(~ sex_name, scales = "free", reverse_num = FALSE) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  scale_y_continuous(
+    labels = function(x) scales::dollar(abs(x), accuracy = 100)
+  ) +
+  theme_classic() +
+  labs(
+    y = "Spending per prevalent case (2019 USD)", x = "",
+    title = "HIV spending per case by sex and age group, All Payers + Ryan White, 2019"
+  ) +
+  theme_settings +
+  theme(legend.position = "none",
+        plot.margin = margin(t = 10, r = 90, b = 0, l = 0))
+
+save_plot(f1b_hiv, "F1b_HIV_spending_per_case_RW_DEX_agebins", dir_output)
+
+
+##================================================================
+## 1.1 Figure 1b — SUD: Spending per prevalent case
+##     (DEX all-payer only, no Ryan White)
+##================================================================
+
+# ── DEX all-payer SUD spending ───────────────────────────────────
+df_f1b_sud_dex <- df_dex %>%
+  filter(geo == "national", acause %in% subs_causes,
+         year_id == 2019, payer == "all") %>%
+  collect() %>%
+  dplyr::group_by(age_name, sex_name) %>%
+  dplyr::summarise(spend_mean = sum(spend_mean, na.rm = TRUE),
+                   .groups = "drop") %>%
+  dplyr::mutate(age_name = str_replace_all(age_name, " ", ""))
+
+# ── GBD SUD prevalence ──────────────────────────────────────────
+df_f1b_sud_gbd <- df_gbd %>%
+  filter(cause_name == "Substance use disorders", year_id == 2019) %>%
+  dplyr::group_by(age_group_name, sex_id) %>%
+  dplyr::summarise(prevalence_counts = sum(prevalence_counts, na.rm = TRUE),
+                   .groups = "drop") %>%
+  dplyr::mutate(
+    age_name = map_gbd_to_dex_age(age_group_name),
+    sex_name = dplyr::case_when(sex_id == 1 ~ "Male",
+                                sex_id == 2 ~ "Female",
+                                TRUE ~ NA_character_)
+  ) %>%
+  filter(!is.na(age_name), !is.na(sex_name)) %>%
+  dplyr::group_by(sex_name, age_name) %>%
+  dplyr::summarise(prevalence_counts = sum(prevalence_counts, na.rm = TRUE),
+                   .groups = "drop")
+
+# ── DIAGNOSTIC: check join alignment ────────────────────────────
+message("\n=== SUD DEX age bins ===")
+print(sort(unique(df_f1b_sud_dex$age_name)))
+message("=== SUD GBD age bins ===")
+print(sort(unique(df_f1b_sud_gbd$age_name)))
+
+# ── Merge and compute per-case ───────────────────────────────────
+df_f1b_sud <- df_f1b_sud_dex %>%
+  dplyr::left_join(df_f1b_sud_gbd, by = c("age_name", "sex_name")) %>%
+  dplyr::mutate(
+    spend_per_case = ifelse(
+      prevalence_counts > 0,
+      spend_mean / prevalence_counts,
+      NA_real_
+    ),
+    spend_per_case_inverse = ifelse(
+      sex_name == "Male", spend_per_case * -1, spend_per_case
+    )
+  )
+
+df_f1b_sud <- df_f1b_sud %>%
+  filter(!age_name %in% c("0-<1", "1-<5", "5-<10", "10-<15"))
+
+# ── DIAGNOSTIC ───────────────────────────────────────────────────
+message("\n=== SUD spending per case by age/sex (DEX, 2019) ===")
+print(
+  df_f1b_sud %>%
+    dplyr::select(age_name, sex_name, spend_mean,
+                  prevalence_counts, spend_per_case) %>%
+    dplyr::arrange(sex_name, age_name),
+  n = Inf
+)
+
+# ── Factors ──────────────────────────────────────────────────────
+df_f1b_sud$age_name <- factor(df_f1b_sud$age_name, levels = age_factor)
+df_f1b_sud$sex_name <- factor(df_f1b_sud$sex_name, levels = sex_factor)
+
+# ── Plot ─────────────────────────────────────────────────────────
+f1b_sud <- ggplot(
+  data = df_f1b_sud,
+  aes(age_name, spend_per_case_inverse, fill = sex_name)
+) +
+  facet_share(~ sex_name, scales = "free", reverse_num = FALSE) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  scale_y_continuous(
+    labels = function(x) scales::dollar(abs(x), accuracy = 100)
+  ) +
+  theme_classic() +
+  labs(
+    y = "Spending per prevalent case (2019 USD)", x = "",
+    title = "SUD spending per case by sex and age group, All Payers, 2019"
+  ) +
+  theme_settings +
+  theme(legend.position = "none",
+        plot.margin = margin(t = 10, r = 90, b = 0, l = 0))
+
+save_plot(f1b_sud, "F1b_SUD_spending_per_case_DEX_agebins", dir_output)
+
+
+####
+##================================================================
+## 2. Figure 2 — HIV: Spending by type of care + Ryan White, 2019
+##    (payer = "all", national, both sexes)
+##================================================================
+
+# DEX spending by TOC
+df_f2_hiv <- df_dex %>%
+  filter(geo == "national", acause == "hiv",
+         year_id == 2019, payer == "all") %>%
+  collect() %>%
+  dplyr::group_by(toc, age_name, sex_name) %>%
+  dplyr::summarise(spend_mean = sum(spend_mean, na.rm = TRUE),
+                   .groups = "drop") %>%
+  dplyr::mutate(age_name = str_replace_all(age_name, " ", ""))
+
+# RW as its own "TOC" — reuse uniform-weight RW already built for F1a
+df_f2_rw <- build_rw_dex_bins_uniform(df_rw_long, rw_age_split, yr = 2019) %>%
+  dplyr::rename(toc = payer)  # "ryan_white" -> toc column
+
+# Combine
+df_f2_hiv <- bind_rows(df_f2_hiv, df_f2_rw) %>%
+  dplyr::mutate(
+    spend_mean_inverse = ifelse(sex_name == "Male", spend_mean * -1, spend_mean),
+    age_name = factor(age_name, levels = age_factor),
+    sex_name = factor(sex_name, levels = sex_factor),
+    toc = factor(toc, levels = c(toc_factor, "ryan_white"))
+  )
+
+# Add RW to color and label vectors
+toc_colors_rw <- c(toc_colors, "ryan_white" = "#6A51A3")
+toc_labels_rw <- c(toc_labels, "ryan_white" = "Ryan White")
+
+# Plot
+f2_hiv <- ggplot(
+  data = df_f2_hiv,
+  aes(age_name, spend_mean_inverse, fill = toc)
+) +
+  facet_share(~ sex_name, scales = "free", reverse_num = FALSE) +
+  geom_col(color = "black", width = 1, size = 0.3) +
+  coord_flip() +
+  scale_fill_manual(values = toc_colors_rw, labels = toc_labels_rw, name = "Type of care") +
+  scale_y_continuous(labels = axis_dollar_mb) +
+  #scale_y_continuous(labels = function(x) scales::dollar(abs(x))) +
+  theme_classic() +
+  labs(
+    y = "Inflation Adjusted Spending (2019 USD)", x = "",
+    title = "HIV spending for each type of care and Ryan White by sex and age group in 2019"
+  ) +
+  theme_settings +
+  guides(fill = guide_legend(title.position = "top", title.hjust = 0.5, nrow = 1))
+
+save_plot(f2_hiv, "F2_HIV_spending_by_toc_plus_RW", dir_output)
+
+##================================================================
+## 2. Figure 2 — SUD: Spending by type of care, 2019
+##================================================================
+
+df_f2_sud <- df_dex %>%
+  filter(geo == "national", acause %in% subs_causes,
+         year_id == 2019, payer == "all") %>%
+  collect() %>%
+  dplyr::group_by(toc, age_name, sex_name) %>%
+  dplyr::summarise(spend_mean = sum(spend_mean, na.rm = TRUE),
+                   .groups = "drop") %>%
+  dplyr::mutate(
+    age_name = str_replace_all(age_name, " ", ""),
+    spend_mean_inverse = ifelse(sex_name == "Male", spend_mean * -1, spend_mean),
+    age_name = factor(age_name, levels = age_factor),
+    sex_name = factor(sex_name, levels = sex_factor),
+    toc = factor(toc, levels = toc_factor)
+  )
+
+f2_sud <- ggplot(
+  data = df_f2_sud,
+  aes(age_name, spend_mean_inverse, fill = toc)
+) +
+  facet_share(~ sex_name, scales = "free", reverse_num = FALSE) +
+  geom_col(color = "black", width = 1, size = 0.3) +
+  coord_flip() +
+  scale_fill_manual(values = toc_colors, labels = toc_labels, name = "Type of care") +
+  scale_y_continuous(labels = axis_dollar_mb) +
+  # scale_y_continuous(
+  #   expand = expansion(mult = c(0.15, 0.1)),
+  #   labels = function(x) scales::dollar(abs(x))
+  # ) +
+  theme_classic() +
+  labs(
+    y = "Inflation Adjusted Spending (2019 USD)", x = "",
+    title = "SUD spending for each type of care by sex and age group in 2019"
+  ) +
+  theme_settings +
+  guides(fill = guide_legend(title.position = "top", title.hjust = 0.5, nrow = 1)) +
+  theme(plot.margin = margin(t = 10, r = 70, b = 0, l = 0))
+
+save_plot(f2_sud, "F2_SUD_spending_by_toc", dir_output, width = 16)
 ##----------------------------------------------------------------
 ## 3. Figure 3a - HIV - USA County Plot Per Bene
 ## Visually, how does the spending per beneficiary look like stratified based on 
@@ -1030,14 +1016,15 @@ for(p in c("mdcr", "mdcd", "priv", "oop")){
                       na.value = "#838484")+
     theme(legend.position = "bottom",
           legend.justification = "top",
-          legend.margin = margin(t = -10, unit = "pt"),  # Adjust top margin of the legend to pull it closer
+          legend.text = element_text(size = 11),
+          legend.margin = margin(t = -10, unit = "pt"),
           legend.spacing.y = unit(0, "cm"),
           plot.margin = margin(0.5, 1, 1.5, 1, "cm"),
-          title = element_text(size = 12),
-          text = element_text(size = 10),
+          title = element_text(size = 14),
+          text = element_text(size = 12),
           axis.ticks = element_blank(),
           axis.text = element_blank(),
-          panel.background = element_blank()) 
+          panel.background = element_blank())
   
   # Append plot to plot list
   f3_payer_plot_list[[length(f3_payer_plot_list) + 1]] <- map
@@ -1114,12 +1101,13 @@ f3_hiv_overall_county_map <-  ggplot(data = df_f3_hiv_overall_map_object) +
         legend.justification = "center",
         legend.direction = "horizontal",
         legend.box = "horizontal",
-        title = element_text(size = 12),
-        text = element_text(size = 10),
+        legend.text = element_text(size = 12),
+        title = element_text(size = 14),
+        text = element_text(size = 12),
         plot.margin = margin(0.5, 0, 1, 0, "cm"),
         axis.ticks = element_blank(),
         axis.text = element_blank(),
-        panel.background = element_blank()) +
+        panel.background = element_blank())
   guides(fill = guide_legend(nrow = 1))
 
 ## Arranging PDF layout of maps
@@ -1230,14 +1218,15 @@ for(p in c("mdcr", "mdcd", "priv", "oop")){
                       na.value = "#838484")+
     theme(legend.position = "bottom",
           legend.justification = "top",
-          legend.margin = margin(t = -10, unit = "pt"),  # Adjust top margin of the legend to pull it closer
+          legend.text = element_text(size = 11),
+          legend.margin = margin(t = -10, unit = "pt"),
           legend.spacing.y = unit(0, "cm"),
           plot.margin = margin(0.5, 1, 1.5, 1, "cm"),
-          title = element_text(size = 12),
-          text = element_text(size = 10),
+          title = element_text(size = 14),
+          text = element_text(size = 12),
           axis.ticks = element_blank(),
           axis.text = element_blank(),
-          panel.background = element_blank()) 
+          panel.background = element_blank())
   f3_payer_plot_list[[length(f3_payer_plot_list) + 1]] <- map
 }
 
@@ -1304,19 +1293,20 @@ f3_sud_overall_county_map <-  ggplot(data = df_f3_sud_overall_map_object) +
   geom_sf(data = state_shapefile, fill = NA, linewidth = .4) +
   labs(title = paste0("All payer spending"),
        fill = "") +
-  scale_fill_manual(values = cols_8_biased,
+  scale_fill_manual(values = cols_5,
                     breaks = levels(factor(df_f3_sud_overall$plot_val))[levels(factor(df_f3_sud_overall$plot_val)) != "NA"],
                     na.value = "#838484") +
   theme(legend.position = "bottom",
-        legend.justification = "center",
-        legend.direction = "horizontal",
-        legend.box = "horizontal",
-        title = element_text(size = 12),
-        text = element_text(size = 10),
-        plot.margin = margin(0.5, 0, 1, 0, "cm"),
+        legend.justification = "top",
+        legend.text = element_text(size = 11),
+        legend.margin = margin(t = -10, unit = "pt"),
+        legend.spacing.y = unit(0, "cm"),
+        plot.margin = margin(0.5, 1, 1.5, 1, "cm"),
+        title = element_text(size = 14),
+        text = element_text(size = 12),
         axis.ticks = element_blank(),
         axis.text = element_blank(),
-        panel.background = element_blank()) +
+        panel.background = element_blank())
   guides(fill = guide_legend(nrow = 1))
 
 ## Arranging PDF layout of maps
@@ -1514,6 +1504,166 @@ save_plot(f7_hiv_pop_percent, "F7_HIV_population_percent", dir_output)
 
 
 
+##----------------------------------------------------------------
+## Figure X - HIV state inefficiency ranking (between model)
+##   Left: state names
+##   Right: inefficiency (higher = worse)
+##----------------------------------------------------------------
+
+# Read frontier output
+fp_frontier <- file.path(h, "aim_outputs/Aim2/C_frontier_analysis/20260303/hiv_between_output.csv")
+df_ineff <- read.csv(fp_frontier, stringsAsFactors = FALSE, check.names = FALSE)
+
+# Keep only what we need + clean
+df_ineff <- df_ineff %>%
+  transmute(
+    location_name = trimws(as.character(location_name)),
+    ineff = as.numeric(ineff)
+  ) %>%
+  filter(!is.na(location_name), !is.na(ineff)) %>%
+  distinct(location_name, .keep_all = TRUE)
+
+# --- Bin ineff into quintiles (for discrete color scheme like your maps) ---
+brks <- quantile(df_ineff$ineff, probs = c(0, .2, .4, .6, .8, 1), na.rm = TRUE)
+brks[1] <- brks[1] - 1e-9  # nudge for include.lowest
+
+labs <- paste0(
+  round(brks[-length(brks)], 2), " – ", round(brks[-1], 2)
+)
+labs[length(labs)] <- paste0(round(brks[length(brks) - 1], 2), "+")
+df_ineff$ineff_bin <- cut(df_ineff$ineff, breaks = brks, labels = labs, include.lowest = TRUE)
+
+# Palette (match your map vibe: white -> purple)
+pal_fun <- colorRampPalette(c("#F1F1F1", "#B12BC9"))
+cols_5  <- pal_fun(5)
+
+# Order for plotting (best at top)
+df_ineff <- df_ineff %>%
+  arrange(ineff) %>%
+  mutate(location_name = factor(location_name, levels = rev(location_name)))
+
+# Plot
+p_hiv_ineff_rank <- ggplot(df_ineff, aes(x = location_name, y = ineff, fill = ineff_bin)) +
+  geom_col(color = "black", linewidth = 0.3) +
+  coord_flip() +
+  scale_fill_manual(values = cols_5, name = "Inefficiency\n(quintiles)") +
+  theme_classic() +
+  theme_settings +
+  labs(
+    title = "HIV inefficiency by state (between model)",
+    x = "",
+    y = "Inefficiency (higher = worse)"
+  ) +
+  theme(
+    plot.margin = margin(t = 10, r = 30, b = 10, l = 10)
+  )
+
+# Save
+save_plot(p_hiv_ineff_rank, "F_frontier_HIV_state_inefficiency_rank_between", dir_output, width = 12, height = 14)
+
+
+
+#####
+
+
+##---------------------------------------------------------------
+## 3.X Figure - HIV - State level efficiency choropleth (frontier)
+##---------------------------------------------------------------
+
+make_state_frontier_map <- function(frontier_fp,
+                                    metric_col = c("eff", "ineff"),
+                                    out_stub,
+                                    title_text,
+                                    dir_output,
+                                    state_shapefile,
+                                    pal = c("#F1F1F1", "#B12BC9")) {
+  
+  metric_col <- match.arg(metric_col)
+  
+  # Read frontier output
+  df <- read.csv(frontier_fp, stringsAsFactors = FALSE, check.names = FALSE)
+  
+  # Keep + clean
+  df <- df %>%
+    transmute(
+      state_name = trimws(as.character(location_name)),
+      metric     = as.numeric(.data[[metric_col]])
+    ) %>%
+    filter(!is.na(state_name), !is.na(metric)) %>%
+    distinct(state_name, .keep_all = TRUE)
+  
+  # Sanity check: state name alignment
+  missing_states <- dplyr::anti_join(df, state_shapefile, by = "state_name")
+  if (nrow(missing_states) > 0) {
+    message("States in frontier file not found in shapefile: ",
+            paste(missing_states$state_name, collapse = ", "))
+  }
+  if (nrow(missing_states) > 5) stop("Too many unmatched states (", nrow(missing_states), "). Check name alignment.")
+  
+  # Join onto sf
+  map_state_df <- dplyr::left_join(state_shapefile, df, by = "state_name")
+  
+  # Quintile breaks
+  brks <- quantile(map_state_df$metric, probs = c(0, .2, .4, .6, .8, 1), na.rm = TRUE)
+  brks[1] <- brks[1] - 1e-9
+  
+  # Labels (2 decimals; swap if you want %)
+  labs <- paste0(round(brks[-length(brks)], 2), " – ", round(brks[-1], 2))
+  labs[length(labs)] <- paste0(round(brks[length(brks) - 1], 2), "+")
+  
+  # Bin
+  map_state_df$plot_val <- cut(map_state_df$metric, breaks = brks, labels = labs, include.lowest = TRUE)
+  
+  # Palette
+  pal_fun <- colorRampPalette(pal)
+  cols_5 <- pal_fun(5)
+  
+  # Plot
+  p <- ggplot2::ggplot(data = map_state_df) +
+    ggplot2::geom_sf(ggplot2::aes(fill = plot_val, geometry = geometry),
+                     color = "grey30", linewidth = 0.3) +
+    ggplot2::labs(title = title_text, fill = "") +
+    ggplot2::scale_fill_manual(
+      values = cols_5,
+      breaks = levels(map_state_df$plot_val),
+      na.value = "#838484"
+    ) +
+    ggplot2::theme(
+      legend.position = "bottom",
+      legend.justification = "center",
+      legend.direction = "horizontal",
+      legend.box = "horizontal",
+      title = ggplot2::element_text(size = 14),
+      text = ggplot2::element_text(size = 10),
+      plot.margin = ggplot2::margin(0.5, 0, 1, 0, "cm"),
+      axis.ticks = ggplot2::element_blank(),
+      axis.text = ggplot2::element_blank(),
+      panel.background = ggplot2::element_blank()
+    ) +
+    ggplot2::guides(fill = ggplot2::guide_legend(nrow = 1))
+  
+  # Save
+  save_plot(p, out_stub, dir_output)
+  
+  message("NA ", metric_col, ": ", sum(is.na(map_state_df$metric)))
+  print(table(map_state_df$plot_val, useNA = "ifany"))
+  
+  invisible(list(plot = p, map_df = map_state_df, data = df))
+}
+
+##---------------------------------------------------------------
+## HIV efficiency map (between model)
+##---------------------------------------------------------------
+fp_frontier <- file.path(h, "aim_outputs/Aim2/C_frontier_analysis/20260303/hiv_between_output.csv")
+
+res_hiv_eff_map <- make_state_frontier_map(
+  frontier_fp    = fp_frontier,
+  metric_col     = "ineff",  # switch to "ineff" if you want ineff instead
+  out_stub       = "F_frontier_HIV_state_efficiency_between",
+  title_text     = "HIV efficiency by state (between model)",
+  dir_output     = dir_output,
+  state_shapefile = state_shapefile
+)
 ### REFERENCE CODE - SAFE TO DELETE
 
 # Code used to look at the difference between individual payer groups summed up vs. payer = all
@@ -1581,3 +1731,108 @@ save_plot(f7_hiv_pop_percent, "F7_HIV_population_percent", dir_output)
 #                                "all", "mdcd", "mdcr", "oop", "priv", "payer_sum", "payer_delta"
 # )))
 
+
+# Compute total prevalence by year (national example)
+df_prev_totals <- df_gbd %>%
+  filter(cause_name == "HIV/AIDS") %>%
+  group_by(year_id) %>%
+  summarise(total_prev = sum(prevalence_counts), .groups = "drop")
+
+# Merge totals back
+df_prev_shares <- df_gbd %>%
+  filter(cause_name == "HIV/AIDS") %>%
+  group_by(age_group_name, sex_id, year_id) %>%
+  summarise(prevalence_counts = sum(prevalence_counts), .groups = "drop") %>%
+  left_join(df_prev_totals, by = "year_id") %>%
+  mutate(share = prevalence_counts / total_prev)
+
+
+
+df_prev_shares %>%
+  filter(year_id %in% c(2010, 2019)) %>%
+  select(age_group_name, sex_id, year_id, share)
+
+
+df_prev_shares %>%
+  filter(year_id %in% c(2010, 2019)) %>%
+  pivot_wider(names_from = year_id, values_from = share) %>%
+  mutate(delta = `2019` - `2010`) %>%
+  arrange(desc(delta))
+
+
+
+df_prev_age_delta <- df_prev_shares %>%
+  filter(year_id %in% c(2010, 2019)) %>%
+  group_by(age_group_name, year_id) %>%
+  summarise(share = sum(share), .groups = "drop") %>%
+  pivot_wider(names_from = year_id, values_from = share) %>%
+  mutate(delta = `2019` - `2010`) %>%
+  arrange(desc(delta))
+
+
+print(df_prev_age_delta, n = Inf)
+
+
+ggplot(df_prev_age_delta,
+       aes(x = delta,
+           y = reorder(age_group_name, delta),
+           fill = delta > 0)) +
+  geom_col() +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  scale_fill_manual(values = c("TRUE" = "steelblue",
+                               "FALSE" = "firebrick")) +
+  scale_x_continuous(labels = scales::percent_format(accuracy = 0.01)) +
+  labs(title = "Change in share of total HIV cases (2019 − 2010)",
+       x = "Δ Share of total HIV prevalence",
+       y = NULL) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+
+
+##----------------------------------------------------------------
+## 4.X Figure - Change in share of total HIV cases (2019 − 2010)
+##----------------------------------------------------------------
+
+# Total prevalence by year
+df_prev_totals <- df_gbd %>%
+  filter(cause_name == "HIV/AIDS") %>%
+  group_by(year_id) %>%
+  summarise(total_prev = sum(prevalence_counts), .groups = "drop")
+
+# Shares by age/sex/year
+df_prev_shares <- df_gbd %>%
+  filter(cause_name == "HIV/AIDS") %>%
+  group_by(age_group_name, sex_id, year_id) %>%
+  summarise(prevalence_counts = sum(prevalence_counts), .groups = "drop") %>%
+  left_join(df_prev_totals, by = "year_id") %>%
+  mutate(share = prevalence_counts / total_prev)
+
+# Delta (sum over sex so it matches your shown figure)
+df_prev_age_delta <- df_prev_shares %>%
+  filter(year_id %in% c(2010, 2019)) %>%
+  group_by(age_group_name, year_id) %>%
+  summarise(share = sum(share), .groups = "drop") %>%
+  pivot_wider(names_from = year_id, values_from = share) %>%
+  mutate(delta = `2019` - `2010`) %>%
+  arrange(delta)
+
+# Plot
+f_share_delta <- ggplot(
+  df_prev_age_delta,
+  aes(x = delta, y = reorder(age_group_name, delta), fill = delta > 0)
+) +
+  geom_col() +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  scale_fill_manual(values = c("TRUE" = "steelblue", "FALSE" = "firebrick")) +
+  scale_x_continuous(labels = scales::percent_format(accuracy = 0.01)) +
+  labs(
+    title = "Change in share of total HIV cases (2019 − 2010)",
+    x = "Δ Share of total HIV prevalence",
+    y = NULL
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# Save
+save_plot(f_share_delta, "F_share_total_HIV_cases_delta_2019_2010", dir_output, width = 16, height = 9)
