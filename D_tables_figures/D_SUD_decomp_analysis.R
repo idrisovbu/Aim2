@@ -2,6 +2,12 @@
 ##' Title: D_decomp_analysis.R
 ##'
 ##' Purpose: Das Gupta 4-Factor Decomposition of SUD Spending (2010-2019)
+##' 
+##' Cause Names
+##' [1] "HIV/AIDS"               
+##' [2] "Alcohol use disorders"  
+##' [3] "Opioid use disorders"   
+##' [4] "Substance use disorders"
 ##----------------------------------------------------------------
 
 ##----------------------------------------------------------------
@@ -51,7 +57,7 @@ convert_to_dollars <- function(df, cols_to_convert) {
 ##----------------------------------------------------------------
 ## 0.1 Set directories
 ##----------------------------------------------------------------
-date_decomp <- "20260201"
+date_decomp <- "20260315"
 fp_decomp <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_decomp, "/df_decomp.csv")
 
 date_today <- format(Sys.time(), "%Y%m%d")

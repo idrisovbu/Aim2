@@ -176,13 +176,20 @@ df_m <- left_join(
   by = c("location_id", "sex_id", "year_id", "cause_name", "location_name", "age_name")
 )
 
+# Filter out age groups under 15 years of age, all GBD data is 0, but should be NA. 
+opioid_age_groups_to_filter <- c("0 - <1", "1 - <5", "5 - <10", "10 - <15")
+
+df_m <- df_m %>%
+  filter(!(cause_name == "Opioid use disorders" &
+             age_name %in% opioid_age_groups_to_filter))
+
 # Write out age*sex*year*loc strata file, used for decomp analysis
 write.csv(x = df_m, row.names = FALSE, file = file.path(dir_output, "df_decomp.csv"))
 
 ##----------------------------------------------------------------
 ## 2. Collapse on sex_id
 ##----------------------------------------------------------------
-df_m <- df_m %>%
+df_m_collapse <- df_m %>%
   group_by(cause_id, year_id, location_id, location_name, acause, cause_name, age_name, age_group_years_start) %>%
   summarise(
     spend_all = sum(spend_all, na.rm = TRUE),
@@ -203,7 +210,7 @@ df_m <- df_m %>%
 ##----------------------------------------------------------------
 ## 3. Create spend_prev_ratio & mort_prev_ratio columns
 ##----------------------------------------------------------------
-df_m <- df_m %>%
+df_m_collapse <- df_m_collapse %>%
   mutate(
     spend_prev_ratio = (spend_all / prevalence_counts),
     mort_prev_ratio = (mortality_counts / prevalence_counts),
@@ -221,7 +228,7 @@ df_ushd_age_weights <- df_ushd_age_weights %>%
 
 # Join age weights to data
 df_as <- left_join(
-  x = df_m,
+  x = df_m_collapse,
   y = df_ushd_age_weights,
   by = c("age_group_years_start")
 )
@@ -306,208 +313,210 @@ df_as_no_year$yld_rates <- df_as_no_year$yld_counts / df_as_no_year$population
 # Save
 write.csv(x = df_as_no_year, row.names = FALSE, file = file.path(dir_output, "df_as_no_year.csv"))
 
-##----------------------------------------------------------------
-## 8. Process CDC data
-##----------------------------------------------------------------
-# Select columns we want
-df_cdc <- df_cdc %>%
-  select(c("Indicator", "Year", "Geography", "Age Group", "Cases"))
+# CDC Data Processing has been commented out below, depracated as of 3/15/26
 
-# Rename columns
-df_cdc <- df_cdc %>%
-  setnames(
-    old = c("Indicator", "Year", "Geography", "Age Group", "Cases"),
-    new = c("measure", "year_id", "location_name", "age_group", "val")
-  )
-
-# Pivot wide
-df_cdc_p <- df_cdc %>%
-  pivot_wider(
-    names_from = measure,
-    values_from = val
-  )
-
-# Modify age group names to match DEX age group names
-df_cdc_p <- df_cdc_p %>%
-  mutate(age_name = case_when(
-    age_group == "25-34" ~ "25 - <35",
-    age_group == "35-44" ~ "35 - <45",
-    age_group == "45-54" ~ "45 - <55",
-    age_group == "55-64" ~ "55 - <65",
-    age_group == "65+" ~ "65+"
-  ))
-
-# Rename columns
-df_cdc_p <- df_cdc_p %>%
-  setnames(
-    old = c("HIV deaths", "HIV prevalence"),
-    new = c("cdc_hiv_mortality_counts", "cdc_hiv_prevalence_counts")
-  )
-
-# Add cause columns
-df_cdc_p$acause <- "hiv"
-df_cdc_p$cause_name <- "HIV/AIDS"
-
-# Fix naming on certain states
-df_cdc_p$location_name <- if_else(df_cdc_p$location_name == "Mississippi^", "Mississippi", df_cdc_p$location_name)
-df_cdc_p$location_name <- if_else(df_cdc_p$location_name == "West Virginia^", "West Virginia", df_cdc_p$location_name)
-
-##----------------------------------------------------------------
-## 9. Merge CDC data with data pre-age-standardization
-##----------------------------------------------------------------
-# Filter df_m (data before age-standardization) down to age groups in CDC data
-df_m_cdc <- df_m %>%
-  filter(age_name %in% c("25 - <30", 
-                         "30 - <35", "35 - <40", "40 - <45", "45 - <50", "50 - <55", 
-                         "55 - <60", "60 - <65", "65 - <70", "70 - <75", "75 - <80", "80 - <85", 
-                         "85+"))
-
-# Create age groups to match CDC age groups
-df_m_cdc <- df_m_cdc %>%
-  mutate(age_name_cdc = case_when(
-    age_name == "25 - <30" ~ "25 - <35",
-    age_name == "30 - <35" ~ "25 - <35",
-    age_name == "35 - <40" ~ "35 - <45",
-    age_name == "40 - <45" ~ "35 - <45",
-    age_name == "45 - <50" ~ "45 - <55",
-    age_name == "50 - <55" ~ "45 - <55",
-    age_name == "55 - <60" ~ "55 - <65",
-    age_name == "60 - <65" ~ "55 - <65",
-    age_name == "65 - <70" ~ "65+",
-    age_name == "70 - <75" ~ "65+",
-    age_name == "75 - <80" ~ "65+",
-    age_name == "80 - <85" ~ "65+",
-    age_name == "85+"      ~ "65+"
-  ))
-
-# Collapse on sex
-df_m_cdc <- df_m_cdc %>%
-  select(!c("spend_prev_ratio", "mort_prev_ratio", "daly_prev_ratio", "yll_prev_ratio", "yld_prev_ratio")) %>%
-  group_by(cause_id, year_id, location_id, location_name, acause, cause_name, age_name_cdc) %>%
-  summarise(
-    spend_all = sum(spend_all, na.rm = TRUE),
-    spend_mdcd = sum(spend_mdcd, na.rm = TRUE),
-    spend_mdcr = sum(spend_mdcr, na.rm = TRUE),
-    spend_oop = sum(spend_oop, na.rm = TRUE),
-    spend_priv = sum(spend_priv, na.rm = TRUE),
-    mortality_counts = sum(mortality_counts),
-    prevalence_counts = sum(prevalence_counts),
-    daly_counts = sum(daly_counts),
-    incidence_counts = sum(incidence_counts),
-    yll_counts = sum(yll_counts),
-    yld_counts = sum(yld_counts),
-    population = sum(population),
-    .groups = "drop"
-  )
-
-# Left join w/ CDC data
-df_m_cdc <- left_join(
-  x = df_m_cdc,
-  y = df_cdc_p %>% select(!c("age_group")),
-  by = c("year_id", "location_name", "age_name_cdc" = "age_name", "acause", "cause_name")
-)
-
-##----------------------------------------------------------------
-## 10. Create spend_prev_ratio & mort_prev_ratio columns
-##----------------------------------------------------------------
-df_m_cdc <- df_m_cdc %>%
-  mutate(
-    cdc_spend_prev_ratio = (spend_all / cdc_hiv_prevalence_counts),
-    cdc_mort_prev_ratio = (cdc_hiv_mortality_counts / cdc_hiv_prevalence_counts),
-    spend_prev_ratio = (spend_all / prevalence_counts),
-    mort_prev_ratio = (mortality_counts / prevalence_counts),
-    daly_prev_ratio = (daly_counts / prevalence_counts),
-    yll_prev_ratio = (yll_counts / prevalence_counts),
-    yld_prev_ratio = (yld_counts / prevalence_counts)
-  )
-
-##----------------------------------------------------------------
-## 11. Create age weights for CDC age groups c("25-34", "35-44", "45-54", "55-64", "65+")
-##----------------------------------------------------------------
-# Label age groups to match CDC groups
-df_ushd_age_weights_cdc <- df_ushd_age_weights %>%
-  mutate(
-    age_group_coarse = case_when(
-      age_group_years_start %in% c(25, 30) ~ "25 - <35",
-      age_group_years_start %in% c(35, 40) ~ "35 - <45",
-      age_group_years_start %in% c(45, 50) ~ "45 - <55",
-      age_group_years_start %in% c(55, 60) ~ "55 - <65",
-      age_group_years_start >= 65          ~ "65+",
-      TRUE ~ NA_character_
-    )
-  ) %>%
-  filter(!is.na(age_group_coarse))
-
-# Sum by new age group
-df_ushd_age_weights_cdc <- df_ushd_age_weights_cdc %>%
-  group_by(age_group_coarse) %>%
-  summarise(
-    age_group_weight = sum(age_group_weight_value),
-    .groups = "drop"
-  )
-
-# Scale new age groups to sum to 1 based on their weight
-df_ushd_age_weights_cdc <- df_ushd_age_weights_cdc %>%
-  mutate(
-    age_group_weight = age_group_weight / sum(age_group_weight)
-  )
-
-##----------------------------------------------------------------
-## 12. Merge CDC data w/ modified age weights, age-standardize ratios
-##----------------------------------------------------------------
-df_m_cdc <- left_join(
-  x = df_m_cdc,
-  y = df_ushd_age_weights_cdc,
-  by = c("age_name_cdc" = "age_group_coarse")
-)
-
-# Create age-standardized ratios based on non-sexed GBD age weights (collapsing age groups here) 
-df_as_cdc <- df_m_cdc %>%
-  group_by(cause_id, year_id, location_id, location_name, acause, cause_name) %>%
-  summarise(
-    as_cdc_spend_prev_ratio = sum(cdc_spend_prev_ratio * age_group_weight, na.rm = TRUE),
-    as_cdc_mort_prev_ratio = sum(cdc_mort_prev_ratio * age_group_weight, na.rm = TRUE),
-    as_spend_prev_ratio = sum(spend_prev_ratio * age_group_weight, na.rm = TRUE),
-    as_mort_prev_ratio  = sum(mort_prev_ratio * age_group_weight, na.rm = TRUE),
-    as_daly_prev_ratio  = sum(daly_prev_ratio * age_group_weight, na.rm = TRUE),
-    as_yll_prev_ratio  = sum(yll_prev_ratio * age_group_weight, na.rm = TRUE),
-    as_yld_prev_ratio  = sum(yld_prev_ratio * age_group_weight, na.rm = TRUE),
-    spend_all = sum(spend_all, na.rm = TRUE),
-    spend_mdcd = sum(spend_mdcd, na.rm = TRUE),
-    spend_mdcr = sum(spend_mdcr, na.rm = TRUE),
-    spend_oop = sum(spend_oop, na.rm = TRUE),
-    spend_priv = sum(spend_priv, na.rm = TRUE),
-    cdc_hiv_mortality_counts = sum(cdc_hiv_mortality_counts, na.rm = TRUE),
-    cdc_hiv_prevalence_counts = sum(cdc_hiv_prevalence_counts, na.rm = TRUE),
-    mortality_counts = sum(mortality_counts),
-    prevalence_counts = sum(prevalence_counts),
-    daly_counts = sum(daly_counts),
-    incidence_counts = sum(incidence_counts),
-    yll_counts = sum(yll_counts),
-    yld_counts = sum(yld_counts),
-    population = sum(population),
-    .groups = "drop"
-  )
-
-##----------------------------------------------------------------
-## 13. Add Rate columns to df_as_cdc
-##----------------------------------------------------------------
-df_as_cdc$mortality_rates <- df_as_cdc$mortality_counts / df_as_cdc$population
-df_as_cdc$prevalence_rates <- df_as_cdc$prevalence_counts / df_as_cdc$population
-df_as_cdc$daly_rates <- df_as_cdc$daly_counts / df_as_cdc$population
-df_as_cdc$incidence_rates <- df_as_cdc$incidence_counts / df_as_cdc$population
-df_as_cdc$yll_rates <- df_as_cdc$yll_counts / df_as_cdc$population
-df_as_cdc$yld_rates <- df_as_cdc$yld_counts / df_as_cdc$population
-
-##----------------------------------------------------------------
-## 14. Add variance column from mortality and deaths data
-## Variance column needed for SFMA package 
-##----------------------------------------------------------------
-df_as_cdc$variance <- (df_as_cdc$mortality_counts / (df_as_cdc$prevalence_counts^2))
-df_as_cdc$cdc_variance <- (df_as_cdc$cdc_hiv_mortality_counts / (df_as_cdc$cdc_hiv_prevalence_counts^2))
-
-# Write out CDC age-standardized data to today's dated folder in C_frontier_analysis
-write.csv(x = df_as_cdc, row.names = FALSE, file = file.path(dir_output, "df_as_cdc.csv"))
+# ##----------------------------------------------------------------
+# ## 8. Process CDC data
+# ##----------------------------------------------------------------
+# # Select columns we want
+# df_cdc <- df_cdc %>%
+#   select(c("Indicator", "Year", "Geography", "Age Group", "Cases"))
+# 
+# # Rename columns
+# df_cdc <- df_cdc %>%
+#   setnames(
+#     old = c("Indicator", "Year", "Geography", "Age Group", "Cases"),
+#     new = c("measure", "year_id", "location_name", "age_group", "val")
+#   )
+# 
+# # Pivot wide
+# df_cdc_p <- df_cdc %>%
+#   pivot_wider(
+#     names_from = measure,
+#     values_from = val
+#   )
+# 
+# # Modify age group names to match DEX age group names
+# df_cdc_p <- df_cdc_p %>%
+#   mutate(age_name = case_when(
+#     age_group == "25-34" ~ "25 - <35",
+#     age_group == "35-44" ~ "35 - <45",
+#     age_group == "45-54" ~ "45 - <55",
+#     age_group == "55-64" ~ "55 - <65",
+#     age_group == "65+" ~ "65+"
+#   ))
+# 
+# # Rename columns
+# df_cdc_p <- df_cdc_p %>%
+#   setnames(
+#     old = c("HIV deaths", "HIV prevalence"),
+#     new = c("cdc_hiv_mortality_counts", "cdc_hiv_prevalence_counts")
+#   )
+# 
+# # Add cause columns
+# df_cdc_p$acause <- "hiv"
+# df_cdc_p$cause_name <- "HIV/AIDS"
+# 
+# # Fix naming on certain states
+# df_cdc_p$location_name <- if_else(df_cdc_p$location_name == "Mississippi^", "Mississippi", df_cdc_p$location_name)
+# df_cdc_p$location_name <- if_else(df_cdc_p$location_name == "West Virginia^", "West Virginia", df_cdc_p$location_name)
+# 
+# ##----------------------------------------------------------------
+# ## 9. Merge CDC data with data pre-age-standardization
+# ##----------------------------------------------------------------
+# # Filter df_m_collapse (data before age-standardization) down to age groups in CDC data
+# df_m_cdc <- df_m_collapse %>%
+#   filter(age_name %in% c("25 - <30", 
+#                          "30 - <35", "35 - <40", "40 - <45", "45 - <50", "50 - <55", 
+#                          "55 - <60", "60 - <65", "65 - <70", "70 - <75", "75 - <80", "80 - <85", 
+#                          "85+"))
+# 
+# # Create age groups to match CDC age groups
+# df_m_cdc <- df_m_cdc %>%
+#   mutate(age_name_cdc = case_when(
+#     age_name == "25 - <30" ~ "25 - <35",
+#     age_name == "30 - <35" ~ "25 - <35",
+#     age_name == "35 - <40" ~ "35 - <45",
+#     age_name == "40 - <45" ~ "35 - <45",
+#     age_name == "45 - <50" ~ "45 - <55",
+#     age_name == "50 - <55" ~ "45 - <55",
+#     age_name == "55 - <60" ~ "55 - <65",
+#     age_name == "60 - <65" ~ "55 - <65",
+#     age_name == "65 - <70" ~ "65+",
+#     age_name == "70 - <75" ~ "65+",
+#     age_name == "75 - <80" ~ "65+",
+#     age_name == "80 - <85" ~ "65+",
+#     age_name == "85+"      ~ "65+"
+#   ))
+# 
+# # Collapse on sex
+# df_m_cdc <- df_m_cdc %>%
+#   select(!c("spend_prev_ratio", "mort_prev_ratio", "daly_prev_ratio", "yll_prev_ratio", "yld_prev_ratio")) %>%
+#   group_by(cause_id, year_id, location_id, location_name, acause, cause_name, age_name_cdc) %>%
+#   summarise(
+#     spend_all = sum(spend_all, na.rm = TRUE),
+#     spend_mdcd = sum(spend_mdcd, na.rm = TRUE),
+#     spend_mdcr = sum(spend_mdcr, na.rm = TRUE),
+#     spend_oop = sum(spend_oop, na.rm = TRUE),
+#     spend_priv = sum(spend_priv, na.rm = TRUE),
+#     mortality_counts = sum(mortality_counts),
+#     prevalence_counts = sum(prevalence_counts),
+#     daly_counts = sum(daly_counts),
+#     incidence_counts = sum(incidence_counts),
+#     yll_counts = sum(yll_counts),
+#     yld_counts = sum(yld_counts),
+#     population = sum(population),
+#     .groups = "drop"
+#   )
+# 
+# # Left join w/ CDC data
+# df_m_cdc <- left_join(
+#   x = df_m_cdc,
+#   y = df_cdc_p %>% select(!c("age_group")),
+#   by = c("year_id", "location_name", "age_name_cdc" = "age_name", "acause", "cause_name")
+# )
+# 
+# ##----------------------------------------------------------------
+# ## 10. Create spend_prev_ratio & mort_prev_ratio columns
+# ##----------------------------------------------------------------
+# df_m_cdc <- df_m_cdc %>%
+#   mutate(
+#     cdc_spend_prev_ratio = (spend_all / cdc_hiv_prevalence_counts),
+#     cdc_mort_prev_ratio = (cdc_hiv_mortality_counts / cdc_hiv_prevalence_counts),
+#     spend_prev_ratio = (spend_all / prevalence_counts),
+#     mort_prev_ratio = (mortality_counts / prevalence_counts),
+#     daly_prev_ratio = (daly_counts / prevalence_counts),
+#     yll_prev_ratio = (yll_counts / prevalence_counts),
+#     yld_prev_ratio = (yld_counts / prevalence_counts)
+#   )
+# 
+# ##----------------------------------------------------------------
+# ## 11. Create age weights for CDC age groups c("25-34", "35-44", "45-54", "55-64", "65+")
+# ##----------------------------------------------------------------
+# # Label age groups to match CDC groups
+# df_ushd_age_weights_cdc <- df_ushd_age_weights %>%
+#   mutate(
+#     age_group_coarse = case_when(
+#       age_group_years_start %in% c(25, 30) ~ "25 - <35",
+#       age_group_years_start %in% c(35, 40) ~ "35 - <45",
+#       age_group_years_start %in% c(45, 50) ~ "45 - <55",
+#       age_group_years_start %in% c(55, 60) ~ "55 - <65",
+#       age_group_years_start >= 65          ~ "65+",
+#       TRUE ~ NA_character_
+#     )
+#   ) %>%
+#   filter(!is.na(age_group_coarse))
+# 
+# # Sum by new age group
+# df_ushd_age_weights_cdc <- df_ushd_age_weights_cdc %>%
+#   group_by(age_group_coarse) %>%
+#   summarise(
+#     age_group_weight = sum(age_group_weight_value),
+#     .groups = "drop"
+#   )
+# 
+# # Scale new age groups to sum to 1 based on their weight
+# df_ushd_age_weights_cdc <- df_ushd_age_weights_cdc %>%
+#   mutate(
+#     age_group_weight = age_group_weight / sum(age_group_weight)
+#   )
+# 
+# ##----------------------------------------------------------------
+# ## 12. Merge CDC data w/ modified age weights, age-standardize ratios
+# ##----------------------------------------------------------------
+# df_m_cdc <- left_join(
+#   x = df_m_cdc,
+#   y = df_ushd_age_weights_cdc,
+#   by = c("age_name_cdc" = "age_group_coarse")
+# )
+# 
+# # Create age-standardized ratios based on non-sexed GBD age weights (collapsing age groups here) 
+# df_as_cdc <- df_m_cdc %>%
+#   group_by(cause_id, year_id, location_id, location_name, acause, cause_name) %>%
+#   summarise(
+#     as_cdc_spend_prev_ratio = sum(cdc_spend_prev_ratio * age_group_weight, na.rm = TRUE),
+#     as_cdc_mort_prev_ratio = sum(cdc_mort_prev_ratio * age_group_weight, na.rm = TRUE),
+#     as_spend_prev_ratio = sum(spend_prev_ratio * age_group_weight, na.rm = TRUE),
+#     as_mort_prev_ratio  = sum(mort_prev_ratio * age_group_weight, na.rm = TRUE),
+#     as_daly_prev_ratio  = sum(daly_prev_ratio * age_group_weight, na.rm = TRUE),
+#     as_yll_prev_ratio  = sum(yll_prev_ratio * age_group_weight, na.rm = TRUE),
+#     as_yld_prev_ratio  = sum(yld_prev_ratio * age_group_weight, na.rm = TRUE),
+#     spend_all = sum(spend_all, na.rm = TRUE),
+#     spend_mdcd = sum(spend_mdcd, na.rm = TRUE),
+#     spend_mdcr = sum(spend_mdcr, na.rm = TRUE),
+#     spend_oop = sum(spend_oop, na.rm = TRUE),
+#     spend_priv = sum(spend_priv, na.rm = TRUE),
+#     cdc_hiv_mortality_counts = sum(cdc_hiv_mortality_counts, na.rm = TRUE),
+#     cdc_hiv_prevalence_counts = sum(cdc_hiv_prevalence_counts, na.rm = TRUE),
+#     mortality_counts = sum(mortality_counts),
+#     prevalence_counts = sum(prevalence_counts),
+#     daly_counts = sum(daly_counts),
+#     incidence_counts = sum(incidence_counts),
+#     yll_counts = sum(yll_counts),
+#     yld_counts = sum(yld_counts),
+#     population = sum(population),
+#     .groups = "drop"
+#   )
+# 
+# ##----------------------------------------------------------------
+# ## 13. Add Rate columns to df_as_cdc
+# ##----------------------------------------------------------------
+# df_as_cdc$mortality_rates <- df_as_cdc$mortality_counts / df_as_cdc$population
+# df_as_cdc$prevalence_rates <- df_as_cdc$prevalence_counts / df_as_cdc$population
+# df_as_cdc$daly_rates <- df_as_cdc$daly_counts / df_as_cdc$population
+# df_as_cdc$incidence_rates <- df_as_cdc$incidence_counts / df_as_cdc$population
+# df_as_cdc$yll_rates <- df_as_cdc$yll_counts / df_as_cdc$population
+# df_as_cdc$yld_rates <- df_as_cdc$yld_counts / df_as_cdc$population
+# 
+# ##----------------------------------------------------------------
+# ## 14. Add variance column from mortality and deaths data
+# ## Variance column needed for SFMA package 
+# ##----------------------------------------------------------------
+# df_as_cdc$variance <- (df_as_cdc$mortality_counts / (df_as_cdc$prevalence_counts^2))
+# df_as_cdc$cdc_variance <- (df_as_cdc$cdc_hiv_mortality_counts / (df_as_cdc$cdc_hiv_prevalence_counts^2))
+# 
+# # Write out CDC age-standardized data to today's dated folder in C_frontier_analysis
+# write.csv(x = df_as_cdc, row.names = FALSE, file = file.path(dir_output, "df_as_cdc.csv"))
 
 
 

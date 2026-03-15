@@ -62,7 +62,7 @@ ensure_dir_exists <- function(dir_path) {
 # Set fp for age-standardized data
 as_date <- "20260315"
 fp_as <- file.path(h, '/aim_outputs/Aim2/C_frontier_analysis/', as_date, "df_as.csv")
-fp_as_cdc <- file.path(h, '/aim_outputs/Aim2/C_frontier_analysis/', as_date, "df_as_cdc.csv")
+# fp_as_cdc <- file.path(h, '/aim_outputs/Aim2/C_frontier_analysis/', as_date, "df_as_cdc.csv") (DEPRACATED in C_regression_prep_A.R)
 
 # Set output directories
 date_today <- format(Sys.time(), "%Y%m%d")
@@ -85,7 +85,7 @@ fp_cityfips <- file.path(h, "/aim_outputs/Aim2/R_resources/ryan_white_data/t1yea
 ## 2. Read in data
 ##----------------------------------------------------------------
 df_as <- read.csv(fp_as)
-df_as_cdc <- read.csv(fp_as_cdc)
+# df_as_cdc <- read.csv(fp_as_cdc) (DEPRACATED in C_regression_prep_A.R)
 df_cov <- read.csv(fp_df_cov)
 df_race_cov <- read.csv(fp_df_race_cov)
 df_aca_expansion <- read.csv(fp_aca_expansion)
@@ -340,6 +340,26 @@ df_sud_prev_count <- df_as %>%
 df_sud_prev_count <- df_sud_prev_count %>%
   mutate(high_sud_prev = ifelse(sud_prevalence_counts >= median(sud_prevalence_counts), 1, 0))
 
+# Create alcohol_prevalence_counts column ####################
+df_alcohol_prev_count <- df_as %>% 
+  filter(acause == "mental_alcohol") %>%
+  select(c("cause_id", "year_id", "location_id", "location_name", "acause", 
+           "cause_name", "prevalence_counts")) %>%
+  setnames(old = "prevalence_counts", new = "alcohol_prevalence_counts")
+
+df_alcohol_prev_count <- df_alcohol_prev_count %>%
+  mutate(high_alcohol_prev = ifelse(alcohol_prevalence_counts >= median(alcohol_prevalence_counts), 1, 0))
+
+# Create opioid_prevalence_counts column
+df_opioid_prev_count <- df_as %>% 
+  filter(acause == "mental_drug_opioids") %>%
+  select(c("cause_id", "year_id", "location_id", "location_name", "acause", 
+           "cause_name", "prevalence_counts")) %>%
+  setnames(old = "prevalence_counts", new = "opioid_prevalence_counts")
+
+df_opioid_prev_count <- df_opioid_prev_count %>%
+  mutate(high_opioid_prev = ifelse(opioid_prevalence_counts >= median(opioid_prevalence_counts), 1, 0))
+
 # Create hiv_prevalence_counts column
 if (cdc) { # use CDC hiv prevalence data
   df_hiv_prev_count <- df_as %>% 
@@ -371,6 +391,18 @@ df_as <- left_join(
 df_as <- left_join(
   x = df_as,
   y = df_hiv_prev_count %>% select(!c("acause", "cause_id", "cause_name")),
+  by = c("year_id", "location_id", "location_name")
+)
+
+df_as <- left_join(
+  x = df_as,
+  y = df_alcohol_prev_count %>% select(!c("acause", "cause_id", "cause_name")),
+  by = c("year_id", "location_id", "location_name")
+)
+
+df_as <- left_join(
+  x = df_as,
+  y = df_opioid_prev_count %>% select(!c("acause", "cause_id", "cause_name")),
   by = c("year_id", "location_id", "location_name")
 )
 
