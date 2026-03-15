@@ -23,6 +23,8 @@ source("/ihme/cc_resources/libraries/current/r/get_outputs.R")
 source("/ihme/cc_resources/libraries/current/r/get_population.R")
 source("/ihme/cc_resources/libraries/current/r/get_location_metadata.R")
 source("/ihme/cc_resources/libraries/current/r/get_age_metadata.R")
+source("/ihme/cc_resources/libraries/current/r/get_cause_metadata.R")
+source("/ihme/cc_resources/libraries/current/r/get_machinery_estimates.R")
 
 ##----------------------------------------------------------------
 ## 0.1 Functions
@@ -53,7 +55,7 @@ rel_id <- 16
 year_ids <- c(2010:2019)
 
 # Cause_ids
-cause_ids <- c(298, 973) # hiv = 298, _subs = 973
+cause_ids <- c(298, 973, 560, 561, 562, 563, 564, 565, 566) # hiv = 298, _subs = 973
 
 # Sex_ids
 sex_ids <- c(1,2)
@@ -77,40 +79,41 @@ list_state_loc_ids <- df_state_loc_ids$location_id
 # Age Group ids
 df_age_groups <- get_age_metadata(release_id = 16)
 
+list_age_group_ids <- df_age_groups$age_group_id
+
 ##----------------------------------------------------------------
 ## 2. Pull GBD Data
 
 # Prevalence count
-# Prevalence rate
 # Mortality count
-# Mortality rate
 # Incidence count
-# Incidence rate
 # DALY count
-# DALY rate
 # YLL count
-# YLL rate
+# YLD count
+# Population data
 
 ##----------------------------------------------------------------
 # Set arguments
-args_get_outputs <- list(topic = "cause", 
-                         release_id=rel_id,
-                         location_id=list_state_loc_ids, 
-                         year_id=year_ids, 
-                         age_group_id="all",
-                         sex_id=sex_ids, 
-                         #measure_id=5, # 5 = Prevalence
-                         #metric_id=1, # 1 = Number, # 3 = Rate
-                         cause_id=cause_ids, 
-                         location_set_id=35)
+args_get_machinery_estimates <- list(entity = "cause", 
+                                     entity_id = cause_ids,
+                                     release_id=rel_id,
+                                     context="GBD",
+                                     estimates="PE",
+                                     #measure_id (specified in call)
+                                     #metric_id (specified in call)
+                                     location_id=list_state_loc_ids, 
+                                     sex_id=sex_ids, 
+                                     age_group_id=list_age_group_ids,
+                                     year_id=year_ids,
+                                     add_names = T)
 
 # Pull all counts (will make rates from collapsed counts later)
-df_prevalence_counts <- do.call(get_outputs, c(args_get_outputs, list(measure_id = 5, metric_id = 1)))
-df_mortality_counts <- do.call(get_outputs, c(args_get_outputs, list(measure_id = 1, metric_id = 1)))
-df_daly_counts <- do.call(get_outputs, c(args_get_outputs, list(measure_id = 2, metric_id = 1)))
-df_incidence_counts <- do.call(get_outputs, c(args_get_outputs, list(measure_id = 6, metric_id = 1)))
-df_yll_counts <- do.call(get_outputs, c(args_get_outputs, list(measure_id = 4, metric_id = 1)))
-df_yld_counts <- do.call(get_outputs, c(args_get_outputs, list(measure_id = 3, metric_id = 1)))
+df_prevalence_counts <- do.call(get_machinery_estimates, c(args_get_machinery_estimates, list(measure_id = 5, metric_id = 1)))
+df_mortality_counts <- do.call(get_machinery_estimates, c(args_get_machinery_estimates, list(measure_id = 1, metric_id = 1)))
+df_daly_counts <- do.call(get_machinery_estimates, c(args_get_machinery_estimates, list(measure_id = 2, metric_id = 1)))
+df_incidence_counts <- do.call(get_machinery_estimates, c(args_get_machinery_estimates, list(measure_id = 6, metric_id = 1)))
+df_yll_counts <- do.call(get_machinery_estimates, c(args_get_machinery_estimates, list(measure_id = 4, metric_id = 1)))
+df_yld_counts <- do.call(get_machinery_estimates, c(args_get_machinery_estimates, list(measure_id = 3, metric_id = 1)))
 
 df_list <- list(df_prevalence_counts,
                 df_mortality_counts,
@@ -130,17 +133,17 @@ df_list_val_label <- c("prevalence_counts",
 
 df_gbd <- data.frame()
 
-# Loop through each df, filter columns, relabel "val" column to respective measure_counts, join together
+# Loop through each df, filter columns, relabel "point_estimate" column to respective measure_counts, join together
 for (i in 1:length(df_list)) {
   df <- df_list[[i]]
   
   df <- df %>%
     select(c(age_group_id, cause_id, location_id, 
-             sex_id, year_id, acause, age_group_name, cause_name, location_name, val))
+             sex_id, year_id, age_group_name, cause_name, location_name, point_estimate))
   
   df <- df %>%
     rename(
-      !!df_list_val_label[i] := "val"
+      !!df_list_val_label[i] := "point_estimate"
     )
   
   if (i == 1) {
@@ -149,7 +152,7 @@ for (i in 1:length(df_list)) {
     df_gbd <- left_join(
       x = df_gbd,
       y = df,
-      by = c("age_group_id", "age_group_name", "cause_id", "acause", "cause_name", "location_id", "location_name", "sex_id", "year_id"),
+      by = c("age_group_id", "age_group_name", "cause_id", "cause_name", "location_id", "location_name", "sex_id", "year_id"),
     )
   }
 }
@@ -197,7 +200,7 @@ df_age_non_collapse <- df_age_collapse %>%
 df_age_collapse <- df_age_collapse %>%
   filter(!is.na(age_name_group)) %>%
   group_by(age_name_group, cause_id, location_id, sex_id, 
-             year_id, acause, cause_name, location_name) %>%
+             year_id, cause_name, location_name) %>%
   summarize(
     prevalence_counts = sum(prevalence_counts),
     mortality_counts= sum(mortality_counts, na.rm = TRUE),

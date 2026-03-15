@@ -97,7 +97,7 @@ fp_dex <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_dex, "/compiled_
 date_ushd <- "20251204"
 fp_ushd <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_ushd, "/compiled_ushd_data_2010_2019.parquet")
 
-date_gbd <- "20260131"
+date_gbd <- "20260313"
 fp_gbd <- file.path(h, "/aim_outputs/Aim2/A_data_preparation/", date_gbd, "/GBD/df_gbd.parquet")
 
 # Ryan White Data
@@ -581,6 +581,45 @@ f1a_sud <- ggplot(
 
 save_plot(f1a_sud, "F1a_SUD_spending_by_insurance", dir_output, width = 16)
 
+##================================================================
+## 1. Figure F1_SUD_supplement_a — SUD: Spending by SUD subcause type, 2019
+##    (no Ryan White for SUD)
+##================================================================
+
+df_f1_sud_sup_a <- df_dex %>%
+  filter(geo == "national", acause %in% subs_causes,
+         year_id == 2019, payer == "all") %>%
+  collect() %>%
+  dplyr::group_by(acause, age_name, sex_name) %>%
+  dplyr::summarise(spend_mean = sum(spend_mean, na.rm = TRUE),
+                   .groups = "drop") %>%
+  dplyr::mutate(
+    age_name = str_replace_all(age_name, " ", ""),
+    spend_mean_inverse = ifelse(sex_name == "Male", spend_mean * -1, spend_mean),
+    age_name = factor(age_name, levels = age_factor),
+    sex_name = factor(sex_name, levels = sex_factor)
+  )
+
+f1a_sud_sup_a <- ggplot(
+  data = df_f1_sud_sup_a,
+  aes(age_name, spend_mean_inverse,
+      fill = factor(acause, levels = c("mental_alcohol", "mental_drug_agg", "mental_drug_opioids")))
+) +
+  facet_share(~ sex_name, scales = "free", reverse_num = FALSE) +
+  geom_col(color = "black", width = 1, size = 0.3) +
+  coord_flip() +
+  #scale_fill_manual(values = payer_colors, labels = payer_list, name = "Payer") +
+  scale_y_continuous(labels = axis_dollar_mb) +
+  theme_classic() +
+  labs(
+    y = "Inflation Adjusted Spending (2019 USD)", x = "",
+    title = "SUD spending subtype by sex and age group in 2019"
+  ) +
+  theme_settings +
+  guides(fill = guide_legend(title.position = "top", title.hjust = 0.5, nrow = 1)) +
+  theme(plot.margin = margin(t = 10, r = 30, b = 0, l = 0))
+
+save_plot(f1a_sud, "F1a_SUD_supplement_a", dir_output, width = 16)
 
 ##================================================================
 ## 1.1 Figure 1b — HIV: Spending per prevalent case

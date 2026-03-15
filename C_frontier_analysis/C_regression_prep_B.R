@@ -1,8 +1,10 @@
 ##----------------------------------------------------------------
-##' Title: C_regression_data_processing.R
+##' Title: C_regression_prep_B.R
 ##'
-##' Purpose: Runs regression models to help explore which models have covariates 
-##'          that are statistically significant for the frontier analysis
+##' Purpose: TBD
+##'          
+##' Outputs:
+##' df_as_processed_rw_gbd.csv
 ##----------------------------------------------------------------
 
 ##----------------------------------------------------------------
@@ -10,7 +12,8 @@
 ##----------------------------------------------------------------
 rm(list = ls())
 pacman::p_load(data.table, arrow, tidyverse, glue, broom, purrr, readr, lubridate, readxl, e1071)
-
+conflicts_prefer(data.table::year)
+conflicts_prefer(dplyr::summarize)
 
 # Set drive paths
 if (Sys.info()["sysname"] == 'Linux'){
@@ -57,7 +60,7 @@ ensure_dir_exists <- function(dir_path) {
 ## 1. Set directories
 ##----------------------------------------------------------------
 # Set fp for age-standardized data
-as_date <- "20260201"
+as_date <- "20260315"
 fp_as <- file.path(h, '/aim_outputs/Aim2/C_frontier_analysis/', as_date, "df_as.csv")
 fp_as_cdc <- file.path(h, '/aim_outputs/Aim2/C_frontier_analysis/', as_date, "df_as_cdc.csv")
 
@@ -323,10 +326,6 @@ if (cdc) {
     by = c("year_id", "location_id", "location_name")
   )
 }
-
-
-
-
 
 ##----------------------------------------------------------------
 ## 6. Create "high_prev" variable to use as an interactive term in respective models (HIV models use HIV high_prev, SUD models use SUD high_prev)

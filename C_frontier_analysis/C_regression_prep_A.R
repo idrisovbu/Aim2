@@ -1,14 +1,22 @@
 ##----------------------------------------------------------------
-##' Title: C_model_data_prep.R
+##' Title: C_regression_prep_A.R
 ##'
 ##' Purpose: TBD
+##' 
+##' Outputs: 
+##' df_as_cdc.csv
+##' df_decomp.csv
+##' df_as.csv
+##' df_as_no_year.csv
 ##----------------------------------------------------------------
 
 ##----------------------------------------------------------------
 ## Clear environment and set library paths
 ##----------------------------------------------------------------
 rm(list = ls())
-pacman::p_load(data.table, arrow, tidyverse, glue)
+pacman::p_load(data.table, arrow, tidyverse, glue, dplyr)
+conflicts_prefer(dplyr::filter)
+conflicts_prefer(dplyr::summarize)
 
 # Set drive paths
 if (Sys.info()["sysname"] == 'Linux'){
@@ -40,13 +48,13 @@ ensure_dir_exists <- function(dir_path) {
 '%nin%' <- Negate('%in%')
 
 ##----------------------------------------------------------------
-## 0.1 Set directories for DEX estimate data / county estimates
+## 0.1 Set directories for input data
 ##----------------------------------------------------------------
 # Set path for data
 date_dex <- "20260120"
 fp_dex <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_dex, "/compiled_dex_data_2010_2019.parquet")
 
-date_gbd <- "20260131"
+date_gbd <- "20260313"
 fp_gbd <- file.path(h, "/aim_outputs/Aim2/A_data_preparation/", date_gbd, "/GBD/df_gbd.parquet")
 
 # date_ushd <- "20251204"
@@ -93,28 +101,30 @@ df_dex <- left_join(
 df_gbd <- read_parquet(fp_gbd)
 
 # Modify age group names to match DEX age group names
+age_map <- c(
+  "0 - <1"   = "0 - <1",
+  "1 - <5"   = "1 - <5",
+  "5 to 9"   = "5 - <10",
+  "10 to 14" = "10 - <15",
+  "15 to 19" = "15 - <20",
+  "20 to 24" = "20 - <25",
+  "25 to 29" = "25 - <30",
+  "30 to 34" = "30 - <35",
+  "35 to 39" = "35 - <40",
+  "40 to 44" = "40 - <45",
+  "45 to 49" = "45 - <50",
+  "50 to 54" = "50 - <55",
+  "55 to 59" = "55 - <60",
+  "60 to 64" = "60 - <65",
+  "65 to 69" = "65 - <70",
+  "70 to 74" = "70 - <75",
+  "75 to 79" = "75 - <80",
+  "80 to 84" = "80 - <85",
+  "85+"      = "85+"
+)
+
 df_gbd <- df_gbd %>%
-  mutate(age_name = case_when(
-    age_group_name == "0 - <1"   ~ "0 - <1",
-    age_group_name == "1 - <5"   ~ "1 - <5",
-    age_group_name == "5 to 9"   ~ "5 - <10",
-    age_group_name == "10 to 14" ~ "10 - <15",
-    age_group_name == "15 to 19" ~ "15 - <20",
-    age_group_name == "20 to 24" ~ "20 - <25",
-    age_group_name == "25 to 29" ~ "25 - <30",
-    age_group_name == "30 to 34" ~ "30 - <35",
-    age_group_name == "35 to 39" ~ "35 - <40",
-    age_group_name == "40 to 44" ~ "40 - <45",
-    age_group_name == "45 to 49" ~ "45 - <50",
-    age_group_name == "50 to 54" ~ "50 - <55",
-    age_group_name == "55 to 59" ~ "55 - <60",
-    age_group_name == "60 to 64" ~ "60 - <65",
-    age_group_name == "65 to 69" ~ "65 - <70",
-    age_group_name == "70 to 74" ~ "70 - <75",
-    age_group_name == "75 to 79" ~ "75 - <80",
-    age_group_name == "80 to 84" ~ "80 - <85",
-    age_group_name == "85+"      ~ "85+"
-  ))
+  mutate(age_name = coalesce(unname(age_map[age_group_name]), age_group_name))
 
 df_gbd <- df_gbd %>%
   ungroup() %>%
@@ -140,25 +150,30 @@ df_dex_sud <- df_dex_sud %>%
     cause_name = "Substance use disorders"
     )
 
-# Filter on "hiv" acause"
-df_dex_hiv <- df_dex %>% 
-  filter(acause == "hiv")
+# Filter on "hiv" acause" & retain "mental_alcohol" & "mental_drug_opioids" SUD subtype acauses
+df_dex_hiv_and_sud_subtypes <- df_dex %>% 
+  filter(acause != "mental_drug_agg")
 
 # Rbind back "_subs" & "hiv"
-df_dex <- rbind(df_dex_hiv, df_dex_sud)
+df_dex_all <- rbind(df_dex_hiv_and_sud_subtypes, df_dex_sud)
 
 # Pivot wider to have columns for all different payer types
-df_dex_pivot <- df_dex %>% pivot_wider(
+df_dex_pivot <- df_dex_all %>% pivot_wider(
   names_from  = payer,
   values_from = spend_mean,
   names_prefix = "spend_"
 )
 
 # Merge DEX & GBD data
+gbd_causes_to_include <- c("HIV/AIDS", 
+                           "Alcohol use disorders",  
+                           "Opioid use disorders",
+                           "Substance use disorders")
+
 df_m <- left_join(
-  x = df_gbd,
+  x = df_gbd %>% filter(cause_name %in% gbd_causes_to_include),
   y = df_dex_pivot,
-  by = c("location_id", "sex_id", "year_id", "acause", "cause_name", "location_name", "age_name")
+  by = c("location_id", "sex_id", "year_id", "cause_name", "location_name", "age_name")
 )
 
 # Write out age*sex*year*loc strata file, used for decomp analysis

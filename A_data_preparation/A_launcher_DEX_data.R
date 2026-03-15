@@ -37,7 +37,8 @@ ensure_path <- function(filepath) {
 y <- c(2010:2019)
 
 # Causes
-# c <- fread("/ihme/dex/us_county/maps/causelist_figures.csv")[acause != "lri_corona",acause] # This file has a list of all the causes
+# df_cause_list <- fread("/ihme/dex/us_county/maps/causelist_figures.csv")[acause != "lri_corona",acause] # This file has a list of all the causes
+#df_cause_list <- fread("/ihme/dex/us_county/maps/causelist_figures_archive.csv") # This file has a list of all the causes
 c <- c("hiv", "mental_alcohol", "mental_drug_agg", "mental_drug_opioids") # These are the causes we are running on only
 
 # Payers
