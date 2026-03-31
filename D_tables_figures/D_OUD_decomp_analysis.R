@@ -1,7 +1,12 @@
 ##----------------------------------------------------------------
 ##' Title: D_decomp_analysis.R
 ##'
-##' Purpose: Das Gupta 4-Factor Decomposition of HIV Spending (2010-2019)
+##' Purpose: Das Gupta 4-Factor Decomposition of OUD Spending (2010-2019)
+##' Choose Cause Names
+##' [1] "HIV/AIDS"               
+##' [2] "Alcohol use disorders"  
+##' [3] "Opioid use disorders"   
+##' [4] "Substance use disorders"
 ##----------------------------------------------------------------
 
 ##----------------------------------------------------------------
@@ -51,7 +56,7 @@ convert_to_dollars <- function(df, cols_to_convert) {
 ##----------------------------------------------------------------
 ## 0.1 Set directories
 ##----------------------------------------------------------------
-date_decomp <- "20260201"
+date_decomp <- "20260315"
 fp_decomp <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_decomp, "/df_decomp.csv")
 
 date_today <- format(Sys.time(), "%Y%m%d")
@@ -62,71 +67,6 @@ ensure_dir_exists(dir_output)
 ## 0.2 Read in data
 ##----------------------------------------------------------------
 df_decomp <- read_csv(fp_decomp)
-
-
-# ##----------------------------------------------------------------
-# ## 0.3 Optional: add Ryan White into HIV spend for decomposition
-# ##----------------------------------------------------------------
-# conflicted::conflicts_prefer(dplyr::first)
-# conflicted::conflicts_prefer(dplyr::filter)
-# conflicted::conflicts_prefer(dplyr::select)
-# conflicted::conflicts_prefer(dplyr::summarise)
-# conflicted::conflicts_prefer(dplyr::first)
-# 
-# include_rw_in_decomp <- TRUE
-# 
-# if (include_rw_in_decomp) {
-#   # Point to processed C_frontier output that contains ryan_white_funding_final
-#   # (from C_regression_prep_B.R output: df_as_processed_rw_gbd.csv)
-#   date_rw <- "20260315"  # <-- update to the run date you want
-#   fp_rw_state <- file.path(
-#     h, "/aim_outputs/Aim2/C_frontier_analysis/", date_rw, "/df_as_processed_rw_gbd.csv"
-#   )
-#   
-#   df_rw_state <- readr::read_csv(fp_rw_state, show_col_types = FALSE) %>%
-#     dplyr::filter(acause == "hiv", year_id %in% c(2010, 2019)) %>%
-#     dplyr::select(location_id, location_name, year_id, ryan_white_funding_final) %>%
-#     dplyr::distinct()
-#   
-#   # Join RW totals to decomp input
-#   df_decomp <- df_decomp %>%
-#     dplyr::left_join(df_rw_state, by = c("location_id", "location_name", "year_id")) %>%
-#     dplyr::mutate(
-#       ryan_white_funding_final = tidyr::replace_na(ryan_white_funding_final, 0)
-#     )
-#   
-#   # Allocate state-year RW to HIV age-sex cells by prevalence share
-#   df_decomp <- df_decomp %>%
-#     dplyr::group_by(location_id, year_id, cause_name) %>%
-#     dplyr::mutate(
-#       hiv_prev_state = ifelse(
-#         cause_name == "HIV/AIDS",
-#         sum(prevalence_counts, na.rm = TRUE),
-#         NA_real_
-#       ),
-#       rw_alloc = dplyr::case_when(
-#         cause_name == "HIV/AIDS" & hiv_prev_state > 0 ~
-#           ryan_white_funding_final * (prevalence_counts / hiv_prev_state),
-#         TRUE ~ 0
-#       ),
-#       spend_all = ifelse(cause_name == "HIV/AIDS", spend_all + rw_alloc, spend_all)
-#     ) %>%
-#     dplyr::ungroup() %>%
-#     dplyr::select(-hiv_prev_state, -rw_alloc)
-#   
-#   message("Ryan White has been added to HIV spend_all for decomposition.")
-# } else {
-#   message("Running decomposition with DEX spend_all only (no Ryan White).")
-# }
-
-# df_decomp_p <- df_decomp %>%
-#   dplyr::filter(year_id %in% c(2010, 2019)) %>%
-#   dplyr::select(!dplyr::all_of(cols_to_drop)) %>%
-#   tidyr::pivot_wider(
-#     names_from = year_id,
-#     values_from = dplyr::all_of(val_cols)
-#   )
-
 
 ##----------------------------------------------------------------
 ## 1. Transform data
@@ -145,12 +85,13 @@ df_decomp_p <- df_decomp %>%
     values_from = all_of(val_cols)
   )
 
-# Filter to HIV only (toggle to "Substance use disorders" to switch)
-df_decomp_p <- df_decomp_p %>%
-  filter(cause_name == "HIV/AIDS")
-
+# Filter to OUD only (toggle to "Substance use disorders" to switch)
 # df_decomp_p <- df_decomp_p %>%
-#   filter(cause_name == "Substance use disorders")
+#   filter(cause_name == "OUD")
+
+
+df_decomp_p <- df_decomp_p %>%
+  filter(acause == "mental_drug_opioids")
 
 
 ###############################################################################
@@ -298,7 +239,7 @@ dt[, delta_spend := spend_2019 - spend_2010]
 # ============================================================================
 # Column definitions:
 #   pop_size_effect         = Change due to total state population growth
-#   prevalence_rate_effect  = Change due to HIV prevalence rate (cases per capita)
+#   prevalence_rate_effect  = Change due to OUD prevalence rate (cases per capita)
 #   case_composition_effect = Change due to shift in age-sex distribution of cases
 #   spend_intensity_effect  = Change due to spending per case
 
@@ -377,8 +318,8 @@ print(by_state[order(-delta_spend)][1:10, .(location_name, delta_spend,
 # STEP 6: Save results
 # ============================================================================
 
-write.csv(by_state, file.path(dir_output, "T6_HIV_decomp_by_state.csv"), row.names = FALSE)
-write.csv(national, file.path(dir_output, "T7_HIV_decomp_national.csv"), row.names = FALSE)
+write.csv(by_state, file.path(dir_output, "T6_OUD_decomp_by_state.csv"), row.names = FALSE)
+write.csv(national, file.path(dir_output, "T7_OUD_decomp_national.csv"), row.names = FALSE)
 
 cat(sprintf("\nResults saved to: %s\n", dir_output))
 
@@ -447,7 +388,7 @@ cat(sprintf("\nResults saved to: %s\n", dir_output))
 #   scale_fill_brewer(palette = "Set2") +
 #   scale_y_continuous(labels = dollar_format(suffix = "M")) +
 #   labs(
-#     title = "HIV/AIDS Spending Decomposition by State (2010-2019)",
+#     title = "OUD Spending Decomposition by State (2010-2019)",
 #     subtitle = "All states ordered by total spending change | Diamond = Total Change",
 #     x = "",
 #     y = "Effect on Spending Change (Millions $)",
@@ -473,7 +414,7 @@ cat(sprintf("\nResults saved to: %s\n", dir_output))
 #   )
 # 
 # print(p_states_all)
-# ggsave(file.path(dir_output, "F4_HIV_decomp_all_states_stacked_bar.png"), p_states_all, 
+# ggsave(file.path(dir_output, "F4_OUD_decomp_all_states_stacked_bar.png"), p_states_all, 
 #        width = 10, height = 14, dpi = 300)
 # 
 # # ----------------------------------------------------------------------------
@@ -512,7 +453,7 @@ cat(sprintf("\nResults saved to: %s\n", dir_output))
 #   scale_fill_brewer(palette = "Set2") +
 #   scale_y_continuous(labels = dollar_format(suffix = "B")) +
 #   labs(
-#     title = "National HIV/AIDS Spending Decomposition (2010-2019)",
+#     title = "National OUD Spending Decomposition (2010-2019)",
 #     subtitle = paste0("Total spending change: $", 
 #                       format(round(national$delta_spend/1e9, 2), nsmall = 2), 
 #                       " billion | Diamond = Total Change"),
@@ -540,7 +481,7 @@ cat(sprintf("\nResults saved to: %s\n", dir_output))
 #   )
 # 
 # print(p_national)
-# ggsave(file.path(dir_output, "F5_HIV_decomp_national_bar.png"), p_national, 
+# ggsave(file.path(dir_output, "F5_OUD_decomp_national_bar.png"), p_national, 
 #        width = 10, height = 4, dpi = 300)
 # 
 # 
@@ -581,7 +522,7 @@ cat(sprintf("\nResults saved to: %s\n", dir_output))
 #   scale_fill_brewer(palette = "Set2") +
 #   scale_y_continuous(labels = dollar_format(suffix = "M")) +
 #   labs(
-#     title = "HIV/AIDS Spending Decomposition by State (2010-2019)",
+#     title = "OUD Spending Decomposition by State (2010-2019)",
 #     subtitle = "Top 15 states by absolute spending change | Diamond = Total Change",
 #     x = "",
 #     y = "Effect on Spending Change (Millions $)",
@@ -605,7 +546,7 @@ cat(sprintf("\nResults saved to: %s\n", dir_output))
 #   )
 # 
 # print(p_states)
-# ggsave(file.path(dir_output, "F6_HIV_decomp_15_states_stacked_bar.png"), p_states, 
+# ggsave(file.path(dir_output, "F6_OUD_decomp_15_states_stacked_bar.png"), p_states, 
 #        width = 10, height = 8, dpi = 300)
 # 
 # 
@@ -683,7 +624,7 @@ p_states_all <- ggplot(plot_data_all, aes(x = location_name, y = effect_pct, fil
   scale_fill_brewer(palette = "Set2") +
   scale_y_continuous(labels = scales::percent_format(scale = 1)) +
   labs(
-    title = "HIV/AIDS Spending Decomposition by State (2010-2019)",
+    title = "OUD Spending Decomposition by State (2010-2019)",
     subtitle = "All states ordered by total spending change | Diamond = Total % Change from 2010 Baseline",
     x = "",
     y = "Effect as % of 2010 Spending",
@@ -708,7 +649,7 @@ p_states_all <- ggplot(plot_data_all, aes(x = location_name, y = effect_pct, fil
   )
 
 print(p_states_all)
-ggsave(file.path(dir_output, "F4_HIV_decomp_all_states_stacked_bar.png"), p_states_all, 
+ggsave(file.path(dir_output, "F4_OUD_decomp_all_states_stacked_bar.png"), p_states_all, 
        width = 10, height = 14, dpi = 300)
 
 # ----------------------------------------------------------------------------
@@ -750,7 +691,7 @@ p_national <- ggplot(national_plot_data, aes(x = location_name, y = effect_pct, 
   scale_fill_brewer(palette = "Set2") +
   scale_y_continuous(labels = scales::percent_format(scale = 1)) +
   labs(
-    title = "National HIV/AIDS Spending Decomposition (2010-2019)",
+    title = "National OUD Spending Decomposition (2010-2019)",
     subtitle = paste0("Total spending change: ", 
                       format(round(national_delta_pct, 1), nsmall = 1), 
                       "% of 2010 baseline | Diamond = Total % Change"),
@@ -777,7 +718,7 @@ p_national <- ggplot(national_plot_data, aes(x = location_name, y = effect_pct, 
   )
 
 print(p_national)
-ggsave(file.path(dir_output, "F5_HIV_decomp_national_bar.png"), p_national, 
+ggsave(file.path(dir_output, "F5_OUD_decomp_national_bar.png"), p_national, 
        width = 10, height = 4, dpi = 300)
 
 # ----------------------------------------------------------------------------
@@ -820,7 +761,7 @@ p_states <- ggplot(plot_data_top, aes(x = location_name, y = effect_pct, fill = 
   scale_fill_brewer(palette = "Set2") +
   scale_y_continuous(labels = scales::percent_format(scale = 1)) +
   labs(
-    title = "HIV/AIDS Spending Decomposition by State (2010-2019)",
+    title = "OUD Spending Decomposition by State (2010-2019)",
     subtitle = "Top 15 states by absolute spending change | Diamond = Total % Change from 2010 Baseline",
     x = "",
     y = "Effect as % of 2010 Spending",
@@ -843,14 +784,14 @@ p_states <- ggplot(plot_data_top, aes(x = location_name, y = effect_pct, fill = 
   )
 
 print(p_states)
-ggsave(file.path(dir_output, "F6_HIV_decomp_15_states_stacked_bar.png"), p_states, 
+ggsave(file.path(dir_output, "F6_OUD_decomp_15_states_stacked_bar.png"), p_states, 
        width = 10, height = 8, dpi = 300)
 
 cat("\n=========== VISUALIZATIONS SAVED ===========\n")
 cat(sprintf("Files saved to: %s\n", dir_output))
-cat("  - F4_HIV_decomp_all_states_stacked_bar.png (all 51 states)\n")
-cat("  - F5_HIV_decomp_national_bar.png\n")
-cat("  - F6_HIV_decomp_15_states_stacked_bar.png (top 15 states)\n")
+cat("  - F4_OUD_decomp_all_states_stacked_bar.png (all 51 states)\n")
+cat("  - F5_OUD_decomp_national_bar.png\n")
+cat("  - F6_OUD_decomp_15_states_stacked_bar.png (top 15 states)\n")
 
 
 ###############################################
@@ -1215,17 +1156,14 @@ print(final_spend_eff[Category == 2, .(Level, `Change in Spend per Case`, `Chang
 # B.9: Save results (2 tables instead of 4)
 # ----------------------------------------------------------------------------
 
-write.csv(final_spend_eff, file.path(dir_output, "T3_HIV_spending_effectiveness.csv"), row.names = FALSE)
-write.csv(final_daly_decomp, file.path(dir_output, "T8_HIV_decomp_daly.csv"), row.names = FALSE)
+write.csv(final_spend_eff, file.path(dir_output, "T3_OUD_spending_effectiveness.csv"), row.names = FALSE)
+write.csv(final_daly_decomp, file.path(dir_output, "T8_OUD_decomp_daly.csv"), row.names = FALSE)
 
 cat(sprintf("\n=========== FILES SAVED TO: %s ===========\n", dir_output))
-cat("  - T3_HIV_spending_effectiveness.csv (national + all states)\n")
-cat("  - T8_HIV_decomp_daly.csv (national + all states)\n")
+cat("  - T3_OUD_spending_effectiveness.csv (national + all states)\n")
+cat("  - T8_OUD_decomp_daly.csv (national + all states)\n")
 
 
-
-
-##NOT SURE IF THIS BELOW WORKS 
 # ============================================================================
 # DALY Figure: All States Stacked Horizontal Bar (HIV)
 # Similar style to F4_HIV_decomp_all_states_stacked_bar
@@ -1301,7 +1239,7 @@ p_daly_states_all_pct <- ggplot2::ggplot(
   ggplot2::scale_fill_brewer(palette = "Set2") +
   ggplot2::scale_y_continuous(labels = scales::label_percent(scale = 1)) +
   ggplot2::labs(
-    title = "HIV/AIDS DALY Decomposition by State (2010–2019)",
+    title = "OUD DALY Decomposition by State (2010–2019)",
     subtitle = "Percent change since 2010 | Diamond = Total % Change",
     x = "",
     y = "Effect on DALY Change (% of 2010 DALYs)",
@@ -1322,7 +1260,7 @@ p_daly_states_all_pct <- ggplot2::ggplot(
 print(p_daly_states_all_pct)
 
 ggplot2::ggsave(
-  filename = file.path(dir_output, "F7_HIV_daly_decomp_all_states_stacked_bar_pct2010.png"),
+  filename = file.path(dir_output, "F7_OUD_daly_decomp_all_states_stacked_bar_pct2010.png"),
   plot = p_daly_states_all_pct,
   width = 10, height = 14, dpi = 300
 )
@@ -1443,7 +1381,7 @@ pA <- ggplot2::ggplot(plot_spend, ggplot2::aes(x = location_name, y = effect_pct
   ggplot2::scale_fill_manual(values = factor_colors_spend) +
   ggplot2::scale_y_continuous(labels = scales::label_percent(scale = 1)) +
   ggplot2::labs(
-    title = "Panel A. HIV Spending Decomposition by State (2010–2019)",
+    title = "Panel A. OUD Spending Decomposition by State (2010–2019)",
     subtitle = "Effects as % of 2010 spending baseline | Diamond = total % change",
     x = NULL,
     y = "Effect (% of 2010 Spending)",
@@ -1473,7 +1411,7 @@ pB <- ggplot2::ggplot(plot_daly, ggplot2::aes(x = location_name, y = effect_pct,
   ggplot2::scale_fill_manual(values = factor_colors_daly) +
   ggplot2::scale_y_continuous(labels = scales::label_percent(scale = 1)) +
   ggplot2::labs(
-    title = "Panel B. HIV DALY Decomposition by State (2010–2019)",
+    title = "Panel B. OUD DALY Decomposition by State (2010–2019)",
     subtitle = "Effects as % of 2010 DALY baseline | Diamond = total % change",
     x = NULL,
     y = "Effect (% of 2010 DALYs)",
@@ -1501,7 +1439,7 @@ print(p_combined)
 
 # 8) Save
 ggplot2::ggsave(
-  filename = file.path(dir_output, "F8_HIV_spend_daly_decomp_two_panel_pct2010_alpha_topAZ.png"),
+  filename = file.path(dir_output, "F8_OUD_spend_daly_decomp_two_panel_pct2010_alpha_topAZ.png"),
   plot = p_combined,
   width = 18, height = 14, dpi = 300
 )

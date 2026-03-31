@@ -727,28 +727,26 @@ df_f1a_hiv <- bind_rows(df_f1_hiv, df_f1_rw_dexbins) %>%
   )
 
 # ── Plot ─────────────────────────────────────────────────────────
-# # Delete if with helper is better
-# f1a_hiv <- ggplot(
-#   data = df_f1a_hiv,
-#   aes(age_name, spend_mean_inverse,
-#       fill = factor(payer, levels = c("mdcr", "mdcd", "priv", "oop", "ryan_white")))
-# ) +
-#   facet_share(~ sex_name, scales = "free", reverse_num = FALSE) +
-#   geom_col(color = "black", width = 1, size = 0.3) +
-#   coord_flip() +
-#   scale_fill_manual(values = payer_colors, labels = payer_list, name = "Payer") +
-#   scale_y_continuous(labels = axis_dollar_mb) +
-#   theme_classic() +
-#   labs(
-#     y = "Inflation Adjusted Spending (2019 USD)", x = "",
-#     title = "HIV spending for each insurance type and Ryan White by sex and age group in 2019"
-#   ) +
-#   theme_settings +
-#   guides(fill = guide_legend(title.position = "top", title.hjust = 0.5, nrow = 1))
-# 
-# #save_plot(f1a_hiv, "F1a_HIV_spending_by_insurance_plus_RW", dir_output)
+# Delete if with helper is better
+f1a_hiv <- ggplot(
+  data = df_f1a_hiv,
+  aes(age_name, spend_mean_inverse,
+      fill = factor(payer, levels = c("mdcr", "mdcd", "priv", "oop", "ryan_white")))
+) +
+  facet_share(~ sex_name, scales = "free", reverse_num = FALSE) +
+  geom_col(color = "black", width = 1, size = 0.3) +
+  coord_flip() +
+  scale_fill_manual(values = payer_colors, labels = payer_list, name = "Payer") +
+  scale_y_continuous(labels = axis_dollar_mb) +
+  theme_classic() +
+  labs(
+    y = "Inflation Adjusted Spending (2019 USD)", x = "",
+    title = "HIV spending for each insurance type and Ryan White by sex and age group in 2019"
+  ) +
+  theme_settings +
+  guides(fill = guide_legend(title.position = "top", title.hjust = 0.5, nrow = 1))
 
-
+save_plot(f1a_hiv, "F1a_HIV_spending_by_insurance_plus_RW", dir_output)
 
 ### BElOW POTING WITH HELPER 
 
@@ -766,9 +764,7 @@ f1a_hiv <- build_pyramid(
 ggsave(file.path(dir_output, "F1a_HIV_spending_by_insurance_plus_RW_helper.png"),
        plot = f1a_hiv, width = 16, height = 10, dpi = 500)
 
-write.csv(df_f1a_hiv, 
-          file = file.path(dir_output, "df_f1a_hiv.csv"), 
-          row.names = FALSE)
+
 
 ### End ABOVE IS WITH HELPER
 
@@ -868,10 +864,6 @@ f1a_oud <- build_pyramid(
 
 ggsave(file.path(dir_output, "F1a_OUD_spending_by_insurance_helper.png"),
        plot = f1a_oud, width = 16, height = 10, dpi = 500)
-
-write.csv(df_f1_oud, 
-          file = file.path(dir_output, "df_f1_oud.csv"), 
-          row.names = FALSE)
 
 
 ##================================================================
@@ -1139,12 +1131,9 @@ f1b_hiv <- ggplot(
     plot.margin = margin(t = 10, r = 90, b = 0, l = 0)
   )
 
-save_plot(f1b_hiv, "F1b_HIV_spending_per_case_with_prevalence_overlay", dir_output)
+save_plot(f1b_hiv, "F1b_hiv_spending_per_case_with_prevalence_overlay", dir_output)
 ####
 
-write.csv(df_f1b_hiv, 
-          file = file.path(dir_output, "df_f1b_hiv.csv"), 
-          row.names = FALSE)
 
 ##END CHECK HIV PREV PLOT
 
@@ -1371,9 +1360,6 @@ f1b_oud <- ggplot(
 save_plot(f1b_oud, "F1b_OUD_spending_per_case_with_prevalence_overlay", dir_output)
 ####
 
-write.csv(df_f1b_oud, 
-          file = file.path(dir_output, "df_f1b_oud.csv"), 
-          row.names = FALSE)
 
 ##### SANITY CHECKS BELOW
 
@@ -1465,6 +1451,7 @@ df_oud_check %>%
   print(n = Inf)
 
 
+####END OF SAMITY CHECKS
 
 ##================================================================
 ## 1.1 Figure 1b — AUD: Spending per prevalent case
@@ -1588,11 +1575,6 @@ f2_hiv <- build_pyramid(
 ggsave(file.path(dir_output, "F2_HIV_spending_by_toc_plus_RW.png"),
        plot = f2_hiv, width = 16, height = 10, dpi = 500)
 
-
-write.csv(df_f2_hiv, 
-          file = file.path(dir_output, "df_f2_hiv.csv"), 
-          row.names = FALSE)
-
 ###
 
 # Plot
@@ -1694,12 +1676,6 @@ f2_oud <- build_pyramid(
 
 ggsave(file.path(dir_output, "F2_OUD_spending_by_toc.png"),
        plot = f2_oud, width = 16, height = 10, dpi = 500)
-
-
-write.csv(df_f2_oud, 
-          file = file.path(dir_output, "df_f2_oud.csv"), 
-          row.names = FALSE)
-
 
 # f2_oud <- ggplot(
 #   data = df_f2_oud,

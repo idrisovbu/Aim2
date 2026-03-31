@@ -8,33 +8,10 @@
 ##'   1. Setup & Data Loading
 ##'   2. Log-Transform Outcome / Exposure
 ##'   3. Create ALL Analysis Variables
-##'        3a. Mundlak B/W decomposition
-##'        3b. Log transforms of key covariates
-##'        3c. Indicators (high_sud_prev_B)
-##'        3d. Lag variables (t-1, t-2)
-##'        3e. Dose-response variables (quadratic, threshold)
-##'        3f. First-difference variables
-##'        3g. Year as factor (for between_yfe family)
 ##'   4. Save Analysis Datasets
-##'        4a. Full panel dataset  (df_sud_analysis_panel.csv)
-##'        4b. Collapsed state-mean dataset (df_sud_analysis_between.csv)
-##'        4c. Pre-fentanyl collapsed (2010-2014)
-##'        4d. Post-fentanyl collapsed (2015-2019)
 ##'   5. Summary Table (internal Table 1 + skewness diagnostics)
 ##'   6. Diagnostics (NO regressions yet)
-##'        6a. Full correlation matrix (model-ready vars)
-##'        6b. Confounder screening (panel + state-means)
-##'        6c. Variance decomposition (% between vs within)
 ##'   7. Fit Regression Models (7 families)
-##'        A. between_true  — TRUE between estimator on collapsed
-##'                           state-mean data (~51 obs).
-##'        B. between_yfe   — Full panel with year fixed effects.
-##'        C. Mundlak       — Within-between CRE
-##'        D. Lag           — Temporal precedence
-##'        E. Dose-response — Non-linearity
-##'        F. first_diff    — First-differenced (removes all
-##'                           time-invariant confounding)
-##'        G. subsample     — Pre/post fentanyl era splits
 ##'   8. Extract Results (cluster-robust SEs) & Save
 ##'
 ##' IMPORTANT — DENOMINATOR BIAS:
@@ -46,21 +23,6 @@
 ##'   in the interaction model, which is safe because it captures a
 ##'   discrete group contrast rather than continuous denominator overlap.
 ##'
-##' PRIMARY COVARIATE SET (justified by confounder screen):
-##'   - unemployment_rate  : strongest confounder (r_out=0.44, r_exp=0.19)
-##'                          captures economic distress → SUD mortality AND
-##'                          economic distress → higher Medicaid spending.
-##'   - race_prop_BLCK     : demographic composition
-##'   - race_prop_HISP     : demographic composition
-##'   - log_incidence_rates: disease burden (safe — not in Y/X denominator)
-##'   - log_prop_homeless  : social determinant, SUD-specific confounder
-##'
-##' KEY FINDING FROM MUNDLAK DECOMPOSITION:
-##'   spending_B ~ 0.24** (cross-sectional), spending_W ~ 0.005 (null).
-##'   The positive association is ENTIRELY between-state.  Within any
-##'   state, year-to-year spending changes have zero association with
-##'   mortality changes.  This is the classic signature of needs-based
-##'   allocation (reverse causality), not spending ineffectiveness.
 ##'
 ##' Data processing lives in C_model_data_prep.R.
 ##' This script consumes the processed output.
@@ -106,7 +68,7 @@ tryCatch(
   error = function(e) invisible(NULL)
 )
 
-input_date  <- "20260216"
+input_date  <- "20260315"
 dir_input   <- file.path(h, "aim_outputs/Aim2/C_frontier_analysis", input_date)
 
 output_date <- format(Sys.time(), "%Y%m%d")
@@ -119,9 +81,13 @@ df_as <- read.csv(
   stringsAsFactors = FALSE
 )
 
-df_sud <- df_as %>%
-  dplyr::filter(acause == "_subs")
+#unique(df_as$acause)
 
+df_sud <- df_as %>%
+  dplyr::filter(acause == "mental_drug_opioids")
+
+# df_sud <- df_as %>%
+#   dplyr::filter(acause == "mental_alcohol")
 
 ##================================================================
 ## 2.  LOG-TRANSFORM OUTCOME & EXPOSURE
@@ -609,6 +575,7 @@ write.csv(variance_decomp,
           row.names = FALSE)
 
 
+
 ##================================================================
 ## 7.  FIT REGRESSION MODELS
 ##================================================================
@@ -658,9 +625,9 @@ register_model(
                 as_spend_prev_ratio_log +
                 unemployment_rate +
                 race_prop_BLCK +
-                log_incidence_rates_B +
                 race_prop_HISP +
-                log_prop_homeless_B",
+                log_prop_homeless_B +
+                log_incidence_rates_B",
   data     = df_between,
   is_final = TRUE
 )
@@ -756,6 +723,23 @@ register_model(
   is_final = FALSE
 )
 
+# A8. BIVARIATE — mortality outcome only, no covariates.
+register_model(
+  family   = "between_true",
+  spec     = "bivariate_mort",
+  formula  = "as_mort_prev_ratio_log ~ as_spend_prev_ratio_log",
+  data     = df_between,
+  is_final = FALSE
+)
+
+# A9. BIVARIATE — DALY outcome only, no covariates.
+register_model(
+  family   = "between_true",
+  spec     = "bivariate_daly",
+  formula  = "as_daly_prev_ratio_log ~ as_spend_prev_ratio_log",
+  data     = df_between,
+  is_final = FALSE
+)
 
 # ==============================================================
 # B)  BETWEEN_YFE FAMILY  (Joe's Option B -- full panel + year FE)
@@ -769,7 +753,8 @@ register_model(
 #     construction -- state-level median split, constant over years).
 # ==============================================================
 
-# B1. PRIMARY — includes homelessness + unemployment.
+
+# B1b. PRIMARY — panel model with year FE and ACA.
 register_model(
   family   = "between_yfe",
   spec     = "primary",
@@ -855,6 +840,24 @@ for (mid in yfe_ids) {
   }
 }
 cat("SAFEGUARD PASSED: no _B terms found in between_yfe formulas.\n")
+
+# B6. BIVARIATE — mortality + year FE only, no covariates.
+register_model(
+  family   = "between_yfe",
+  spec     = "bivariate_mort",
+  formula  = "as_mort_prev_ratio_log ~ as_spend_prev_ratio_log + year_factor",
+  data     = df_sud,
+  is_final = FALSE
+)
+
+# B7. BIVARIATE — DALY + year FE only, no covariates.
+register_model(
+  family   = "between_yfe",
+  spec     = "bivariate_daly",
+  formula  = "as_daly_prev_ratio_log ~ as_spend_prev_ratio_log + year_factor",
+  data     = df_sud,
+  is_final = FALSE
+)
 
 
 # ==============================================================
@@ -1283,3 +1286,141 @@ cat("  first_diff:",   sum(grepl("first_diff",    names(list_models))), "\n")
 cat("  subsample:",    sum(grepl("subsample",     names(list_models))), "\n")
 cat("Output directory:", dir_output, "\n")
 cat("==============================\n")
+
+
+
+
+# ---- 4b_alt. Merge decomposition-based spending intensity into between dataset ----
+# ---- 4b_alt. Merge decomposition-based spending intensity into between dataset ----
+fp_decomp_state <- "/ihme/homes/idrisov/aim_outputs/Aim2/D_tables_figures/20260316/T6_HIV_decomp_by_state.csv"
+
+
+df_decomp_state <- read.csv(fp_decomp_state, stringsAsFactors = FALSE) %>%
+  dplyr::select(
+    location_id, location_name,
+    pop_size_effect,
+    prevalence_rate_effect,
+    case_composition_effect,
+    spend_intensity_effect,
+    delta_spend
+  ) %>%
+  mutate(
+    spend_intensity_effect_signed_log =
+      sign(spend_intensity_effect) * log(abs(spend_intensity_effect) + 1),
+    prevalence_rate_effect_signed_log =
+      sign(prevalence_rate_effect) * log(abs(prevalence_rate_effect) + 1),
+    case_composition_effect_signed_log =
+      sign(case_composition_effect) * log(abs(case_composition_effect) + 1),
+    pop_size_effect_signed_log =
+      sign(pop_size_effect) * log(abs(pop_size_effect) + 1)
+  )
+
+df_between <- df_between %>%
+  left_join(df_decomp_state, by = c("location_id", "location_name"))
+
+cat("\nMerged decomposition variables into df_between\n")
+cat("Rows in df_between:", nrow(df_between), "\n")
+cat("Non-missing spend_intensity_effect:", sum(!is.na(df_between$spend_intensity_effect)), "\n")
+cat("Non-missing prevalence_rate_effect:", sum(!is.na(df_between$prevalence_rate_effect)), "\n")
+
+print(summary(df_between$spend_intensity_effect))
+print(summary(df_between$spend_intensity_effect_signed_log))
+
+
+
+
+
+cat("\n================ CORRELATIONS ================\n")
+
+vars_check <- df_between %>%
+  select(
+    as_mort_prev_ratio_log,
+    as_spend_prev_ratio_log,
+    spend_intensity_effect,
+    spend_intensity_effect_signed_log,
+    prevalence_rate_effect,
+    unemployment_rate,
+    log_incidence_rates_B
+  )
+
+corr_mat <- cor(vars_check, use = "complete.obs")
+
+print(round(corr_mat, 3))
+
+
+
+cat("\n================ SIMPLE REGRESSION (NO COVARIATES) ================\n")
+
+model_simple <- lm(
+  as_mort_prev_ratio_log ~ spend_intensity_effect_signed_log,
+  data = df_between
+)
+
+print(summary(model_simple))
+
+
+cat("\n================ COMPARISON WITH ORIGINAL SPENDING ================\n")
+
+model_original <- lm(
+  as_mort_prev_ratio_log ~ as_spend_prev_ratio_log,
+  data = df_between
+)
+
+model_decomp <- lm(
+  as_mort_prev_ratio_log ~ spend_intensity_effect_signed_log,
+  data = df_between
+)
+
+cat("\n--- Original spending per case ---\n")
+print(summary(model_original)$coefficients)
+
+cat("\n--- Decomposition intensity ---\n")
+print(summary(model_decomp)$coefficients)
+
+
+
+cat("\n================ DECOMPOSITION-BASED REGRESSION ================\n")
+
+
+df_between$spend_inten_per_case <- 
+  df_between$spend_intensity_effect / df_between$prevalence_counts
+
+df_between$spend_inten_per_case_log <- 
+  sign(df_between$spend_inten_per_case) *
+  log1p(abs(df_between$spend_inten_per_case))
+
+
+
+model_decomp_main <- lm(
+  as_mort_prev_ratio_log ~
+    spend_inten_per_case_log +
+    unemployment_rate +
+    race_prop_BLCK +
+    #log_incidence_rates_B +
+    race_prop_HISP,
+  data = df_between
+)
+
+
+# Print full summary
+print(summary(model_decomp_main))
+
+
+cat("\n================ ORIGINAL VS DECOMPOSITION =================\n")
+
+model_original <- lm(
+  as_mort_prev_ratio_log ~
+    as_spend_prev_ratio_log +
+    unemployment_rate +
+    race_prop_BLCK +
+    log_incidence_rates_B +
+    race_prop_HISP,
+  data = df_between
+)
+
+cat("\n--- ORIGINAL SPENDING ---\n")
+print(summary(model_original)$coefficients)
+
+cat("\n--- DECOMPOSITION SPENDING ---\n")
+print(summary(model_decomp_main)$coefficients)
+

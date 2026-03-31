@@ -1,13 +1,18 @@
 ##----------------------------------------------------------------
 ##' Title: D_decomp_analysis.R
 ##'
-##' Purpose: Das Gupta 4-Factor Decomposition of SUD Spending (2010-2019)
-##' 
-##' Cause Names
+##' Purpose: Das Gupta 4-Factor Decomposition of AUD Spending (2010-2019)
+##' Choose Cause Names
 ##' [1] "HIV/AIDS"               
 ##' [2] "Alcohol use disorders"  
 ##' [3] "Opioid use disorders"   
 ##' [4] "Substance use disorders"
+##' 
+##' > unique(df_decomp_p$acause)
+# [1] "hiv"                
+# [2] "mental_alcohol"     
+# [3] "_subs"              
+# [4] "mental_drug_opioids"
 ##----------------------------------------------------------------
 
 ##----------------------------------------------------------------
@@ -86,12 +91,12 @@ df_decomp_p <- df_decomp %>%
     values_from = all_of(val_cols)
   )
 
-# Filter to SUD only (toggle to "Substance use disorders" to switch)
+# Filter to AUD only (toggle to "Substance use disorders" to switch)
 # df_decomp_p <- df_decomp_p %>%
-#   filter(cause_name == "SUD")
+#   filter(cause_name == "AUD")
 
 df_decomp_p <- df_decomp_p %>%
-  filter(cause_name == "Substance use disorders")
+  filter(acause == "mental_alcohol")
 
 
 ###############################################################################
@@ -239,7 +244,7 @@ dt[, delta_spend := spend_2019 - spend_2010]
 # ============================================================================
 # Column definitions:
 #   pop_size_effect         = Change due to total state population growth
-#   prevalence_rate_effect  = Change due to SUD prevalence rate (cases per capita)
+#   prevalence_rate_effect  = Change due to AUD prevalence rate (cases per capita)
 #   case_composition_effect = Change due to shift in age-sex distribution of cases
 #   spend_intensity_effect  = Change due to spending per case
 
@@ -318,8 +323,8 @@ print(by_state[order(-delta_spend)][1:10, .(location_name, delta_spend,
 # STEP 6: Save results
 # ============================================================================
 
-write.csv(by_state, file.path(dir_output, "T6_SUD_decomp_by_state.csv"), row.names = FALSE)
-write.csv(national, file.path(dir_output, "T7_SUD_decomp_national.csv"), row.names = FALSE)
+write.csv(by_state, file.path(dir_output, "T6_AUD_decomp_by_state.csv"), row.names = FALSE)
+write.csv(national, file.path(dir_output, "T7_AUD_decomp_national.csv"), row.names = FALSE)
 
 cat(sprintf("\nResults saved to: %s\n", dir_output))
 
@@ -388,7 +393,7 @@ cat(sprintf("\nResults saved to: %s\n", dir_output))
 #   scale_fill_brewer(palette = "Set2") +
 #   scale_y_continuous(labels = dollar_format(suffix = "M")) +
 #   labs(
-#     title = "SUD Spending Decomposition by State (2010-2019)",
+#     title = "AUD Spending Decomposition by State (2010-2019)",
 #     subtitle = "All states ordered by total spending change | Diamond = Total Change",
 #     x = "",
 #     y = "Effect on Spending Change (Millions $)",
@@ -414,7 +419,7 @@ cat(sprintf("\nResults saved to: %s\n", dir_output))
 #   )
 # 
 # print(p_states_all)
-# ggsave(file.path(dir_output, "F4_SUD_decomp_all_states_stacked_bar.png"), p_states_all, 
+# ggsave(file.path(dir_output, "F4_AUD_decomp_all_states_stacked_bar.png"), p_states_all, 
 #        width = 10, height = 14, dpi = 300)
 # 
 # # ----------------------------------------------------------------------------
@@ -453,7 +458,7 @@ cat(sprintf("\nResults saved to: %s\n", dir_output))
 #   scale_fill_brewer(palette = "Set2") +
 #   scale_y_continuous(labels = dollar_format(suffix = "B")) +
 #   labs(
-#     title = "National SUD Spending Decomposition (2010-2019)",
+#     title = "National AUD Spending Decomposition (2010-2019)",
 #     subtitle = paste0("Total spending change: $", 
 #                       format(round(national$delta_spend/1e9, 2), nsmall = 2), 
 #                       " billion | Diamond = Total Change"),
@@ -481,7 +486,7 @@ cat(sprintf("\nResults saved to: %s\n", dir_output))
 #   )
 # 
 # print(p_national)
-# ggsave(file.path(dir_output, "F5_SUD_decomp_national_bar.png"), p_national, 
+# ggsave(file.path(dir_output, "F5_AUD_decomp_national_bar.png"), p_national, 
 #        width = 10, height = 4, dpi = 300)
 # 
 # 
@@ -522,7 +527,7 @@ cat(sprintf("\nResults saved to: %s\n", dir_output))
 #   scale_fill_brewer(palette = "Set2") +
 #   scale_y_continuous(labels = dollar_format(suffix = "M")) +
 #   labs(
-#     title = "SUD Spending Decomposition by State (2010-2019)",
+#     title = "AUD Spending Decomposition by State (2010-2019)",
 #     subtitle = "Top 15 states by absolute spending change | Diamond = Total Change",
 #     x = "",
 #     y = "Effect on Spending Change (Millions $)",
@@ -546,7 +551,7 @@ cat(sprintf("\nResults saved to: %s\n", dir_output))
 #   )
 # 
 # print(p_states)
-# ggsave(file.path(dir_output, "F6_SUD_decomp_15_states_stacked_bar.png"), p_states, 
+# ggsave(file.path(dir_output, "F6_AUD_decomp_15_states_stacked_bar.png"), p_states, 
 #        width = 10, height = 8, dpi = 300)
 # 
 # 
@@ -624,7 +629,7 @@ p_states_all <- ggplot(plot_data_all, aes(x = location_name, y = effect_pct, fil
   scale_fill_brewer(palette = "Set2") +
   scale_y_continuous(labels = scales::percent_format(scale = 1)) +
   labs(
-    title = "SUD Spending Decomposition by State (2010-2019)",
+    title = "AUD Spending Decomposition by State (2010-2019)",
     subtitle = "All states ordered by total spending change | Diamond = Total % Change from 2010 Baseline",
     x = "",
     y = "Effect as % of 2010 Spending",
@@ -649,7 +654,7 @@ p_states_all <- ggplot(plot_data_all, aes(x = location_name, y = effect_pct, fil
   )
 
 print(p_states_all)
-ggsave(file.path(dir_output, "F4_SUD_decomp_all_states_stacked_bar.png"), p_states_all, 
+ggsave(file.path(dir_output, "F4_AUD_decomp_all_states_stacked_bar.png"), p_states_all, 
        width = 10, height = 14, dpi = 300)
 
 # ----------------------------------------------------------------------------
@@ -691,7 +696,7 @@ p_national <- ggplot(national_plot_data, aes(x = location_name, y = effect_pct, 
   scale_fill_brewer(palette = "Set2") +
   scale_y_continuous(labels = scales::percent_format(scale = 1)) +
   labs(
-    title = "National SUD Spending Decomposition (2010-2019)",
+    title = "National AUD Spending Decomposition (2010-2019)",
     subtitle = paste0("Total spending change: ", 
                       format(round(national_delta_pct, 1), nsmall = 1), 
                       "% of 2010 baseline | Diamond = Total % Change"),
@@ -718,7 +723,7 @@ p_national <- ggplot(national_plot_data, aes(x = location_name, y = effect_pct, 
   )
 
 print(p_national)
-ggsave(file.path(dir_output, "F5_SUD_decomp_national_bar.png"), p_national, 
+ggsave(file.path(dir_output, "F5_AUD_decomp_national_bar.png"), p_national, 
        width = 10, height = 4, dpi = 300)
 
 # ----------------------------------------------------------------------------
@@ -761,7 +766,7 @@ p_states <- ggplot(plot_data_top, aes(x = location_name, y = effect_pct, fill = 
   scale_fill_brewer(palette = "Set2") +
   scale_y_continuous(labels = scales::percent_format(scale = 1)) +
   labs(
-    title = "SUD Spending Decomposition by State (2010-2019)",
+    title = "AUD Spending Decomposition by State (2010-2019)",
     subtitle = "Top 15 states by absolute spending change | Diamond = Total % Change from 2010 Baseline",
     x = "",
     y = "Effect as % of 2010 Spending",
@@ -784,14 +789,14 @@ p_states <- ggplot(plot_data_top, aes(x = location_name, y = effect_pct, fill = 
   )
 
 print(p_states)
-ggsave(file.path(dir_output, "F6_SUD_decomp_15_states_stacked_bar.png"), p_states, 
+ggsave(file.path(dir_output, "F6_AUD_decomp_15_states_stacked_bar.png"), p_states, 
        width = 10, height = 8, dpi = 300)
 
 cat("\n=========== VISUALIZATIONS SAVED ===========\n")
 cat(sprintf("Files saved to: %s\n", dir_output))
-cat("  - F4_SUD_decomp_all_states_stacked_bar.png (all 51 states)\n")
-cat("  - F5_SUD_decomp_national_bar.png\n")
-cat("  - F6_SUD_decomp_15_states_stacked_bar.png (top 15 states)\n")
+cat("  - F4_AUD_decomp_all_states_stacked_bar.png (all 51 states)\n")
+cat("  - F5_AUD_decomp_national_bar.png\n")
+cat("  - F6_AUD_decomp_15_states_stacked_bar.png (top 15 states)\n")
 
 
 ###############################################
@@ -1156,10 +1161,10 @@ print(final_spend_eff[Category == 2, .(Level, `Change in Spend per Case`, `Chang
 # B.9: Save results (2 tables instead of 4)
 # ----------------------------------------------------------------------------
 
-write.csv(final_spend_eff, file.path(dir_output, "T3_SUD_spending_effectiveness.csv"), row.names = FALSE)
-write.csv(final_daly_decomp, file.path(dir_output, "T8_SUD_decomp_daly.csv"), row.names = FALSE)
+write.csv(final_spend_eff, file.path(dir_output, "T3_AUD_spending_effectiveness.csv"), row.names = FALSE)
+write.csv(final_daly_decomp, file.path(dir_output, "T8_AUD_decomp_daly.csv"), row.names = FALSE)
 
 cat(sprintf("\n=========== FILES SAVED TO: %s ===========\n", dir_output))
-cat("  - T3_SUD_spending_effectiveness.csv (national + all states)\n")
-cat("  - T8_SUD_decomp_daly.csv (national + all states)\n")
+cat("  - T3_AUD_spending_effectiveness.csv (national + all states)\n")
+cat("  - T8_AUD_decomp_daly.csv (national + all states)\n")
 
