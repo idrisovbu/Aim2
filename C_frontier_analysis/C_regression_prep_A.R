@@ -133,16 +133,24 @@ df_gbd <- df_gbd %>%
 ##----------------------------------------------------------------
 ## 1. Collapse & Merge DEX & GBD data
 ##----------------------------------------------------------------
-# Collapse on TOC in DEX data
-df_dex <- df_dex %>%
-  group_by(year_id, geo, location_name, location_id, fips, payer, acause, cause_name, age_group_years_start, age_name, sex_id,) %>%
+# Collapse on TOC & Payer respectively in DEX data
+df_dex_payer <- df_dex %>%
+  group_by(year_id, geo, location_name, location_id, fips, payer, acause, cause_name, age_group_years_start, age_name, sex_id) %>%
+  summarize(spend_mean = sum(spend_mean))
+
+df_dex_toc <- df_dex %>%
+  filter(!payer == "all") %>%
+  group_by(year_id, geo, location_name, location_id, fips, toc, acause, cause_name, age_group_years_start, age_name, sex_id) %>%
   summarize(spend_mean = sum(spend_mean))
 
 # Create "_subs" acause
-df_dex_sud <- df_dex %>%
+df_dex_sud_payer <- df_dex_payer %>%
   filter(acause != "hiv")
 
-df_dex_sud <- df_dex_sud %>%
+df_dex_sud_toc <- df_dex_toc %>%
+  filter(acause != "hiv")
+
+df_dex_sud_payer <- df_dex_sud_payer %>%
   group_by(year_id, geo, location_name, location_id, fips, payer, age_group_years_start, age_name, sex_id) %>%
   summarize(spend_mean = sum(spend_mean)) %>%
   mutate(
@@ -150,19 +158,59 @@ df_dex_sud <- df_dex_sud %>%
     cause_name = "Substance use disorders"
     )
 
+df_dex_sud_toc <- df_dex_sud_toc %>%
+  group_by(year_id, geo, location_name, location_id, fips, toc, age_group_years_start, age_name, sex_id) %>%
+  summarize(spend_mean = sum(spend_mean)) %>%
+  mutate(
+    acause = "_subs",
+    cause_name = "Substance use disorders"
+  )
+
 # Filter on "hiv" acause" & retain "mental_alcohol" & "mental_drug_opioids" SUD subtype acauses
-df_dex_hiv_and_sud_subtypes <- df_dex %>% 
-  filter(acause != "mental_drug_agg")
+df_dex_hiv_and_sud_subtypes_payer <- df_dex %>% 
+  filter(acause != "mental_drug_agg") %>%
+  group_by(year_id, geo, location_name, location_id, fips, payer, acause, cause_name, age_group_years_start, age_name, sex_id) %>%
+  summarize(spend_mean = sum(spend_mean))
+
+df_dex_hiv_and_sud_subtypes_toc <- df_dex %>% 
+  filter(acause != "mental_drug_agg") %>%
+  filter(!payer == "all") %>%
+  group_by(year_id, geo, location_name, location_id, fips, toc, acause, cause_name, age_group_years_start, age_name, sex_id) %>%
+  summarize(spend_mean = sum(spend_mean))
 
 # Rbind back "_subs" & "hiv"
-df_dex_all <- rbind(df_dex_hiv_and_sud_subtypes, df_dex_sud)
+df_dex_payer_all <- rbind(df_dex_hiv_and_sud_subtypes_payer, df_dex_sud_payer)
+df_dex_toc_all <- rbind(df_dex_hiv_and_sud_subtypes_toc, df_dex_sud_toc)
 
-# Pivot wider to have columns for all different payer types
-df_dex_pivot <- df_dex_all %>% pivot_wider(
+# Pivot wider to have columns for all different payer & toc types
+df_dex_payer_pivot <- df_dex_payer_all %>% pivot_wider(
   names_from  = payer,
   values_from = spend_mean,
   names_prefix = "spend_"
 )
+
+df_dex_toc_pivot <- df_dex_toc_all %>% pivot_wider(
+  names_from  = toc,
+  values_from = spend_mean,
+  names_prefix = "spend_"
+)
+
+# this DF contains all the payer types and TOC types spread out over each spend_X column
+# totals are respective to Payer groups and TOC groups (all payer groups summed = spend_all, all toc groups summed = spend_all)
+df_dex_pivot <- left_join(
+  x = df_dex_payer_pivot,
+  y = df_dex_toc_pivot
+)
+
+# sanity check (yup the issue was needed to remove payer = all from the TOC calculation, otherwise we were doulbe counting)
+# df_dex_pivot_test <- copy(df_dex_pivot)
+# 
+# df_dex_pivot_test <- df_dex_pivot_test %>%
+#   mutate(toc_sum = spend_AM + spend_ED + spend_HH + spend_IP + spend_NF + spend_RX,
+#          payer_sum = spend_mdcd + spend_mdcr + spend_oop + spend_priv,
+#          toc_diff = (spend_all - toc_sum),
+#          pay_diff = (spend_all - payer_sum)
+#          )
 
 # Merge DEX & GBD data
 gbd_causes_to_include <- c("HIV/AIDS", 
@@ -197,6 +245,12 @@ df_m_collapse <- df_m %>%
     spend_mdcr = sum(spend_mdcr, na.rm = TRUE),
     spend_oop = sum(spend_oop, na.rm = TRUE),
     spend_priv = sum(spend_priv, na.rm = TRUE),
+    spend_AM = sum(spend_AM, na.rm = TRUE),
+    spend_ED = sum(spend_ED, na.rm = TRUE),
+    spend_HH = sum(spend_HH, na.rm = TRUE),
+    spend_IP = sum(spend_IP, na.rm = TRUE),
+    spend_NF = sum(spend_NF, na.rm = TRUE),
+    spend_RX = sum(spend_RX, na.rm = TRUE),
     mortality_counts = sum(mortality_counts),
     prevalence_counts = sum(prevalence_counts),
     daly_counts = sum(daly_counts),
@@ -247,6 +301,12 @@ df_as <- df_as %>%
     spend_mdcr = sum(spend_mdcr, na.rm = TRUE),
     spend_oop = sum(spend_oop, na.rm = TRUE),
     spend_priv = sum(spend_priv, na.rm = TRUE),
+    spend_AM = sum(spend_AM, na.rm = TRUE),
+    spend_ED = sum(spend_ED, na.rm = TRUE),
+    spend_HH = sum(spend_HH, na.rm = TRUE),
+    spend_IP = sum(spend_IP, na.rm = TRUE),
+    spend_NF = sum(spend_NF, na.rm = TRUE),
+    spend_RX = sum(spend_RX, na.rm = TRUE),
     mortality_counts = sum(mortality_counts),
     prevalence_counts = sum(prevalence_counts),
     daly_counts = sum(daly_counts),
@@ -288,6 +348,12 @@ df_as_no_year <- df_as %>%
     spend_mdcr = sum(spend_mdcr, na.rm = TRUE),
     spend_oop = sum(spend_oop, na.rm = TRUE),
     spend_priv = sum(spend_priv, na.rm = TRUE),
+    spend_AM = sum(spend_AM, na.rm = TRUE),
+    spend_ED = sum(spend_ED, na.rm = TRUE),
+    spend_HH = sum(spend_HH, na.rm = TRUE),
+    spend_IP = sum(spend_IP, na.rm = TRUE),
+    spend_NF = sum(spend_NF, na.rm = TRUE),
+    spend_RX = sum(spend_RX, na.rm = TRUE),
     mortality_counts = sum(mortality_counts),
     prevalence_counts = sum(prevalence_counts),
     daly_counts = sum(daly_counts),
