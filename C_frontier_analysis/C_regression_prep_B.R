@@ -14,6 +14,7 @@ rm(list = ls())
 pacman::p_load(data.table, arrow, tidyverse, glue, broom, purrr, readr, lubridate, readxl, e1071)
 conflicts_prefer(data.table::year)
 conflicts_prefer(dplyr::summarize)
+conflicts_prefer(dplyr::filter)
 
 # Set drive paths
 if (Sys.info()["sysname"] == 'Linux'){
@@ -62,7 +63,6 @@ ensure_dir_exists <- function(dir_path) {
 # Set fp for age-standardized data
 as_date <- "20260315"
 fp_as <- file.path(h, '/aim_outputs/Aim2/C_frontier_analysis/', as_date, "df_as.csv")
-# fp_as_cdc <- file.path(h, '/aim_outputs/Aim2/C_frontier_analysis/', as_date, "df_as_cdc.csv") (DEPRACATED in C_regression_prep_A.R)
 
 # Set output directories
 date_today <- format(Sys.time(), "%Y%m%d")
@@ -85,7 +85,6 @@ fp_cityfips <- file.path(h, "/aim_outputs/Aim2/R_resources/ryan_white_data/t1yea
 ## 2. Read in data
 ##----------------------------------------------------------------
 df_as <- read.csv(fp_as)
-# df_as_cdc <- read.csv(fp_as_cdc) (DEPRACATED in C_regression_prep_A.R)
 df_cov <- read.csv(fp_df_cov)
 df_race_cov <- read.csv(fp_df_race_cov)
 df_aca_expansion <- read.csv(fp_aca_expansion)
