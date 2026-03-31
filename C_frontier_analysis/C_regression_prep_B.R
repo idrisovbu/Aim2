@@ -61,7 +61,7 @@ ensure_dir_exists <- function(dir_path) {
 ## 1. Set directories
 ##----------------------------------------------------------------
 # Set fp for age-standardized data
-as_date <- "20260315"
+as_date <- "20260331"
 fp_as <- file.path(h, '/aim_outputs/Aim2/C_frontier_analysis/', as_date, "df_as.csv")
 
 # Set output directories
