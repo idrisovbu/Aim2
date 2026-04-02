@@ -71,9 +71,9 @@ SUBMIT_ARRAY_JOB(
     error_dir = log_dir,
     output_dir = log_dir,
     queue = "all.q", # string "all.q" or "long.q"
-    memory = "10G", # string "#G"
+    memory = "20G", # string "#G"
     threads = "1", # string "#"
-    time = "01:30:00", # string "##:##:##" - takes about 50~ minutes to run all 
+    time = "01:30:00", # string "##:##:##" - (~50 min for non-draw) (takes about ~5 min for draw since no county data)
     archive = F, # Don't need archive? Maybe only needed if writing to the archive drive?
     throttle = 3000, # Not sure what this does
     n_jobs = nrow(combos),
