@@ -17,9 +17,9 @@ if("dex.dbr"%in% (.packages())) detach("package:dex.dbr", unload=TRUE)
 library(dex.dbr, lib.loc = lbd.loader::pkg_loc("dex.dbr"))
 suppressMessages(devtools::load_all(path = "/ihme/homes/idrisov/repo/dex_us_county/"))
 '%nin%' <- Negate('%in%')
+conflicts_prefer(dplyr::filter)
 
 # Source IHME shared functions
-source("/ihme/cc_resources/libraries/current/r/get_outputs.R")
 source("/ihme/cc_resources/libraries/current/r/get_population.R")
 source("/ihme/cc_resources/libraries/current/r/get_location_metadata.R")
 source("/ihme/cc_resources/libraries/current/r/get_age_metadata.R")
@@ -98,7 +98,7 @@ args_get_machinery_estimates <- list(entity = "cause",
                                      entity_id = cause_ids,
                                      release_id=rel_id,
                                      context="GBD",
-                                     estimates="PE",
+                                     estimates="draws", # PE = Point Estimates, UI = Uncertainty Intervals, draws = draws
                                      #measure_id (specified in call)
                                      #metric_id (specified in call)
                                      location_id=list_state_loc_ids, 
@@ -107,7 +107,7 @@ args_get_machinery_estimates <- list(entity = "cause",
                                      year_id=year_ids,
                                      add_names = T)
 
-# Pull all counts (will make rates from collapsed counts later)
+# Pull all draw counts (will make rates from collapsed counts later)
 df_prevalence_counts <- do.call(get_machinery_estimates, c(args_get_machinery_estimates, list(measure_id = 5, metric_id = 1)))
 df_mortality_counts <- do.call(get_machinery_estimates, c(args_get_machinery_estimates, list(measure_id = 1, metric_id = 1)))
 df_daly_counts <- do.call(get_machinery_estimates, c(args_get_machinery_estimates, list(measure_id = 2, metric_id = 1)))
@@ -115,120 +115,132 @@ df_incidence_counts <- do.call(get_machinery_estimates, c(args_get_machinery_est
 df_yll_counts <- do.call(get_machinery_estimates, c(args_get_machinery_estimates, list(measure_id = 4, metric_id = 1)))
 df_yld_counts <- do.call(get_machinery_estimates, c(args_get_machinery_estimates, list(measure_id = 3, metric_id = 1)))
 
-df_list <- list(df_prevalence_counts,
-                df_mortality_counts,
-                df_daly_counts,
-                df_incidence_counts,
-                df_yll_counts,
-                df_yld_counts
-                )
+df_list <- list(
+  prevalence_counts = df_prevalence_counts,
+  mortality_counts  = df_mortality_counts,
+  daly_counts       = df_daly_counts,
+  incidence_counts  = df_incidence_counts,
+  yll_counts        = df_yll_counts,
+  yld_counts        = df_yld_counts
+)
 
-df_list_val_label <- c("prevalence_counts",
-                       "mortality_counts",
-                       "daly_counts",
-                       "incidence_counts",
-                       "yll_counts",
-                       "yld_counts"
-                       )
+id_cols <- c(
+  "age_group_id",
+  "cause_id",
+  "location_id",
+  "sex_id",
+  "year_id",
+  "age_group_name",
+  "cause_name",
+  "location_name"
+)
 
-df_gbd <- data.frame()
-
-# Loop through each df, filter columns, relabel "point_estimate" column to respective measure_counts, join together
-for (i in 1:length(df_list)) {
-  df <- df_list[[i]]
-  
-  df <- df %>%
-    select(c(age_group_id, cause_id, location_id, 
-             sex_id, year_id, age_group_name, cause_name, location_name, point_estimate))
-  
-  df <- df %>%
-    rename(
-      !!df_list_val_label[i] := "point_estimate"
+# Convert each dataframe to one row per ID x draw,
+# with the measure as its own value column
+df_list_hybrid <- imap(df_list, function(df, measure_name) {
+  df %>%
+    select(all_of(id_cols), starts_with("draw_")) %>%
+    pivot_longer(
+      cols = starts_with("draw_"),
+      names_to = "draw",
+      values_to = measure_name
     )
-  
-  if (i == 1) {
-    df_gbd <- df
-  } else {
-    df_gbd <- left_join(
-      x = df_gbd,
-      y = df,
-      by = c("age_group_id", "age_group_name", "cause_id", "cause_name", "location_id", "location_name", "sex_id", "year_id"),
+})
+
+# Join all measure-specific dataframes together by IDs + draw
+df_gbd_hybrid <- reduce(
+  df_list_hybrid,
+  left_join,
+  by = c(id_cols, "draw")
+)
+
+# Collapse younger and older age groups into 0 - <1, 1 - <5, and 85+
+collapse_ids_0_1  <- c(2, 3, 388, 389)
+collapse_ids_1_5  <- c(238, 34)
+collapse_ids_85p  <- c(31, 32, 235)
+
+collapse_ids_all <- c(collapse_ids_0_1, collapse_ids_1_5, collapse_ids_85p)
+
+# Keep rows that do NOT need collapsing
+df_age_non_collapse <- df_gbd_hybrid %>%
+  filter(!age_group_id %in% collapse_ids_all) %>%
+  select(!c("age_group_id"))
+
+# Keep only rows that DO need collapsing, then assign labels
+df_age_collapse <- df_gbd_hybrid %>%
+  filter(age_group_id %in% collapse_ids_all) %>%
+  mutate(
+    age_group_name = case_when(
+      age_group_id %in% collapse_ids_0_1 ~ "0 - <1",
+      age_group_id %in% collapse_ids_1_5 ~ "1 - <5",
+      age_group_id %in% collapse_ids_85p ~ "85+"
     )
-  }
-}
+  ) %>%
+  group_by(
+    age_group_name, cause_id, location_id, sex_id, 
+    year_id, cause_name, location_name, draw
+  ) %>%
+  summarise(
+    prevalence_counts = sum(prevalence_counts, na.rm = TRUE),
+    mortality_counts  = sum(mortality_counts, na.rm = TRUE),
+    daly_counts       = sum(daly_counts, na.rm = TRUE),
+    incidence_counts  = sum(incidence_counts, na.rm = TRUE),
+    yll_counts        = sum(yll_counts, na.rm = TRUE),
+    yld_counts        = sum(yld_counts, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+df_final <- bind_rows(df_age_non_collapse, df_age_collapse) 
 
 
-# Pull Population data
+# Population data
 df_population <- get_population(release_id = rel_id,
                                 age_group_id = "all",
                                 location_id = list_state_loc_ids,
                                 location_set_id = 35,
                                 year_id = year_ids,
                                 sex_id = sex_ids
-                                )
-
-# Join to rest of GBD data
-df_gbd <- left_join(
-  x = df_gbd,
-  y = df_population %>% select(!("run_id")),
-  by = c("age_group_id", "location_id", "year_id", "sex_id")
 )
 
+standard_age_groups <- c(2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 30, 31, 32, 34, 235, 238, 388, 389)
 
-# Check where we have NAs
-# View(df_m[!complete.cases(df_m), ]) # Looks like we only have NA data for Early and Late Neonatal for HIV, otherwise all other rows have data
+# Collapse Population data
 
-# Collapse on the 0 - <1 and 1 - <5 age groups 
-# Age groups in the DEX / USHD data
-# c("0 - <1", "1 - <5", "10 - <15", "15 - <20", "20 - <25", "25 - <30", 
-#   "30 - <35", "35 - <40", "40 - <45", "45 - <50", "5 - <10", "50 - <55", 
-#   "55 - <60", "60 - <65", "65 - <70", "70 - <75", "75 - <80", "80 - <85", 
-#   "85+")
+# Filter non-collapse pop data
+df_pop_non_collapse <- df_population %>%
+  filter(!age_group_id %in% collapse_ids_all)
 
-# Label the 0 - <1, 1 - <5, & 85+ age groups 
-df_age_collapse <- df_gbd %>%
-  mutate(age_name_group = case_when(
+# Filter collapse pop data & label the 0 - <1, 1 - <5, & 85+ age groups 
+df_pop_collapse <- df_population %>%
+  filter(age_group_id %in% collapse_ids_all) %>%
+  mutate(age_group_name = case_when(
     age_group_id %in% c(2, 3, 388, 389) ~ "0 - <1",
     age_group_id %in% c(238, 34) ~ "1 - <5",
     age_group_id %in% c(31, 32, 235) ~ "85+"
   ))
 
-df_age_non_collapse <- df_age_collapse %>%
-  filter(is.na(age_name_group))
-
 # Collapse on the 0 - <1, 1 - <5, & 85+ age groups 
-df_age_collapse <- df_age_collapse %>%
-  filter(!is.na(age_name_group)) %>%
-  group_by(age_name_group, cause_id, location_id, sex_id, 
-             year_id, cause_name, location_name) %>%
-  summarize(
-    prevalence_counts = sum(prevalence_counts),
-    mortality_counts= sum(mortality_counts, na.rm = TRUE),
-    daly_counts = sum(daly_counts),
-    incidence_counts = sum(incidence_counts, na.rm = TRUE),
-    yll_counts = sum(yll_counts, na.rm = TRUE),
-    yld_counts = sum(yld_counts, na.rm = TRUE),
+df_pop_collapse <- df_pop_collapse %>%
+  group_by(age_group_name, location_id, sex_id, 
+           year_id) %>%
+  summarise(
     population = sum(population)
   )
 
-df_age_collapse <- df_age_collapse %>%
-  rename(
-    "age_group_name" = "age_name_group"
-  )
-
-# Rowbind back the df age collapse data
-df_final <- rbind(df_age_collapse, df_age_non_collapse)
-
-df_final <- df_final %>%
-  select(!c("age_name_group", "age_group_id"))
+# Rejoin data
+df_pop_final <- bind_rows(df_pop_collapse, df_pop_non_collapse) 
 
 ##----------------------------------------------------------------
 ## 3. Save data
 ##----------------------------------------------------------------
-# Prevalence, Mortality, & Population data
-fn_main <- file.path(dir_out, "df_gbd.parquet")
+# Prevalence, Mortality, DALY, Incidence, YLL, YLD data
+fn_counts <- file.path(dir_out, "df_gbd_counts_draws.parquet")
+write_parquet(df_final, fn_counts)
 
-write_parquet(df_final, fn_main)
+# Population data
+fn_pop <- file.path(dir_out, "df_gbd_pop.parquet")
+write_parquet(df_final, fn_pop)
+
 
 ##----------------------------------------------------------------
 ## SCRATCH SPACE - SAFE TO DELETE
