@@ -208,7 +208,40 @@ standard_age_groups <- c(2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 1
 
 # Filter non-collapse pop data
 df_pop_non_collapse <- df_population %>%
+  filter(age_group_id %in% standard_age_groups) %>%
   filter(!age_group_id %in% collapse_ids_all)
+
+# Attach age group names to non collapse
+df_pop_non_collapse <- left_join(
+  x = df_pop_non_collapse,
+  y = df_age_groups %>% select(c("age_group_id", "age_group_name"))
+)
+
+# Modify age group names to match DEX age group names
+age_map <- c(
+  "0 - <1"   = "0 - <1",
+  "1 - <5"   = "1 - <5",
+  "5 to 9"   = "5 - <10",
+  "10 to 14" = "10 - <15",
+  "15 to 19" = "15 - <20",
+  "20 to 24" = "20 - <25",
+  "25 to 29" = "25 - <30",
+  "30 to 34" = "30 - <35",
+  "35 to 39" = "35 - <40",
+  "40 to 44" = "40 - <45",
+  "45 to 49" = "45 - <50",
+  "50 to 54" = "50 - <55",
+  "55 to 59" = "55 - <60",
+  "60 to 64" = "60 - <65",
+  "65 to 69" = "65 - <70",
+  "70 to 74" = "70 - <75",
+  "75 to 79" = "75 - <80",
+  "80 to 84" = "80 - <85",
+  "85+"      = "85+"
+)
+
+df_pop_non_collapse <- df_pop_non_collapse %>%
+  mutate(age_group_name = coalesce(unname(age_map[age_group_name]), age_group_name))
 
 # Filter collapse pop data & label the 0 - <1, 1 - <5, & 85+ age groups 
 df_pop_collapse <- df_population %>%
@@ -228,7 +261,8 @@ df_pop_collapse <- df_pop_collapse %>%
   )
 
 # Rejoin data
-df_pop_final <- bind_rows(df_pop_collapse, df_pop_non_collapse) 
+df_pop_final <- bind_rows(df_pop_collapse, df_pop_non_collapse %>% select(!c("run_id"))) %>%
+  select(!c("age_group_id", "age_name"))
 
 ##----------------------------------------------------------------
 ## 3. Save data
@@ -240,7 +274,6 @@ write_parquet(df_final, fn_counts)
 # Population data
 fn_pop <- file.path(dir_out, "df_gbd_pop.parquet")
 write_parquet(df_pop_final, fn_pop)
-
 
 ##----------------------------------------------------------------
 ## SCRATCH SPACE - SAFE TO DELETE
