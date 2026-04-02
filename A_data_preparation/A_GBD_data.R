@@ -239,7 +239,7 @@ write_parquet(df_final, fn_counts)
 
 # Population data
 fn_pop <- file.path(dir_out, "df_gbd_pop.parquet")
-write_parquet(df_final, fn_pop)
+write_parquet(df_pop_final, fn_pop)
 
 
 ##----------------------------------------------------------------
