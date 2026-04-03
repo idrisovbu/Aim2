@@ -396,3 +396,20 @@ df_as_no_year$yld_rates <- df_as_no_year$yld_counts / df_as_no_year$population
 # Save
 write.csv(x = df_as_no_year, row.names = FALSE, file = file.path(dir_output, "df_as_no_year_draws.csv"))
 
+
+##### SCRATCH SPACE
+# Example code for collapsing the draw values to get PI and UI
+
+# "prevalence_counts"
+# 
+# df_test <- head(df_m, 51) # This step basically filters to give us a single strata, with 51 draw values
+# 
+# df_test_2 <- df_test %>% #this step collapses on the 51 draw values, and takes the mean, and then quantiles to get the UI
+#   group_by(cause_id, location_id, sex_id, year_id, cause_name, location_name, age_name, geo, fips, acause, age_group_years_start) %>%
+#   summarise(
+#     prevalence_counts_pi = mean(prevalence_counts),
+#     prevalence_counts_lower = quantile(prevalence_counts, 0.025),
+#     prevalence_counts_upper = quantile(prevalence_counts, 0.975),
+#   )
+
+
