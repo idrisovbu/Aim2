@@ -74,7 +74,7 @@ ensure_dir_exists(dir_output)
 ds_des <- open_dataset(fp_dex)
 
 df_dex <- ds_des %>%
-  filter(geo == "state") %>%
+  filter(!geo == "cnty") %>%
   select(c("year_id", "geo", "location_name", "fips", "toc", "payer",
            "acause", "cause_name", "age_group_years_start", "age_name", 
            "sex_id", "spend", "draw")) %>%

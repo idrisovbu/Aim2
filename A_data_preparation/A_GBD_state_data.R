@@ -1,5 +1,5 @@
 ##----------------------------------------------------------------
-##' Title: A_GBD_state_data.R
+##' Title: A_GBD_data.R
 ##'
 ##' Purpose: Pulls STATE LEVEL DATA ONLY and saves Mortality, Prevalence, DALY, Incidence, YLD, YLL, and Population data needed for C Frontier Analysis
 ##' Use: Run script from start to finish, data will save to Aim2/A_data_preparation/FA/<current_date>
