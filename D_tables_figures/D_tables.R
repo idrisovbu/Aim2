@@ -71,7 +71,7 @@ fp_gbd <- file.path(h, "/aim_outputs/Aim2/A_data_preparation/", date_gbd, "/GBD/
 date_as <- "20260315"
 fp_as <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_as, "/df_as.csv")
 
-date_as_draws <- "20260402"
+date_as_draws <- "20260403"
 fp_as_draws <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_as_draws, "/df_as_draws.parquet")
 
 # State level GBD + Dex data - No years
@@ -227,22 +227,8 @@ for (a in acauses) {
   
   # National level data
   df_tmp_draw_nat_collapse <- df_tmp %>%
-    group_by(cause_name, draw) %>%
-    summarise(
-      spend_per_prev = mean(spend_per_prev),
-      spend_all = sum(spend_all),
-      spend_mdcd = sum(spend_mdcd),
-      spend_mdcr = sum(spend_mdcr),
-      spend_oop = sum(spend_oop),
-      spend_priv = sum(spend_priv),
-      prevalence_counts = sum(prevalence_counts),
-      as_mort_prev_ratio = mean(as_mort_prev_ratio),
-      incidence_counts = sum(incidence_counts),
-      .groups = "drop"
-    )
-  
-  df_tmp_draw_nat_draw_collapse <- df_tmp_draw_nat_collapse %>%
-    group_by(cause_name) %>%
+    filter(location_name == "United States") %>%
+    group_by(cause_name, location_name) %>%
     summarise(
       across(
         all_of(cols),
@@ -258,6 +244,7 @@ for (a in acauses) {
   
   # State level data
   df_tmp_draw_state_collapse <- df_tmp %>%
+    filter(!location_name == "United States") %>%
     group_by(cause_name, location_name) %>%
     summarise(
       across(
@@ -272,11 +259,14 @@ for (a in acauses) {
       .groups = "drop"
     )
   
+  # Rbind data
+  df_tmp_draw_collapse <- rbind(df_tmp_draw_nat_collapse, df_tmp_draw_state_collapse)
+  
   # Convert to dollars
-  df_tmp_draw_state_collapse <- convert_to_dollars(df_tmp_draw_state_collapse, grep("spend_", colnames(df_tmp_draw_state_collapse), value = TRUE))
+  df_tmp_draw_collapse <- convert_to_dollars(df_tmp_draw_collapse, grep("spend_", colnames(df_tmp_draw_collapse), value = TRUE))
   
   # Format columns neatly
-  df_tmp_draw_state_collapse <- df_tmp_draw_state_collapse %>%
+  df_tmp_draw_collapse_f <- df_tmp_draw_collapse %>%
     mutate(
       Cause = cause_name,
       State = location_name,
@@ -346,21 +336,18 @@ for (a in acauses) {
     )
   
   # Drop "cause_name", "location_name"
-  df_tmp_draw_state_collapse <- df_tmp_draw_state_collapse %>%
+  df_tmp_draw_collapse_f <- df_tmp_draw_collapse_f %>%
     select(!c("cause_name", "location_name"))
   
-  
-  ### NEEDS REVISION BELOW
-  
   # Assign to df_t2_hiv or df_t2_subs
-  assign(paste0("df_t1_2019_", gsub("^_", "", a)), df_tmp, envir = .GlobalEnv)
+  assign(paste0("df_t1_2019_UI_", gsub("^_", "", a)), df_tmp_draw_collapse_f, envir = .GlobalEnv)
 }
 
 # Write to CSV
-write.csv(df_t1_2019_hiv, file.path(dir_output, "T1_HIV_2019_UI.csv"), row.names = FALSE)
-write.csv(df_t1_2019_subs, file.path(dir_output, "T1_SUD_2019_UI.csv"), row.names = FALSE)
-write.csv(df_t1_2019_mental_alcohol, file.path(dir_output, "T1_AUD_2019_UI.csv"), row.names = FALSE)
-write.csv(df_t1_2019_mental_drug_opioids, file.path(dir_output, "T1_OUD_2019_UI.csv"), row.names = FALSE)
+write.csv(df_t1_2019_UI_hiv, file.path(dir_output, "T1_HIV_2019_UI.csv"), row.names = FALSE)
+write.csv(df_t1_2019_UI_subs, file.path(dir_output, "T1_SUD_2019_UI.csv"), row.names = FALSE)
+write.csv(df_t1_2019_UI_mental_alcohol, file.path(dir_output, "T1_AUD_2019_UI.csv"), row.names = FALSE)
+write.csv(df_t1_2019_UI_mental_drug_opioids, file.path(dir_output, "T1_OUD_2019_UI.csv"), row.names = FALSE)
 
 ##----------------------------------------------------------------
 ## 2. Table 2 - HIV & SUD & AUD & OUD 2010 ~ 2019
