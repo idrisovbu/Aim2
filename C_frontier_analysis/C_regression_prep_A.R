@@ -53,14 +53,19 @@ ensure_dir_exists <- function(dir_path) {
 date_dex <- "20260402"
 fp_dex <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_dex, "/compiled_dex_data_2010_2019_draws.parquet")
 
-date_gbd <- "20260401"
-fp_gbd <- file.path(h, "/aim_outputs/Aim2/A_data_preparation/", date_gbd, "/GBD/df_gbd_counts_draws.parquet")
+date_gbd_state <- "20260401"
+fp_gbd <- file.path(h, "/aim_outputs/Aim2/A_data_preparation/", date_gbd_state, "/GBD/df_gbd_counts_draws.parquet")
+
+date_gbd_nat <- "20260403"
+fp_gbd_nat <- file.path(h, "/aim_outputs/Aim2/A_data_preparation/", date_gbd_nat, "/GBD/df_gbd_counts_national_draws.parquet")
 
 date_gbd_pop <- "20260402"
 fp_gbd_pop <- file.path(h, "/aim_outputs/Aim2/A_data_preparation/", date_gbd_pop, "/GBD/df_gbd_pop.parquet")
 
+date_gbd_pop_nat <- "20260403"
+fp_gbd_pop_nat <- file.path(h, "/aim_outputs/Aim2/A_data_preparation/", date_gbd_pop_nat, "/GBD/df_gbd_national_pop.parquet")
+
 fp_ushd_age_weights <- file.path(j, "Project/us_counties/covariates/census_age_weights.csv")
-df_ushd_age_weights <- read.csv(fp_ushd_age_weights)
 
 # Set output directories
 date_today <- format(Sys.time(), "%Y%m%d")
@@ -92,8 +97,20 @@ df_dex <- left_join(
   by = c("location_name" = "state_name")
 )
 
+# need to label national USA with location_id = 102
+df_dex[geo == "national", location_id := 102]
+
 # GBD Prevalence, Mortality, Population data
 df_gbd <- read_parquet(fp_gbd)
+df_gbd_nat <- read_parquet(fp_gbd_nat)
+
+# rename United States of America -> United States
+df_gbd_nat <- df_gbd_nat %>%
+  mutate(location_name = if_else(
+    location_name == "United States of America", "United States", location_name))
+
+# rbind state level and national level data
+df_gbd <- rbind(df_gbd, df_gbd_nat)
 
 # Modify age group names to match DEX age group names
 age_map <- c(
@@ -220,6 +237,7 @@ df_gbd <- df_gbd %>%
     draw = as.integer(sub("draw_", "", draw))
   )
 
+# Join DEX and GBD data
 df_m <- left_join(
   x = df_gbd,
   y = df_dex_pivot,
@@ -240,8 +258,11 @@ df_m <- df_m %>%
 
 # Read in population data and join to df_m
 df_gbd_pop <- read_parquet(fp_gbd_pop)
+df_gbd_nat_pop <- read_parquet(fp_gbd_pop_nat)
 
-df_m <- left_join(
+df_gbd_pop <- rbind(df_gbd_pop, df_gbd_nat_pop)
+
+df_m_pop <- left_join(
   x = df_m,
   y = df_gbd_pop,
   by = c("age_name" = "age_group_name", "year_id", "sex_id", "location_id")
@@ -253,8 +274,8 @@ write_parquet(df_m, file.path(dir_output, "df_decomp_draws.parquet"))
 ##----------------------------------------------------------------
 ## 2. Collapse on sex_id
 ##----------------------------------------------------------------
-df_m_collapse <- df_m %>%
-  group_by(cause_id, year_id, location_id, location_name, acause, cause_name, age_name, age_group_years_start, draw) %>%
+df_m_collapse <- df_m_pop %>%
+  group_by(cause_id, year_id, geo, location_id, location_name, acause, cause_name, age_name, age_group_years_start, draw) %>%
   summarise(
     spend_all = sum(spend_all, na.rm = TRUE),
     spend_mdcd = sum(spend_mdcd, na.rm = TRUE),
@@ -292,6 +313,9 @@ df_m_collapse <- df_m_collapse %>%
 ##----------------------------------------------------------------
 ## 4. Apply age-standardization
 ##----------------------------------------------------------------
+# Read in age weights
+df_ushd_age_weights <- read.csv(fp_ushd_age_weights)
+
 # Rename "wt" column
 df_ushd_age_weights <- df_ushd_age_weights %>%
   setnames(old = c("age", "wt"), new = c("age_group_years_start", "age_group_weight_value"))
@@ -305,7 +329,7 @@ df_as <- left_join(
 
 # Create age-standardized ratios based on non-sexed GBD age weights (collapsing age groups here) 
 df_as <- df_as %>%
-  group_by(cause_id, year_id, location_id, location_name, acause, cause_name, draw) %>%
+  group_by(cause_id, year_id, geo, location_id, location_name, acause, cause_name, draw) %>%
   summarise(
     as_spend_prev_ratio = sum(spend_prev_ratio * age_group_weight_value, na.rm = TRUE),
     as_mort_prev_ratio  = sum(mort_prev_ratio * age_group_weight_value, na.rm = TRUE),
@@ -358,7 +382,7 @@ write.csv(x = df_as, row.names = FALSE, file = file.path(dir_output, "df_as_draw
 ##----------------------------------------------------------------
 # Collapse on year_id
 df_as_no_year <- df_as %>%
-  group_by(cause_id, location_id, location_name, acause, cause_name, draw) %>%
+  group_by(cause_id, location_id, geo, location_name, acause, cause_name, draw) %>%
   summarise(
     spend_all = sum(spend_all, na.rm = TRUE),
     spend_mdcd = sum(spend_mdcd, na.rm = TRUE),
