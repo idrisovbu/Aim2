@@ -2,6 +2,7 @@
 ##' Title: D_decomp_analysis.R
 ##'
 ##' Purpose: Das Gupta 4-Factor Decomposition of HIV Spending (2010-2019)
+##'          WITH UNCERTAINTY INTERVALS FROM DRAW-LEVEL DATA
 ##----------------------------------------------------------------
 
 ##----------------------------------------------------------------
@@ -9,20 +10,23 @@
 ##----------------------------------------------------------------
 rm(list = ls())
 
-pacman::p_load(dplyr, openxlsx, RMySQL, data.table, ini, DBI, tidyr,RColorBrewer,forcats,openxlsx, reticulate, ggpubr, arrow, scales, Rcpp)
+pacman::p_load(dplyr, openxlsx, RMySQL, data.table, ini, DBI, tidyr,
+               RColorBrewer, forcats, openxlsx, reticulate, ggpubr, 
+               arrow, scales, Rcpp)
 library(lbd.loader, lib.loc = sprintf("/share/geospatial/code/geospatial-libraries/lbd.loader-%s", R.version$major))
-if("dex.dbr"%in% (.packages())) detach("package:dex.dbr", unload=TRUE)
+if("dex.dbr" %in% (.packages())) detach("package:dex.dbr", unload=TRUE)
 library(dex.dbr, lib.loc = lbd.loader::pkg_loc("dex.dbr"))
 suppressMessages(devtools::load_all(path = "/ihme/homes/idrisov/repo/dex_us_county/"))
+conflicts_prefer(dplyr::filter)
 
 # Set drive paths
 if (Sys.info()["sysname"] == 'Linux'){
   j <- "/home/j/"
-  h <- paste0("/ihme/homes/",Sys.info()[7],"/")
+  h <- paste0("/ihme/homes/", Sys.info()[7], "/")
   l <- '/ihme/limited_use/'
 } else if (Sys.info()["sysname"] == 'Darwin'){
   j <- "/Volumes/snfs"
-  h <- paste0("/Volumes/",Sys.info()[7],"/")
+  h <- paste0("/Volumes/", Sys.info()[7], "/")
   l <- '/Volumes/limited_use'
 } else {
   j <- "J:/"
@@ -34,6 +38,7 @@ if (Sys.info()["sysname"] == 'Linux'){
 ## 0. Functions
 ##----------------------------------------------------------------
 ensure_dir_exists <- function(dir_path) {
+  
   if (!dir.exists(dir_path)) {
     dir.create(dir_path, recursive = TRUE)
   }
@@ -51,8 +56,8 @@ convert_to_dollars <- function(df, cols_to_convert) {
 ##----------------------------------------------------------------
 ## 0.1 Set directories
 ##----------------------------------------------------------------
-date_decomp <- "20260201"
-fp_decomp <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_decomp, "/df_decomp.csv")
+date_decomp <- "20260406"
+fp_decomp <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_decomp, "/df_decomp_draws.parquet")
 
 date_today <- format(Sys.time(), "%Y%m%d")
 dir_output <- file.path(h, "/aim_outputs/Aim2/D_tables_figures/", date_today)
@@ -61,72 +66,11 @@ ensure_dir_exists(dir_output)
 ##----------------------------------------------------------------
 ## 0.2 Read in data
 ##----------------------------------------------------------------
-df_decomp <- read_csv(fp_decomp)
+df_decomp <- read_parquet(fp_decomp)
 
-
-# ##----------------------------------------------------------------
-# ## 0.3 Optional: add Ryan White into HIV spend for decomposition
-# ##----------------------------------------------------------------
-# conflicted::conflicts_prefer(dplyr::first)
-# conflicted::conflicts_prefer(dplyr::filter)
-# conflicted::conflicts_prefer(dplyr::select)
-# conflicted::conflicts_prefer(dplyr::summarise)
-# conflicted::conflicts_prefer(dplyr::first)
-# 
-# include_rw_in_decomp <- TRUE
-# 
-# if (include_rw_in_decomp) {
-#   # Point to processed C_frontier output that contains ryan_white_funding_final
-#   # (from C_regression_prep_B.R output: df_as_processed_rw_gbd.csv)
-#   date_rw <- "20260315"  # <-- update to the run date you want
-#   fp_rw_state <- file.path(
-#     h, "/aim_outputs/Aim2/C_frontier_analysis/", date_rw, "/df_as_processed_rw_gbd.csv"
-#   )
-#   
-#   df_rw_state <- readr::read_csv(fp_rw_state, show_col_types = FALSE) %>%
-#     dplyr::filter(acause == "hiv", year_id %in% c(2010, 2019)) %>%
-#     dplyr::select(location_id, location_name, year_id, ryan_white_funding_final) %>%
-#     dplyr::distinct()
-#   
-#   # Join RW totals to decomp input
-#   df_decomp <- df_decomp %>%
-#     dplyr::left_join(df_rw_state, by = c("location_id", "location_name", "year_id")) %>%
-#     dplyr::mutate(
-#       ryan_white_funding_final = tidyr::replace_na(ryan_white_funding_final, 0)
-#     )
-#   
-#   # Allocate state-year RW to HIV age-sex cells by prevalence share
-#   df_decomp <- df_decomp %>%
-#     dplyr::group_by(location_id, year_id, cause_name) %>%
-#     dplyr::mutate(
-#       hiv_prev_state = ifelse(
-#         cause_name == "HIV/AIDS",
-#         sum(prevalence_counts, na.rm = TRUE),
-#         NA_real_
-#       ),
-#       rw_alloc = dplyr::case_when(
-#         cause_name == "HIV/AIDS" & hiv_prev_state > 0 ~
-#           ryan_white_funding_final * (prevalence_counts / hiv_prev_state),
-#         TRUE ~ 0
-#       ),
-#       spend_all = ifelse(cause_name == "HIV/AIDS", spend_all + rw_alloc, spend_all)
-#     ) %>%
-#     dplyr::ungroup() %>%
-#     dplyr::select(-hiv_prev_state, -rw_alloc)
-#   
-#   message("Ryan White has been added to HIV spend_all for decomposition.")
-# } else {
-#   message("Running decomposition with DEX spend_all only (no Ryan White).")
-# }
-
-# df_decomp_p <- df_decomp %>%
-#   dplyr::filter(year_id %in% c(2010, 2019)) %>%
-#   dplyr::select(!dplyr::all_of(cols_to_drop)) %>%
-#   tidyr::pivot_wider(
-#     names_from = year_id,
-#     values_from = dplyr::all_of(val_cols)
-#   )
-
+cat("Data loaded. Dimensions:", nrow(df_decomp), "rows x", ncol(df_decomp), "columns\n")
+cat("Unique draws:", length(unique(df_decomp$draw)), "\n")
+cat("Unique locations:", length(unique(df_decomp$location_name)), "\n")
 
 ##----------------------------------------------------------------
 ## 1. Transform data
@@ -135,26 +79,30 @@ val_cols <- c("prevalence_counts", "mortality_counts", "daly_counts",
               "incidence_counts", "yll_counts", "yld_counts", "population", 
               "spend_all")
 
-cols_to_drop <- c("spend_mdcd", "spend_mdcr", "spend_oop", "spend_priv")
+cols_to_drop <- c("spend_mdcd", "spend_mdcr", "spend_oop", "spend_priv",
+                  "spend_AM", "spend_ED", "spend_HH", "spend_IP", "spend_NF", "spend_RX")
 
+# KEY CHANGE: Include 'draw' in the ID columns (not pivoted)
 df_decomp_p <- df_decomp %>%
   filter(year_id %in% c(2010, 2019)) %>%
-  select(!all_of(cols_to_drop)) %>%
+  select(!any_of(cols_to_drop)) %>%
   pivot_wider(
+    id_cols = c(cause_id, location_id, sex_id, cause_name, location_name, 
+                age_name, geo, fips, acause, age_group_years_start, draw),
     names_from = year_id,
     values_from = all_of(val_cols)
   )
 
-# Filter to HIV only (toggle to "Substance use disorders" to switch)
+# Filter to HIV only
 df_decomp_p <- df_decomp_p %>%
   filter(cause_name == "HIV/AIDS")
 
-# df_decomp_p <- df_decomp_p %>%
-#   filter(cause_name == "Substance use disorders")
+cat("\nAfter pivot_wider and HIV filter:", nrow(df_decomp_p), "rows\n")
+cat("Expected: ~52 locations × 46 age-sex × 51 draws =", 52 * 46 * 51, "\n")
 
 
 ###############################################################################
-# Das Gupta 4-Factor Decomposition (CORRECTED)
+# Das Gupta 4-Factor Decomposition (WITH UNCERTAINTY)
 # 
 # Identity: Spend_cell = Pop_state × PrevRate_state × PrevShare_cell × SpendPerCase_cell
 #
@@ -225,25 +173,28 @@ cppFunction('NumericVector dcomp(NumericMatrix X, NumericMatrix Y){
 decompose <- function(dt, factor_names, start_year, end_year){
   dt[, paste0(factor_names, "_effect") := as.data.table(
     dcomp(
-      as.matrix(.SD[, paste(factor_names, start_year, sep="_"), with=FALSE]),
-      as.matrix(.SD[, paste(factor_names, end_year, sep="_"), with=FALSE])
+      as.matrix(.SD[, paste(factor_names, start_year, sep = "_"), with = FALSE]),
+      as.matrix(.SD[, paste(factor_names, end_year, sep = "_"), with = FALSE])
     )
   )]
   return(dt[])
 }
 
 # ============================================================================
-# STEP 2: Prepare data with CORRECT 4-factor identity
+# STEP 2: Prepare data with CORRECT 4-factor identity (BY DRAW)
 # ============================================================================
 
 dt <- as.data.table(df_decomp_p)
 
-# ---- State-level totals ----
-dt[, pop_state_2010 := sum(population_2010), by = .(cause_id, location_id)]
-dt[, pop_state_2019 := sum(population_2019), by = .(cause_id, location_id)]
+cat("\n============ CONSTRUCTING FACTORS (BY DRAW) ============\n")
 
-dt[, prev_state_2010 := sum(prevalence_counts_2010), by = .(cause_id, location_id)]
-dt[, prev_state_2019 := sum(prevalence_counts_2019), by = .(cause_id, location_id)]
+# ---- State-level totals (BY DRAW) ----
+# KEY CHANGE: Include 'draw' in grouping
+dt[, pop_state_2010 := sum(population_2010), by = .(draw, cause_id, location_id)]
+dt[, pop_state_2019 := sum(population_2019), by = .(draw, cause_id, location_id)]
+
+dt[, prev_state_2010 := sum(prevalence_counts_2010), by = .(draw, cause_id, location_id)]
+dt[, prev_state_2019 := sum(prevalence_counts_2019), by = .(draw, cause_id, location_id)]
 
 # ---- FACTOR 1: Population size (state total) ----
 dt[, population_2010 := pop_state_2010]
@@ -254,7 +205,6 @@ dt[, case_rate_2010 := fifelse(pop_state_2010 > 0, prev_state_2010 / pop_state_2
 dt[, case_rate_2019 := fifelse(pop_state_2019 > 0, prev_state_2019 / pop_state_2019, 0)]
 
 # ---- FACTOR 3: Age-sex structure (share of cases in this cell) ----
-# THIS IS THE KEY FIX: use cell prevalence / state prevalence
 dt[, age_sex_frac_2010 := fifelse(prev_state_2010 > 0, prevalence_counts_2010 / prev_state_2010, 0)]
 dt[, age_sex_frac_2019 := fifelse(prev_state_2019 > 0, prevalence_counts_2019 / prev_state_2019, 0)]
 
@@ -267,7 +217,7 @@ dt[, spend_2010 := spend_all_2010]
 dt[, spend_2019 := spend_all_2019]
 
 # ============================================================================
-# STEP 2.5: VALIDATION - Check that identity holds
+# STEP 2.5: VALIDATION - Check that identity holds (sample of draws)
 # ============================================================================
 
 dt[, spend_hat_2010 := population_2010 * case_rate_2010 * age_sex_frac_2010 * spend_per_case_2010]
@@ -276,7 +226,7 @@ dt[, spend_hat_2019 := population_2019 * case_rate_2019 * age_sex_frac_2019 * sp
 dt[, check_2010 := spend_2010 - spend_hat_2010]
 dt[, check_2019 := spend_2019 - spend_hat_2019]
 
-cat("\n============ IDENTITY VALIDATION ============\n")
+cat("\n============ IDENTITY VALIDATION (across all draws) ============\n")
 cat("Residuals should be ~0 (tiny numeric noise only)\n\n")
 cat("2010 residuals:\n")
 print(summary(dt$check_2010))
@@ -284,8 +234,11 @@ cat("\n2019 residuals:\n")
 print(summary(dt$check_2019))
 
 # ============================================================================
-# STEP 3: Run the decomposition
+# STEP 3: Run the decomposition (vectorized across all draws)
 # ============================================================================
+
+cat("\n============ RUNNING SPENDING DECOMPOSITION ============\n")
+cat("Processing", nrow(dt), "rows (all draws at once)...\n")
 
 factor_names <- c("population", "case_rate", "age_sex_frac", "spend_per_case")
 dt <- decompose(dt, factor_names = factor_names, start_year = 2010, end_year = 2019)
@@ -293,49 +246,81 @@ dt <- decompose(dt, factor_names = factor_names, start_year = 2010, end_year = 2
 # Calculate spending change
 dt[, delta_spend := spend_2019 - spend_2010]
 
-# ============================================================================
-# STEP 4: Aggregate results
-# ============================================================================
-# Column definitions:
-#   pop_size_effect         = Change due to total state population growth
-#   prevalence_rate_effect  = Change due to HIV prevalence rate (cases per capita)
-#   case_composition_effect = Change due to shift in age-sex distribution of cases
-#   spend_intensity_effect  = Change due to spending per case
+cat("Decomposition complete.\n")
 
-# National totals
-national <- dt[, .(
+# ============================================================================
+# STEP 4: Aggregate results (TWO-STAGE)
+# ============================================================================
+
+cat("\n============ AGGREGATING RESULTS ============\n")
+
+# ----------------------------------------------------------------------------
+# STAGE A: Sum cells → location WITHIN each draw
+# ----------------------------------------------------------------------------
+
+by_location_draw <- dt[, .(
   pop_size_effect = sum(population_effect, na.rm = TRUE),
   prevalence_rate_effect = sum(case_rate_effect, na.rm = TRUE),
   case_composition_effect = sum(age_sex_frac_effect, na.rm = TRUE),
   spend_intensity_effect = sum(spend_per_case_effect, na.rm = TRUE),
   delta_spend = sum(delta_spend, na.rm = TRUE),
   spend_2010 = sum(spend_2010, na.rm = TRUE),
-  spend_2019 = sum(spend_2019, na.rm = TRUE)
-)]
+  spend_2019 = sum(spend_2019, na.rm = TRUE),
+  prev_2010 = sum(prevalence_counts_2010, na.rm = TRUE),
+  prev_2019 = sum(prevalence_counts_2019, na.rm = TRUE)
+), by = .(draw, location_id, location_name)]
 
-# Add percentages
-national[, `:=`(
-  pct_pop_size = 100 * pop_size_effect / delta_spend,
-  pct_prevalence_rate = 100 * prevalence_rate_effect / delta_spend,
-  pct_case_composition = 100 * case_composition_effect / delta_spend,
-  pct_spend_intensity = 100 * spend_intensity_effect / delta_spend
-)]
+# Validation within each draw
+by_location_draw[, sum_effects := pop_size_effect + prevalence_rate_effect + 
+                   case_composition_effect + spend_intensity_effect]
+by_location_draw[, diff_check := delta_spend - sum_effects]
 
-# Decomposition validation
-national[, sum_effects := pop_size_effect + prevalence_rate_effect + case_composition_effect + spend_intensity_effect]
-national[, diff_check := delta_spend - sum_effects]
+cat("Stage A complete: ", nrow(by_location_draw), "rows (", 
+    length(unique(by_location_draw$location_name)), "locations ×", 
+    length(unique(by_location_draw$draw)), "draws)\n")
+cat("Max decomposition residual:", max(abs(by_location_draw$diff_check)), "\n")
 
-# By state
-by_state <- dt[, .(
-  pop_size_effect = sum(population_effect, na.rm = TRUE),
-  prevalence_rate_effect = sum(case_rate_effect, na.rm = TRUE),
-  case_composition_effect = sum(age_sex_frac_effect, na.rm = TRUE),
-  spend_intensity_effect = sum(spend_per_case_effect, na.rm = TRUE),
-  delta_spend = sum(delta_spend, na.rm = TRUE),
-  spend_2010 = sum(spend_2010, na.rm = TRUE),
-  spend_2019 = sum(spend_2019, na.rm = TRUE)
+# ----------------------------------------------------------------------------
+# STAGE B: Summarize ACROSS draws (mean + 95% UI)
+# ----------------------------------------------------------------------------
+
+by_state <- by_location_draw[, .(
+  # Factor effects: mean + UI
+  pop_size_effect = mean(pop_size_effect, na.rm = TRUE),
+  pop_size_effect_lower = quantile(pop_size_effect, 0.025, na.rm = TRUE),
+  pop_size_effect_upper = quantile(pop_size_effect, 0.975, na.rm = TRUE),
+  
+  prevalence_rate_effect = mean(prevalence_rate_effect, na.rm = TRUE),
+  prevalence_rate_effect_lower = quantile(prevalence_rate_effect, 0.025, na.rm = TRUE),
+  prevalence_rate_effect_upper = quantile(prevalence_rate_effect, 0.975, na.rm = TRUE),
+  
+  case_composition_effect = mean(case_composition_effect, na.rm = TRUE),
+  case_composition_effect_lower = quantile(case_composition_effect, 0.025, na.rm = TRUE),
+  case_composition_effect_upper = quantile(case_composition_effect, 0.975, na.rm = TRUE),
+  
+  spend_intensity_effect = mean(spend_intensity_effect, na.rm = TRUE),
+  spend_intensity_effect_lower = quantile(spend_intensity_effect, 0.025, na.rm = TRUE),
+  spend_intensity_effect_upper = quantile(spend_intensity_effect, 0.975, na.rm = TRUE),
+  
+  # Totals: mean + UI
+  delta_spend = mean(delta_spend, na.rm = TRUE),
+  delta_spend_lower = quantile(delta_spend, 0.025, na.rm = TRUE),
+  delta_spend_upper = quantile(delta_spend, 0.975, na.rm = TRUE),
+  
+  spend_2010 = mean(spend_2010, na.rm = TRUE),
+  spend_2010_lower = quantile(spend_2010, 0.025, na.rm = TRUE),
+  spend_2010_upper = quantile(spend_2010, 0.975, na.rm = TRUE),
+  
+  spend_2019 = mean(spend_2019, na.rm = TRUE),
+  spend_2019_lower = quantile(spend_2019, 0.025, na.rm = TRUE),
+  spend_2019_upper = quantile(spend_2019, 0.975, na.rm = TRUE),
+  
+  prev_2010 = mean(prev_2010, na.rm = TRUE),
+  prev_2019 = mean(prev_2019, na.rm = TRUE)
+  
 ), by = .(location_id, location_name)]
 
+# Add percentages (based on means)
 by_state[, `:=`(
   pct_pop_size = 100 * pop_size_effect / delta_spend,
   pct_prevalence_rate = 100 * prevalence_rate_effect / delta_spend,
@@ -343,283 +328,548 @@ by_state[, `:=`(
   pct_spend_intensity = 100 * spend_intensity_effect / delta_spend
 )]
 
-# State-level validation
-by_state[, sum_effects := pop_size_effect + prevalence_rate_effect + case_composition_effect + spend_intensity_effect]
+# Decomposition validation (on means)
+by_state[, sum_effects := pop_size_effect + prevalence_rate_effect + 
+           case_composition_effect + spend_intensity_effect]
 by_state[, diff_check := delta_spend - sum_effects]
+
+cat("Stage B complete:", nrow(by_state), "locations with uncertainty intervals\n")
 
 # ============================================================================
 # STEP 5: View results
 # ============================================================================
 
-cat("\n=========== NATIONAL DECOMPOSITION RESULTS (2010-2019) ===========\n\n")
-cat(sprintf("Total Spending 2010:   $%s\n", format(round(national$spend_2010), big.mark=",")))
-cat(sprintf("Total Spending 2019:   $%s\n", format(round(national$spend_2019), big.mark=",")))
-cat(sprintf("Total Spending Change: $%s\n\n", format(round(national$delta_spend), big.mark=",")))
+# Extract national row
+national <- by_state[location_name == "United States"]
 
-cat("Factor Contributions:\n")
-cat(sprintf("  1. Population Size:      $%15s  (%6.1f%%)\n", 
-            format(round(national$pop_size_effect), big.mark=","), national$pct_pop_size))
-cat(sprintf("  2. Prevalence Rate:      $%15s  (%6.1f%%)\n", 
-            format(round(national$prevalence_rate_effect), big.mark=","), national$pct_prevalence_rate))
-cat(sprintf("  3. Case Composition:     $%15s  (%6.1f%%)\n", 
-            format(round(national$case_composition_effect), big.mark=","), national$pct_case_composition))
-cat(sprintf("  4. Spending Intensity:   $%15s  (%6.1f%%)\n", 
-            format(round(national$spend_intensity_effect), big.mark=","), national$pct_spend_intensity))
+cat("\n=========== NATIONAL DECOMPOSITION RESULTS (2010-2019) ===========\n\n")
+cat(sprintf("Total Spending 2010:   $%s  (95%% UI: $%s - $%s)\n", 
+            format(round(national$spend_2010), big.mark = ","),
+            format(round(national$spend_2010_lower), big.mark = ","),
+            format(round(national$spend_2010_upper), big.mark = ",")))
+cat(sprintf("Total Spending 2019:   $%s  (95%% UI: $%s - $%s)\n", 
+            format(round(national$spend_2019), big.mark = ","),
+            format(round(national$spend_2019_lower), big.mark = ","),
+            format(round(national$spend_2019_upper), big.mark = ",")))
+cat(sprintf("Total Spending Change: $%s  (95%% UI: $%s - $%s)\n\n", 
+            format(round(national$delta_spend), big.mark = ","),
+            format(round(national$delta_spend_lower), big.mark = ","),
+            format(round(national$delta_spend_upper), big.mark = ",")))
+
+cat("Factor Contributions (mean, 95% UI):\n")
+cat(sprintf("  1. Population Size:      $%15s  (%6.1f%%)  [%s - %s]\n", 
+            format(round(national$pop_size_effect), big.mark = ","), national$pct_pop_size,
+            format(round(national$pop_size_effect_lower), big.mark = ","),
+            format(round(national$pop_size_effect_upper), big.mark = ",")))
+cat(sprintf("  2. Prevalence Rate:      $%15s  (%6.1f%%)  [%s - %s]\n", 
+            format(round(national$prevalence_rate_effect), big.mark = ","), national$pct_prevalence_rate,
+            format(round(national$prevalence_rate_effect_lower), big.mark = ","),
+            format(round(national$prevalence_rate_effect_upper), big.mark = ",")))
+cat(sprintf("  3. Case Composition:     $%15s  (%6.1f%%)  [%s - %s]\n", 
+            format(round(national$case_composition_effect), big.mark = ","), national$pct_case_composition,
+            format(round(national$case_composition_effect_lower), big.mark = ","),
+            format(round(national$case_composition_effect_upper), big.mark = ",")))
+cat(sprintf("  4. Spending Intensity:   $%15s  (%6.1f%%)  [%s - %s]\n", 
+            format(round(national$spend_intensity_effect), big.mark = ","), national$pct_spend_intensity,
+            format(round(national$spend_intensity_effect_lower), big.mark = ","),
+            format(round(national$spend_intensity_effect_upper), big.mark = ",")))
 
 cat(sprintf("\nDecomposition Validation (sum - actual, should be ~0): %.6f\n", national$diff_check))
 
 cat("\n=========== TOP 10 STATES BY SPENDING CHANGE ===========\n")
-print(by_state[order(-delta_spend)][1:10, .(location_name, delta_spend, 
-                                            pct_pop_size, pct_prevalence_rate, 
-                                            pct_case_composition, pct_spend_intensity, diff_check)])
+print(by_state[location_name != "United States"][order(-delta_spend)][1:10, 
+                                                                      .(location_name, delta_spend, pct_pop_size, pct_prevalence_rate, 
+                                                                        pct_case_composition, pct_spend_intensity, diff_check)])
 
 # ============================================================================
-# STEP 6: Save results
+# STEP 6: Save spending decomposition results
 # ============================================================================
 
 write.csv(by_state, file.path(dir_output, "T6_HIV_decomp_by_state.csv"), row.names = FALSE)
-write.csv(national, file.path(dir_output, "T7_HIV_decomp_national.csv"), row.names = FALSE)
 
-cat(sprintf("\nResults saved to: %s\n", dir_output))
-
+cat(sprintf("\nSpending decomposition saved to: %s\n", dir_output))
 
 
-# ============================================================================
-# STEP 7: Visualization of Decomposition Results
-# ============================================================================
-# 
-# # ----------------------------------------------------------------------------
-# # 7.1: Prepare data for plotting
-# # ----------------------------------------------------------------------------
-# 
-# # Reshape by_state to long format for stacked bar
-# plot_data <- by_state %>%
-#   select(location_id, location_name, delta_spend,
-#          pop_size_effect, prevalence_rate_effect, 
-#          case_composition_effect, spend_intensity_effect) %>%
-#   pivot_longer(
-#     cols = c(pop_size_effect, prevalence_rate_effect, 
-#              case_composition_effect, spend_intensity_effect),
-#     names_to = "factor",
-#     values_to = "effect"
-#   ) %>%
-#   mutate(
-#     # Clean factor names for legend
-#     factor = case_when(
-#       factor == "pop_size_effect" ~ "Population Size",
-#       factor == "prevalence_rate_effect" ~ "Prevalence Rate",
-#       factor == "case_composition_effect" ~ "Case Composition (Age-Sex)",
-#       factor == "spend_intensity_effect" ~ "Spending Intensity"
-#     ),
-#     # Order factors for stacking
-#     factor = factor(factor, levels = c("Population Size", 
-#                                        "Prevalence Rate",
-#                                        "Case Composition (Age-Sex)", 
-#                                        "Spending Intensity"))
-#   )
-# # ----------------------------------------------------------------------------
-# # 7.3: State-Level Stacked Horizontal Bar Chart (ALL STATES)
-# # ----------------------------------------------------------------------------
-# 
-# # Prepare plot data for ALL states
-# plot_data_all <- plot_data %>%
-#   mutate(
-#     # Reorder states by total spending change
-#     location_name = factor(location_name, 
-#                            levels = by_state %>% 
-#                              arrange(delta_spend) %>% 
-#                              pull(location_name))
-#   )
-# 
-# # Create stacked horizontal bar chart for ALL STATES
-# p_states_all <- ggplot(plot_data_all, aes(x = location_name, y = effect/1e6, fill = factor)) +
-#   geom_bar(stat = "identity", position = "stack", width = 0.7) +
-#   geom_hline(yintercept = 0, linetype = "dashed", color = "black", alpha = 0.5) +
-#   # Add total change marker
-#   geom_point(data = by_state %>% 
-#                mutate(location_name = factor(location_name, 
-#                                              levels = by_state %>% 
-#                                                arrange(delta_spend) %>% 
-#                                                pull(location_name))),
-#              aes(x = location_name, y = delta_spend/1e6),
-#              inherit.aes = FALSE, shape = 18, size = 2.5, color = "black") +
-#   coord_flip() +
-#   scale_fill_brewer(palette = "Set2") +
-#   scale_y_continuous(labels = dollar_format(suffix = "M")) +
-#   labs(
-#     title = "HIV/AIDS Spending Decomposition by State (2010-2019)",
-#     subtitle = "All states ordered by total spending change | Diamond = Total Change",
-#     x = "",
-#     y = "Effect on Spending Change (Millions $)",
-#     fill = "Factor"
-#   ) +
-#   # theme_minimal() +
-#   theme(
-#     plot.title = element_text(size = 14, face = "bold"),
-#     plot.subtitle = element_text(size = 10),
-#     axis.text.y = element_text(size = 7),
-#     legend.position = "bottom",
-#     legend.title = element_text(size = 10),
-#     panel.grid.minor = element_blank()
-#   ) +
-#   guides(fill = guide_legend(nrow = 1)) + 
-#   theme_bw() +
-#   theme(
-#     plot.background  = element_rect(fill = "white", color = NA),
-#     panel.background = element_rect(fill = "white", color = NA),
-#     panel.grid.major = element_line(color = "grey80", size = 0.3),
-#     panel.grid.minor = element_line(color = "grey90", size = 0.2),
-#     legend.position = "bottom"
-#   )
-# 
-# print(p_states_all)
-# ggsave(file.path(dir_output, "F4_HIV_decomp_all_states_stacked_bar.png"), p_states_all, 
-#        width = 10, height = 14, dpi = 300)
-# 
-# # ----------------------------------------------------------------------------
-# # 7.4: National Bar Chart (Separate Figure)
-# # ----------------------------------------------------------------------------
-# 
-# # National bar chart (horizontal to match state style)
-# national_plot_data <- national %>%
-#   select(pop_size_effect, prevalence_rate_effect, 
-#          case_composition_effect, spend_intensity_effect) %>%
-#   pivot_longer(
-#     cols = everything(),
-#     names_to = "factor",
-#     values_to = "effect"
-#   ) %>%
-#   mutate(
-#     factor = case_when(
-#       factor == "pop_size_effect" ~ "Population Size",
-#       factor == "prevalence_rate_effect" ~ "Prevalence Rate",
-#       factor == "case_composition_effect" ~ "Case Composition (Age-Sex)",
-#       factor == "spend_intensity_effect" ~ "Spending Intensity"
-#     ),
-#     factor = factor(factor, levels = c("Population Size", 
-#                                        "Prevalence Rate",
-#                                        "Case Composition (Age-Sex)", 
-#                                        "Spending Intensity")),
-#     location_name = "United States"
-#   )
-# 
-# p_national <- ggplot(national_plot_data, aes(x = location_name, y = effect/1e9, fill = factor)) +
-#   geom_bar(stat = "identity", position = "stack", width = 0.5) +
-#   geom_hline(yintercept = 0, linetype = "dashed", color = "black", alpha = 0.5) +
-#   geom_point(aes(x = location_name, y = national$delta_spend/1e9),
-#              inherit.aes = FALSE, shape = 18, size = 4, color = "black") +
-#   coord_flip() +
-#   scale_fill_brewer(palette = "Set2") +
-#   scale_y_continuous(labels = dollar_format(suffix = "B")) +
-#   labs(
-#     title = "National HIV/AIDS Spending Decomposition (2010-2019)",
-#     subtitle = paste0("Total spending change: $", 
-#                       format(round(national$delta_spend/1e9, 2), nsmall = 2), 
-#                       " billion | Diamond = Total Change"),
-#     x = "",
-#     y = "Effect on Spending Change (Billions $)",
-#     fill = "Factor"
-#   ) +
-#   # theme_minimal() +
-#   theme(
-#     plot.title = element_text(size = 14, face = "bold"),
-#     plot.subtitle = element_text(size = 10),
-#     axis.text.y = element_text(size = 12, face = "bold"),
-#     legend.position = "bottom",
-#     legend.title = element_text(size = 10),
-#     panel.grid.minor = element_blank()
-#   ) +
-#   guides(fill = guide_legend(nrow = 1)) + 
-#   theme_bw() +
-#   theme(
-#     plot.background  = element_rect(fill = "white", color = NA),
-#     panel.background = element_rect(fill = "white", color = NA),
-#     panel.grid.major = element_line(color = "grey80", size = 0.3),
-#     panel.grid.minor = element_line(color = "grey90", size = 0.2),
-#     legend.position = "bottom"
-#   )
-# 
-# print(p_national)
-# ggsave(file.path(dir_output, "F5_HIV_decomp_national_bar.png"), p_national, 
-#        width = 10, height = 4, dpi = 300)
-# 
-# 
-# # ----------------------------------------------------------------------------
-# # 7.3: State-Level Stacked Horizontal Bar Chart (Top 15 States)
-# # ----------------------------------------------------------------------------
-# # Select top 15 states by absolute spending change
-# 
-# top_states <- by_state %>%
-#   arrange(desc(abs(delta_spend))) %>%
-#   head(15) %>%
-#   pull(location_name)
-# plot_data_top <- plot_data %>%
-#   filter(location_name %in% top_states) %>%
-#   mutate(
-#     # Reorder states by total spending change
-#     location_name = factor(location_name, 
-#                            levels = by_state %>% 
-#                              filter(location_name %in% top_states) %>%
-#                              arrange(delta_spend) %>% 
-#                              pull(location_name))
-#   )
-# # Create stacked horizontal bar chart
-# p_states <- ggplot(plot_data_top, aes(x = location_name, y = effect/1e6, fill = factor)) +
-#   geom_bar(stat = "identity", position = "stack", width = 0.7) +
-#   geom_hline(yintercept = 0, linetype = "dashed", color = "black", alpha = 0.5) +
-#   # Add total change marker
-#   geom_point(data = by_state %>% 
-#                filter(location_name %in% top_states) %>%
-#                mutate(location_name = factor(location_name, 
-#                                              levels = by_state %>% 
-#                                                filter(location_name %in% top_states) %>%
-#                                                arrange(delta_spend) %>% 
-#                                                pull(location_name))),
-#              aes(x = location_name, y = delta_spend/1e6),
-#              inherit.aes = FALSE, shape = 18, size = 3, color = "black") +
-#   coord_flip() +
-#   scale_fill_brewer(palette = "Set2") +
-#   scale_y_continuous(labels = dollar_format(suffix = "M")) +
-#   labs(
-#     title = "HIV/AIDS Spending Decomposition by State (2010-2019)",
-#     subtitle = "Top 15 states by absolute spending change | Diamond = Total Change",
-#     x = "",
-#     y = "Effect on Spending Change (Millions $)",
-#     fill = "Factor"
-#   ) +
-#   # theme_minimal() +
-#   theme(
-#     plot.title = element_text(size = 14, face = "bold"),
-#     legend.position = "bottom",
-#     legend.title = element_text(size = 10),
-#     panel.grid.minor = element_blank()
-#   ) +
-#   guides(fill = guide_legend(nrow = 2)) + 
-#   theme_bw() +
-#   theme(
-#     plot.background  = element_rect(fill = "white", color = NA),
-#     panel.background = element_rect(fill = "white", color = NA),
-#     panel.grid.major = element_line(color = "grey80", size = 0.3),
-#     panel.grid.minor = element_line(color = "grey90", size = 0.2),
-#     legend.position = "bottom"
-#   )
-# 
-# print(p_states)
-# ggsave(file.path(dir_output, "F6_HIV_decomp_15_states_stacked_bar.png"), p_states, 
-#        width = 10, height = 8, dpi = 300)
-# 
-# 
-# cat("\n=========== VISUALIZATIONS SAVED ===========\n")
-# cat(sprintf("Files saved to: %s\n", dir_output))
-# cat("  - decomp_all_states_stacked_bar.png (all 51 states)\n")
-# cat("  - decomp_national_bar.png\n")
+###############################################################################
+# PART A: DALY DECOMPOSITION (parallel to spending decomposition)
+###############################################################################
 
+cat("\n\n============ DALY DECOMPOSITION ============\n")
+
+# ----------------------------------------------------------------------------
+# A.1: Prepare DALY data with same 4-factor identity (BY DRAW)
+# ----------------------------------------------------------------------------
+
+dt_daly <- as.data.table(df_decomp_p)
+
+# ---- State-level totals (BY DRAW) ----
+dt_daly[, pop_state_2010 := sum(population_2010), by = .(draw, cause_id, location_id)]
+dt_daly[, pop_state_2019 := sum(population_2019), by = .(draw, cause_id, location_id)]
+
+dt_daly[, prev_state_2010 := sum(prevalence_counts_2010), by = .(draw, cause_id, location_id)]
+dt_daly[, prev_state_2019 := sum(prevalence_counts_2019), by = .(draw, cause_id, location_id)]
+
+# ---- FACTOR 1: Population size (state total) ----
+dt_daly[, population_2010 := pop_state_2010]
+dt_daly[, population_2019 := pop_state_2019]
+
+# ---- FACTOR 2: Case rate (state prevalence rate = cases per person) ----
+dt_daly[, case_rate_2010 := fifelse(pop_state_2010 > 0, prev_state_2010 / pop_state_2010, 0)]
+dt_daly[, case_rate_2019 := fifelse(pop_state_2019 > 0, prev_state_2019 / pop_state_2019, 0)]
+
+# ---- FACTOR 3: Age-sex structure (share of cases in this cell) ----
+dt_daly[, age_sex_frac_2010 := fifelse(prev_state_2010 > 0, prevalence_counts_2010 / prev_state_2010, 0)]
+dt_daly[, age_sex_frac_2019 := fifelse(prev_state_2019 > 0, prevalence_counts_2019 / prev_state_2019, 0)]
+
+# ---- FACTOR 4: DALYs per case ----
+dt_daly[, daly_per_case_2010 := fifelse(prevalence_counts_2010 > 0, daly_counts_2010 / prevalence_counts_2010, 0)]
+dt_daly[, daly_per_case_2019 := fifelse(prevalence_counts_2019 > 0, daly_counts_2019 / prevalence_counts_2019, 0)]
+
+# Keep original DALYs for validation
+dt_daly[, daly_2010 := daly_counts_2010]
+dt_daly[, daly_2019 := daly_counts_2019]
+
+# ----------------------------------------------------------------------------
+# A.2: Validate DALY identity
+# ----------------------------------------------------------------------------
+
+dt_daly[, daly_hat_2010 := population_2010 * case_rate_2010 * age_sex_frac_2010 * daly_per_case_2010]
+dt_daly[, daly_hat_2019 := population_2019 * case_rate_2019 * age_sex_frac_2019 * daly_per_case_2019]
+
+dt_daly[, check_2010 := daly_2010 - daly_hat_2010]
+dt_daly[, check_2019 := daly_2019 - daly_hat_2019]
+
+cat("\n============ DALY IDENTITY VALIDATION ============\n")
+cat("Residuals should be ~0 (tiny numeric noise only)\n\n")
+cat("2010 residuals:\n")
+print(summary(dt_daly$check_2010))
+cat("\n2019 residuals:\n")
+print(summary(dt_daly$check_2019))
+
+# ----------------------------------------------------------------------------
+# A.3: Run DALY decomposition
+# ----------------------------------------------------------------------------
+
+cat("\nRunning DALY decomposition on", nrow(dt_daly), "rows...\n")
+
+factor_names_daly <- c("population", "case_rate", "age_sex_frac", "daly_per_case")
+dt_daly <- decompose(dt_daly, factor_names = factor_names_daly, start_year = 2010, end_year = 2019)
+
+# Calculate DALY change
+dt_daly[, delta_daly := daly_2019 - daly_2010]
+
+cat("DALY decomposition complete.\n")
+
+# ----------------------------------------------------------------------------
+# A.4: Aggregate DALY decomposition results (TWO-STAGE)
+# ----------------------------------------------------------------------------
+
+# STAGE A: Sum cells → location WITHIN each draw
+by_location_daly_draw <- dt_daly[, .(
+  daly_pop_size_effect = sum(population_effect, na.rm = TRUE),
+  daly_prevalence_rate_effect = sum(case_rate_effect, na.rm = TRUE),
+  daly_case_composition_effect = sum(age_sex_frac_effect, na.rm = TRUE),
+  daly_intensity_effect = sum(daly_per_case_effect, na.rm = TRUE),
+  delta_daly = sum(delta_daly, na.rm = TRUE),
+  daly_2010 = sum(daly_2010, na.rm = TRUE),
+  daly_2019 = sum(daly_2019, na.rm = TRUE)
+), by = .(draw, location_id, location_name)]
+
+# Validation within each draw
+by_location_daly_draw[, sum_effects := daly_pop_size_effect + daly_prevalence_rate_effect + 
+                        daly_case_composition_effect + daly_intensity_effect]
+by_location_daly_draw[, diff_check := delta_daly - sum_effects]
+
+cat("DALY Stage A complete. Max residual:", max(abs(by_location_daly_draw$diff_check)), "\n")
+
+# STAGE B: Summarize ACROSS draws
+by_state_daly <- by_location_daly_draw[, .(
+  daly_pop_size_effect = mean(daly_pop_size_effect, na.rm = TRUE),
+  daly_pop_size_effect_lower = quantile(daly_pop_size_effect, 0.025, na.rm = TRUE),
+  daly_pop_size_effect_upper = quantile(daly_pop_size_effect, 0.975, na.rm = TRUE),
+  
+  daly_prevalence_rate_effect = mean(daly_prevalence_rate_effect, na.rm = TRUE),
+  daly_prevalence_rate_effect_lower = quantile(daly_prevalence_rate_effect, 0.025, na.rm = TRUE),
+  daly_prevalence_rate_effect_upper = quantile(daly_prevalence_rate_effect, 0.975, na.rm = TRUE),
+  
+  daly_case_composition_effect = mean(daly_case_composition_effect, na.rm = TRUE),
+  daly_case_composition_effect_lower = quantile(daly_case_composition_effect, 0.025, na.rm = TRUE),
+  daly_case_composition_effect_upper = quantile(daly_case_composition_effect, 0.975, na.rm = TRUE),
+  
+  daly_intensity_effect = mean(daly_intensity_effect, na.rm = TRUE),
+  daly_intensity_effect_lower = quantile(daly_intensity_effect, 0.025, na.rm = TRUE),
+  daly_intensity_effect_upper = quantile(daly_intensity_effect, 0.975, na.rm = TRUE),
+  
+  delta_daly = mean(delta_daly, na.rm = TRUE),
+  delta_daly_lower = quantile(delta_daly, 0.025, na.rm = TRUE),
+  delta_daly_upper = quantile(delta_daly, 0.975, na.rm = TRUE),
+  
+  daly_2010 = mean(daly_2010, na.rm = TRUE),
+  daly_2010_lower = quantile(daly_2010, 0.025, na.rm = TRUE),
+  daly_2010_upper = quantile(daly_2010, 0.975, na.rm = TRUE),
+  
+  daly_2019 = mean(daly_2019, na.rm = TRUE),
+  daly_2019_lower = quantile(daly_2019, 0.025, na.rm = TRUE),
+  daly_2019_upper = quantile(daly_2019, 0.975, na.rm = TRUE)
+  
+), by = .(location_id, location_name)]
+
+# Validation (on means)
+by_state_daly[, sum_effects := daly_pop_size_effect + daly_prevalence_rate_effect + 
+                daly_case_composition_effect + daly_intensity_effect]
+by_state_daly[, diff_check := delta_daly - sum_effects]
+
+# Extract national DALY
+national_daly <- by_state_daly[location_name == "United States"]
+
+cat("\n=========== NATIONAL DALY DECOMPOSITION RESULTS (2010-2019) ===========\n\n")
+cat(sprintf("Total DALYs 2010:   %s  (95%% UI: %s - %s)\n", 
+            format(round(national_daly$daly_2010), big.mark = ","),
+            format(round(national_daly$daly_2010_lower), big.mark = ","),
+            format(round(national_daly$daly_2010_upper), big.mark = ",")))
+cat(sprintf("Total DALYs 2019:   %s  (95%% UI: %s - %s)\n", 
+            format(round(national_daly$daly_2019), big.mark = ","),
+            format(round(national_daly$daly_2019_lower), big.mark = ","),
+            format(round(national_daly$daly_2019_upper), big.mark = ",")))
+cat(sprintf("Total DALY Change:  %s  (95%% UI: %s - %s)\n\n", 
+            format(round(national_daly$delta_daly), big.mark = ","),
+            format(round(national_daly$delta_daly_lower), big.mark = ","),
+            format(round(national_daly$delta_daly_upper), big.mark = ",")))
+
+cat("Factor Contributions (mean, 95% UI):\n")
+cat(sprintf("  1. Population Size:      %15s  [%s - %s]\n", 
+            format(round(national_daly$daly_pop_size_effect), big.mark = ","),
+            format(round(national_daly$daly_pop_size_effect_lower), big.mark = ","),
+            format(round(national_daly$daly_pop_size_effect_upper), big.mark = ",")))
+cat(sprintf("  2. Prevalence Rate:      %15s  [%s - %s]\n", 
+            format(round(national_daly$daly_prevalence_rate_effect), big.mark = ","),
+            format(round(national_daly$daly_prevalence_rate_effect_lower), big.mark = ","),
+            format(round(national_daly$daly_prevalence_rate_effect_upper), big.mark = ",")))
+cat(sprintf("  3. Case Composition:     %15s  [%s - %s]\n", 
+            format(round(national_daly$daly_case_composition_effect), big.mark = ","),
+            format(round(national_daly$daly_case_composition_effect_lower), big.mark = ","),
+            format(round(national_daly$daly_case_composition_effect_upper), big.mark = ",")))
+cat(sprintf("  4. DALYs per Case:       %15s  [%s - %s]\n", 
+            format(round(national_daly$daly_intensity_effect), big.mark = ","),
+            format(round(national_daly$daly_intensity_effect_lower), big.mark = ","),
+            format(round(national_daly$daly_intensity_effect_upper), big.mark = ",")))
+
+
+###############################################################################
+# PART B: SPENDING EFFECTIVENESS TABLE (WITH CROSSED DRAWS)
+###############################################################################
+
+cat("\n\n============ SPENDING EFFECTIVENESS ============\n")
+
+# ----------------------------------------------------------------------------
+# B.1: Get draw-level intensity effects for crossing
+# ----------------------------------------------------------------------------
+
+# Extract spending intensity by draw
+spend_intensity_by_draw <- by_location_draw[, .(draw, location_id, location_name, spend_intensity_effect)]
+
+# Extract DALY intensity by draw (and compute daly_averted = negative)
+daly_intensity_by_draw <- by_location_daly_draw[, .(draw, location_id, location_name, 
+                                                    daly_intensity_effect,
+                                                    daly_averted_effect = -daly_intensity_effect)]
+
+# ----------------------------------------------------------------------------
+# B.2: Compute spending effectiveness with CROSSED DRAWS
+# ----------------------------------------------------------------------------
+
+# Function to compute crossed-draw statistics for one location
+compute_crossed_stats <- function(spend_draws, daly_averted_draws) {
+  # Cross all draws: 51 × 51 = 2,601 ratios
+  crossed <- expand.grid(spend = spend_draws, daly_averted = daly_averted_draws)
+  crossed$ratio <- crossed$spend / crossed$daly_averted
+  
+  # Handle infinite/NA values
+  valid_ratios <- crossed$ratio[is.finite(crossed$ratio)]
+  
+  if (length(valid_ratios) == 0) {
+    return(list(
+      median = NA_real_,
+      lower = NA_real_,
+      upper = NA_real_,
+      n_valid = 0
+    ))
+  }
+  
+  list(
+    median = median(valid_ratios, na.rm = TRUE),
+    lower = quantile(valid_ratios, 0.025, na.rm = TRUE),
+    upper = quantile(valid_ratios, 0.975, na.rm = TRUE),
+    n_valid = length(valid_ratios)
+  )
+}
+
+# Function to compute category percentages from matched draws
+compute_category_pcts <- function(spend_draws, daly_averted_draws) {
+  n_draws <- length(spend_draws)
+  
+  # Determine category for each matched draw
+  categories <- rep(NA_integer_, n_draws)
+  for (i in seq_len(n_draws)) {
+    s <- spend_draws[i]
+    d <- daly_averted_draws[i]
+    if (s > 0 && d > 0) categories[i] <- 1L
+    else if (s < 0 && d > 0) categories[i] <- 2L
+    else if (s > 0 && d < 0) categories[i] <- 3L
+    else if (s < 0 && d < 0) categories[i] <- 4L
+  }
+  
+  # Count percentages
+  pct_1 <- 100 * sum(categories == 1L, na.rm = TRUE) / n_draws
+  pct_2 <- 100 * sum(categories == 2L, na.rm = TRUE) / n_draws
+  pct_3 <- 100 * sum(categories == 3L, na.rm = TRUE) / n_draws
+  pct_4 <- 100 * sum(categories == 4L, na.rm = TRUE) / n_draws
+  
+  list(pct_1 = pct_1, pct_2 = pct_2, pct_3 = pct_3, pct_4 = pct_4)
+}
+
+# Get unique locations
+locations <- unique(spend_intensity_by_draw$location_id)
+
+cat("Computing spending effectiveness for", length(locations), "locations using crossed draws...\n")
+
+# Compute for each location
+spend_eff_results <- lapply(locations, function(loc_id) {
+  loc_name <- spend_intensity_by_draw[location_id == loc_id, unique(location_name)]
+  
+  # Get draws for this location
+  spend_draws <- spend_intensity_by_draw[location_id == loc_id, spend_intensity_effect]
+  daly_averted_draws <- daly_intensity_by_draw[location_id == loc_id, daly_averted_effect]
+  
+  # Crossed-draw statistics for ratio
+  ratio_stats <- compute_crossed_stats(spend_draws, daly_averted_draws)
+  
+  # Category percentages from matched draws
+  cat_pcts <- compute_category_pcts(spend_draws, daly_averted_draws)
+  
+  # Mean effects (for point estimate category)
+  mean_spend_intensity <- mean(spend_draws, na.rm = TRUE)
+  mean_daly_averted <- mean(daly_averted_draws, na.rm = TRUE)
+  
+  # Determine point estimate category
+  category <- NA_integer_
+  if (mean_spend_intensity > 0 && mean_daly_averted > 0) category <- 1L
+  else if (mean_spend_intensity < 0 && mean_daly_averted > 0) category <- 2L
+  else if (mean_spend_intensity > 0 && mean_daly_averted < 0) category <- 3L
+  else if (mean_spend_intensity < 0 && mean_daly_averted < 0) category <- 4L
+  
+  data.table(
+    location_id = loc_id,
+    location_name = loc_name,
+    spend_intensity_effect = mean_spend_intensity,
+    daly_averted_effect = mean_daly_averted,
+    spend_effectiveness_median = ratio_stats$median,
+    spend_effectiveness_lower = ratio_stats$lower,
+    spend_effectiveness_upper = ratio_stats$upper,
+    n_valid_ratios = ratio_stats$n_valid,
+    category = category,
+    category_pct_1 = cat_pcts$pct_1,
+    category_pct_2 = cat_pcts$pct_2,
+    category_pct_3 = cat_pcts$pct_3,
+    category_pct_4 = cat_pcts$pct_4
+  )
+})
+
+spend_eff_table <- rbindlist(spend_eff_results)
+
+cat("Crossed-draw computation complete.\n")
+
+# ----------------------------------------------------------------------------
+# B.3: Add category labels and uncertainty indicators
+# ----------------------------------------------------------------------------
+
+spend_eff_table[, category_label := fcase(
+  category == 1L, "Category 1: +Spend, +Health",
+  category == 2L, "Category 2: Cost-saving",
+  category == 3L, "Category 3: Dominated",
+  category == 4L, "Category 4: -Both",
+  default = "N/A"
+)]
+
+# Is category stable (all draws in same category)?
+spend_eff_table[, category_stable := fcase(
+  category_pct_1 == 100, TRUE,
+  category_pct_2 == 100, TRUE,
+  category_pct_3 == 100, TRUE,
+  category_pct_4 == 100, TRUE,
+  default = FALSE
+)]
+
+# Create uncertainty text
+spend_eff_table[, category_uncertainty := fifelse(
+  category_stable,
+  NA_character_,
+  paste0(
+    fifelse(category_pct_1 > 0, paste0(round(category_pct_1), "% Cat 1"), ""),
+    fifelse(category_pct_1 > 0 & (category_pct_2 > 0 | category_pct_3 > 0 | category_pct_4 > 0), ", ", ""),
+    fifelse(category_pct_2 > 0, paste0(round(category_pct_2), "% Cat 2"), ""),
+    fifelse(category_pct_2 > 0 & (category_pct_3 > 0 | category_pct_4 > 0), ", ", ""),
+    fifelse(category_pct_3 > 0, paste0(round(category_pct_3), "% Cat 3"), ""),
+    fifelse(category_pct_3 > 0 & category_pct_4 > 0, ", ", ""),
+    fifelse(category_pct_4 > 0, paste0(round(category_pct_4), "% Cat 4"), "")
+  )
+)]
+
+# Interpretation column
+spend_eff_table[, interpretation := fcase(
+  category == 1L, paste0("$", format(round(spend_effectiveness_median), big.mark = ","), " per DALY averted"),
+  category == 2L, "Cost-saving (less spending, better health)",
+  category == 3L, "Dominated (more spending, worse health)",
+  category == 4L, "Excluded from ratio calculation",
+  default = "N/A"
+)]
+
+# ----------------------------------------------------------------------------
+# B.4: Merge with other data for final table
+# ----------------------------------------------------------------------------
+
+# Get additional columns from by_state and by_state_daly
+final_spend_eff <- merge(
+  spend_eff_table,
+  by_state[, .(location_id, location_name, 
+               spend_2010, spend_2010_lower, spend_2010_upper,
+               spend_2019, spend_2019_lower, spend_2019_upper,
+               delta_spend, delta_spend_lower, delta_spend_upper,
+               spend_intensity_effect_lower, spend_intensity_effect_upper,
+               prev_2010, prev_2019)],
+  by = c("location_id", "location_name")
+)
+
+final_spend_eff <- merge(
+  final_spend_eff,
+  by_state_daly[, .(location_id, location_name,
+                    daly_2010, daly_2010_lower, daly_2010_upper,
+                    daly_2019, daly_2019_lower, daly_2019_upper,
+                    delta_daly, delta_daly_lower, delta_daly_upper,
+                    daly_intensity_effect, daly_intensity_effect_lower, daly_intensity_effect_upper)],
+  by = c("location_id", "location_name")
+)
+
+# Compute daly_averted effect UI
+final_spend_eff[, daly_averted_effect_lower := -daly_intensity_effect_upper]
+final_spend_eff[, daly_averted_effect_upper := -daly_intensity_effect_lower]
+
+# Compute per-case metrics
+final_spend_eff[, spend_per_case_2010 := spend_2010 / prev_2010]
+final_spend_eff[, spend_per_case_2019 := spend_2019 / prev_2019]
+final_spend_eff[, daly_per_case_2010 := daly_2010 / prev_2010]
+final_spend_eff[, daly_per_case_2019 := daly_2019 / prev_2019]
+final_spend_eff[, change_spend_per_case := spend_per_case_2019 - spend_per_case_2010]
+final_spend_eff[, change_daly_averted_per_case := daly_per_case_2010 - daly_per_case_2019]
+
+# Simple spending effectiveness (for comparison)
+final_spend_eff[, spend_effectiveness_simple := fifelse(
+  change_daly_averted_per_case != 0,
+  change_spend_per_case / change_daly_averted_per_case,
+  NA_real_
+)]
+
+# Reorder columns for clarity
+setcolorder(final_spend_eff, c(
+  "location_id", "location_name",
+  "spend_2010", "spend_2010_lower", "spend_2010_upper",
+  "spend_2019", "spend_2019_lower", "spend_2019_upper",
+  "delta_spend", "delta_spend_lower", "delta_spend_upper",
+  "daly_2010", "daly_2010_lower", "daly_2010_upper",
+  "daly_2019", "daly_2019_lower", "daly_2019_upper",
+  "delta_daly", "delta_daly_lower", "delta_daly_upper",
+  "prev_2010", "prev_2019",
+  "spend_per_case_2010", "spend_per_case_2019", "change_spend_per_case",
+  "daly_per_case_2010", "daly_per_case_2019", "change_daly_averted_per_case",
+  "spend_intensity_effect", "spend_intensity_effect_lower", "spend_intensity_effect_upper",
+  "daly_averted_effect", "daly_averted_effect_lower", "daly_averted_effect_upper",
+  "spend_effectiveness_simple",
+  "spend_effectiveness_median", "spend_effectiveness_lower", "spend_effectiveness_upper",
+  "n_valid_ratios",
+  "category", "category_label",
+  "category_pct_1", "category_pct_2", "category_pct_3", "category_pct_4",
+  "category_stable", "category_uncertainty",
+  "interpretation"
+))
+
+# Order: United States first, then states alphabetically
+final_spend_eff[, sort_order := fifelse(location_name == "United States", 0, 1)]
+final_spend_eff <- final_spend_eff[order(sort_order, location_name)]
+final_spend_eff[, sort_order := NULL]
+
+# ----------------------------------------------------------------------------
+# B.5: Print summary
+# ----------------------------------------------------------------------------
+
+national_se <- final_spend_eff[location_name == "United States"]
+
+cat("\n=========== SPENDING EFFECTIVENESS SUMMARY ===========\n\n")
+
+cat("NATIONAL (United States):\n")
+cat(sprintf("  Spend Intensity Effect:        $%s  (95%% UI: $%s - $%s)\n", 
+            format(round(national_se$spend_intensity_effect), big.mark = ","),
+            format(round(national_se$spend_intensity_effect_lower), big.mark = ","),
+            format(round(national_se$spend_intensity_effect_upper), big.mark = ",")))
+cat(sprintf("  DALY Averted Effect:           %s DALYs  (95%% UI: %s - %s)\n", 
+            format(round(national_se$daly_averted_effect), big.mark = ","),
+            format(round(national_se$daly_averted_effect_lower), big.mark = ","),
+            format(round(national_se$daly_averted_effect_upper), big.mark = ",")))
+cat(sprintf("  Spending Effectiveness:        $%s per DALY averted  (95%% UI: $%s - $%s)\n",
+            format(round(national_se$spend_effectiveness_median), big.mark = ","),
+            format(round(national_se$spend_effectiveness_lower), big.mark = ","),
+            format(round(national_se$spend_effectiveness_upper), big.mark = ",")))
+cat(sprintf("  Category:                      %s\n", national_se$category_label))
+cat(sprintf("  Category Stable:               %s\n", national_se$category_stable))
+if (!national_se$category_stable) {
+  cat(sprintf("  Category Uncertainty:          %s\n", national_se$category_uncertainty))
+}
+
+cat("\nSTATE-LEVEL CATEGORY DISTRIBUTION:\n")
+print(table(final_spend_eff[location_name != "United States", category_label]))
+
+cat("\nSTATES WITH CATEGORY UNCERTAINTY (category_stable = FALSE):\n")
+uncertain_states <- final_spend_eff[category_stable == FALSE & location_name != "United States", 
+                                    .(location_name, category_label, category_uncertainty)]
+if (nrow(uncertain_states) > 0) {
+  print(uncertain_states)
+} else {
+  cat("None - all states have stable category assignments.\n")
+}
+
+cat("\nTOP 10 STATES BY SPENDING EFFECTIVENESS (Category 1 only):\n")
+cat1_states <- final_spend_eff[category == 1 & location_name != "United States"][
+  order(spend_effectiveness_median)][1:min(10, .N)]
+if (nrow(cat1_states) > 0) {
+  print(cat1_states[, .(location_name, spend_effectiveness_median, 
+                        spend_effectiveness_lower, spend_effectiveness_upper, interpretation)])
+} else {
+  cat("No Category 1 states.\n")
+}
+
+# ----------------------------------------------------------------------------
+# B.6: Save results
+# ----------------------------------------------------------------------------
+
+write.csv(final_spend_eff, file.path(dir_output, "T3_HIV_spending_effectiveness.csv"), row.names = FALSE)
+write.csv(by_state_daly, file.path(dir_output, "T8_HIV_decomp_daly.csv"), row.names = FALSE)
+
+cat(sprintf("\n=========== FILES SAVED TO: %s ===========\n", dir_output))
+cat("  - T3_HIV_spending_effectiveness.csv (national + all states with UI)\n")
+cat("  - T6_HIV_decomp_by_state.csv (spending decomposition with UI)\n")
+cat("  - T8_HIV_decomp_daly.csv (DALY decomposition with UI)\n")
+
+
+###############################################################################
+# STEP 7: VISUALIZATIONS
+###############################################################################
+
+cat("\n\n============ CREATING VISUALIZATIONS ============\n")
 
 # ----------------------------------------------------------------------------
 # 7.1: Prepare data for plotting (PERCENT SPACE)
 # ----------------------------------------------------------------------------
 
-# Reshape by_state to long format for stacked bar
+# Use by_state directly (includes "United States")
+# Reshape to long format for stacked bar
 plot_data <- by_state %>%
   select(location_id, location_name, delta_spend, spend_2010,
          pop_size_effect, prevalence_rate_effect, 
@@ -649,33 +899,30 @@ plot_data <- by_state %>%
   )
 
 # ----------------------------------------------------------------------------
-# 7.3: State-Level Stacked Horizontal Bar Chart (ALL STATES)
+# 7.2: State-Level Stacked Horizontal Bar Chart (ALL LOCATIONS)
+#      United States as first row
 # ----------------------------------------------------------------------------
 
-# Prepare plot data for ALL states
-plot_data_all <- plot_data %>%
-  mutate(
-    location_name = factor(location_name, 
-                           levels = by_state %>% 
-                             arrange(delta_spend) %>% 
-                             pull(location_name))
-  )
+# Create state ordering: United States first, then states by delta_spend
+state_order <- by_state %>%
+  arrange(delta_spend) %>%
+  pull(location_name)
 
-# Prepare delta_pct for the diamond markers (one row per state)
+# Move "United States" to the end (so it appears at top after coord_flip)
+state_order <- c(setdiff(state_order, "United States"), "United States")
+
+plot_data_all <- plot_data %>%
+  mutate(location_name = factor(location_name, levels = state_order))
+
 diamond_data_all <- by_state %>%
   mutate(
     delta_pct = 100 * delta_spend / spend_2010,
-    location_name = factor(location_name, 
-                           levels = by_state %>% 
-                             arrange(delta_spend) %>% 
-                             pull(location_name))
+    location_name = factor(location_name, levels = state_order)
   )
 
-# Create stacked horizontal bar chart for ALL STATES
 p_states_all <- ggplot(plot_data_all, aes(x = location_name, y = effect_pct, fill = factor)) +
   geom_bar(stat = "identity", position = "stack", width = 0.7) +
   geom_hline(yintercept = 0, linetype = "dashed", color = "black", alpha = 0.5) +
-  # Add total change marker
   geom_point(data = diamond_data_all,
              aes(x = location_name, y = delta_pct),
              inherit.aes = FALSE, shape = 18, size = 2.5, color = "black") +
@@ -683,49 +930,44 @@ p_states_all <- ggplot(plot_data_all, aes(x = location_name, y = effect_pct, fil
   scale_fill_brewer(palette = "Set2") +
   scale_y_continuous(labels = scales::percent_format(scale = 1)) +
   labs(
-    title = "HIV/AIDS Spending Decomposition by State (2010-2019)",
-    subtitle = "All states ordered by total spending change | Diamond = Total % Change from 2010 Baseline",
+    title = "HIV/AIDS Spending Decomposition (2010-2019)",
+    subtitle = "United States and all states ordered by total spending change | Diamond = Total % Change from 2010 Baseline",
     x = "",
     y = "Effect as % of 2010 Spending",
     fill = "Factor"
   ) +
+  theme_bw() +
   theme(
     plot.title = element_text(size = 14, face = "bold"),
     plot.subtitle = element_text(size = 10),
     axis.text.y = element_text(size = 7),
     legend.position = "bottom",
     legend.title = element_text(size = 10),
-    panel.grid.minor = element_blank()
+    panel.grid.major = element_line(color = "grey80", linewidth = 0.3),
+    panel.grid.minor = element_line(color = "grey90", linewidth = 0.2)
   ) +
-  guides(fill = guide_legend(nrow = 1)) + 
-  theme_bw() +
-  theme(
-    plot.background  = element_rect(fill = "white", color = NA),
-    panel.background = element_rect(fill = "white", color = NA),
-    panel.grid.major = element_line(color = "grey80", size = 0.3),
-    panel.grid.minor = element_line(color = "grey90", size = 0.2),
-    legend.position = "bottom"
-  )
+  guides(fill = guide_legend(nrow = 1))
 
 print(p_states_all)
 ggsave(file.path(dir_output, "F4_HIV_decomp_all_states_stacked_bar.png"), p_states_all, 
-       width = 10, height = 14, dpi = 300)
+       width = 10, height = 15, dpi = 300)
 
 # ----------------------------------------------------------------------------
-# 7.4: National Bar Chart (Separate Figure)
+# 7.3: National Bar Chart (using "United States" data directly)
 # ----------------------------------------------------------------------------
 
-# National bar chart in percent space
-national_plot_data <- national %>%
+national_plot_data <- by_state %>%
+  filter(location_name == "United States") %>%
   select(pop_size_effect, prevalence_rate_effect, 
-         case_composition_effect, spend_intensity_effect) %>%
+         case_composition_effect, spend_intensity_effect, spend_2010) %>%
   pivot_longer(
-    cols = everything(),
+    cols = c(pop_size_effect, prevalence_rate_effect, 
+             case_composition_effect, spend_intensity_effect),
     names_to = "factor",
     values_to = "effect"
   ) %>%
   mutate(
-    effect_pct = 100 * effect / national$spend_2010,
+    effect_pct = 100 * effect / spend_2010,
     factor = case_when(
       factor == "pop_size_effect" ~ "Population Size",
       factor == "prevalence_rate_effect" ~ "Prevalence Rate",
@@ -744,7 +986,7 @@ national_delta_pct <- 100 * national$delta_spend / national$spend_2010
 p_national <- ggplot(national_plot_data, aes(x = location_name, y = effect_pct, fill = factor)) +
   geom_bar(stat = "identity", position = "stack", width = 0.5) +
   geom_hline(yintercept = 0, linetype = "dashed", color = "black", alpha = 0.5) +
-  geom_point(aes(x = location_name, y = national_delta_pct),
+  geom_point(aes(x = "United States", y = national_delta_pct),
              inherit.aes = FALSE, shape = 18, size = 4, color = "black") +
   coord_flip() +
   scale_fill_brewer(palette = "Set2") +
@@ -758,33 +1000,28 @@ p_national <- ggplot(national_plot_data, aes(x = location_name, y = effect_pct, 
     y = "Effect as % of 2010 Spending",
     fill = "Factor"
   ) +
+  theme_bw() +
   theme(
     plot.title = element_text(size = 14, face = "bold"),
     plot.subtitle = element_text(size = 10),
     axis.text.y = element_text(size = 12, face = "bold"),
     legend.position = "bottom",
     legend.title = element_text(size = 10),
-    panel.grid.minor = element_blank()
+    panel.grid.major = element_line(color = "grey80", linewidth = 0.3),
+    panel.grid.minor = element_line(color = "grey90", linewidth = 0.2)
   ) +
-  guides(fill = guide_legend(nrow = 1)) + 
-  theme_bw() +
-  theme(
-    plot.background  = element_rect(fill = "white", color = NA),
-    panel.background = element_rect(fill = "white", color = NA),
-    panel.grid.major = element_line(color = "grey80", size = 0.3),
-    panel.grid.minor = element_line(color = "grey90", size = 0.2),
-    legend.position = "bottom"
-  )
+  guides(fill = guide_legend(nrow = 1))
 
 print(p_national)
 ggsave(file.path(dir_output, "F5_HIV_decomp_national_bar.png"), p_national, 
        width = 10, height = 4, dpi = 300)
 
 # ----------------------------------------------------------------------------
-# 7.3: State-Level Stacked Horizontal Bar Chart (Top 15 States)
+# 7.4: State-Level Stacked Horizontal Bar Chart (Top 15 States)
 # ----------------------------------------------------------------------------
 
 top_states <- by_state %>%
+  filter(location_name != "United States") %>%
   arrange(desc(abs(delta_spend))) %>%
   head(15) %>%
   pull(location_name)
@@ -826,595 +1063,163 @@ p_states <- ggplot(plot_data_top, aes(x = location_name, y = effect_pct, fill = 
     y = "Effect as % of 2010 Spending",
     fill = "Factor"
   ) +
+  theme_bw() +
   theme(
     plot.title = element_text(size = 14, face = "bold"),
     legend.position = "bottom",
     legend.title = element_text(size = 10),
-    panel.grid.minor = element_blank()
+    panel.grid.major = element_line(color = "grey80", linewidth = 0.3),
+    panel.grid.minor = element_line(color = "grey90", linewidth = 0.2)
   ) +
-  guides(fill = guide_legend(nrow = 2)) + 
-  theme_bw() +
-  theme(
-    plot.background  = element_rect(fill = "white", color = NA),
-    panel.background = element_rect(fill = "white", color = NA),
-    panel.grid.major = element_line(color = "grey80", size = 0.3),
-    panel.grid.minor = element_line(color = "grey90", size = 0.2),
-    legend.position = "bottom"
-  )
+  guides(fill = guide_legend(nrow = 2))
 
 print(p_states)
 ggsave(file.path(dir_output, "F6_HIV_decomp_15_states_stacked_bar.png"), p_states, 
        width = 10, height = 8, dpi = 300)
 
-cat("\n=========== VISUALIZATIONS SAVED ===========\n")
-cat(sprintf("Files saved to: %s\n", dir_output))
-cat("  - F4_HIV_decomp_all_states_stacked_bar.png (all 51 states)\n")
-cat("  - F5_HIV_decomp_national_bar.png\n")
-cat("  - F6_HIV_decomp_15_states_stacked_bar.png (top 15 states)\n")
-
-
-###############################################
-
-# ============================================================================
-# DALY DECOMPOSITION + SPENDING EFFECTIVENESS
-# ============================================================================
-
-###############################################################################
-# PART A: DALY DECOMPOSITION (parallel to spending decomposition)
-###############################################################################
-
 # ----------------------------------------------------------------------------
-# A.1: Prepare DALY data with same 4-factor identity
+# 7.5: DALY Decomposition - All Locations (Percent change since 2010)
 # ----------------------------------------------------------------------------
-
-# Start fresh from df_decomp_p (same filtered data you used for spending)
-dt_daly <- as.data.table(df_decomp_p)
-
-# ---- State-level totals ----
-dt_daly[, pop_state_2010 := sum(population_2010), by = .(cause_id, location_id)]
-dt_daly[, pop_state_2019 := sum(population_2019), by = .(cause_id, location_id)]
-
-dt_daly[, prev_state_2010 := sum(prevalence_counts_2010), by = .(cause_id, location_id)]
-dt_daly[, prev_state_2019 := sum(prevalence_counts_2019), by = .(cause_id, location_id)]
-
-# ---- FACTOR 1: Population size (state total) ----
-dt_daly[, population_2010 := pop_state_2010]
-dt_daly[, population_2019 := pop_state_2019]
-
-# ---- FACTOR 2: Case rate (state prevalence rate = cases per person) ----
-dt_daly[, case_rate_2010 := fifelse(pop_state_2010 > 0, prev_state_2010 / pop_state_2010, 0)]
-dt_daly[, case_rate_2019 := fifelse(pop_state_2019 > 0, prev_state_2019 / pop_state_2019, 0)]
-
-# ---- FACTOR 3: Age-sex structure (share of cases in this cell) ----
-dt_daly[, age_sex_frac_2010 := fifelse(prev_state_2010 > 0, prevalence_counts_2010 / prev_state_2010, 0)]
-dt_daly[, age_sex_frac_2019 := fifelse(prev_state_2019 > 0, prevalence_counts_2019 / prev_state_2019, 0)]
-
-# ---- FACTOR 4: DALYs per case (instead of spending per case) ----
-dt_daly[, daly_per_case_2010 := fifelse(prevalence_counts_2010 > 0, daly_counts_2010 / prevalence_counts_2010, 0)]
-dt_daly[, daly_per_case_2019 := fifelse(prevalence_counts_2019 > 0, daly_counts_2019 / prevalence_counts_2019, 0)]
-
-# Keep original DALYs for validation
-dt_daly[, daly_2010 := daly_counts_2010]
-dt_daly[, daly_2019 := daly_counts_2019]
-
-# ----------------------------------------------------------------------------
-# A.2: Validate DALY identity
-# ----------------------------------------------------------------------------
-
-dt_daly[, daly_hat_2010 := population_2010 * case_rate_2010 * age_sex_frac_2010 * daly_per_case_2010]
-dt_daly[, daly_hat_2019 := population_2019 * case_rate_2019 * age_sex_frac_2019 * daly_per_case_2019]
-
-dt_daly[, check_2010 := daly_2010 - daly_hat_2010]
-dt_daly[, check_2019 := daly_2019 - daly_hat_2019]
-
-cat("\n============ DALY IDENTITY VALIDATION ============\n")
-cat("Residuals should be ~0 (tiny numeric noise only)\n\n")
-cat("2010 residuals:\n")
-print(summary(dt_daly$check_2010))
-cat("\n2019 residuals:\n")
-print(summary(dt_daly$check_2019))
-
-# ----------------------------------------------------------------------------
-# A.3: Run DALY decomposition
-# ----------------------------------------------------------------------------
-
-factor_names_daly <- c("population", "case_rate", "age_sex_frac", "daly_per_case")
-dt_daly <- decompose(dt_daly, factor_names = factor_names_daly, start_year = 2010, end_year = 2019)
-
-# Calculate DALY change
-dt_daly[, delta_daly := daly_2019 - daly_2010]
-
-# ----------------------------------------------------------------------------
-# A.4: Aggregate DALY decomposition results
-# ----------------------------------------------------------------------------
-
-# National DALY totals
-national_daly <- dt_daly[, .(
-  daly_pop_size_effect = sum(population_effect, na.rm = TRUE),
-  daly_prevalence_rate_effect = sum(case_rate_effect, na.rm = TRUE),
-  daly_case_composition_effect = sum(age_sex_frac_effect, na.rm = TRUE),
-  daly_intensity_effect = sum(daly_per_case_effect, na.rm = TRUE),
-  delta_daly = sum(delta_daly, na.rm = TRUE),
-  daly_2010 = sum(daly_2010, na.rm = TRUE),
-  daly_2019 = sum(daly_2019, na.rm = TRUE)
-)]
-
-# Validation
-national_daly[, sum_effects := daly_pop_size_effect + daly_prevalence_rate_effect + 
-                daly_case_composition_effect + daly_intensity_effect]
-national_daly[, diff_check := delta_daly - sum_effects]
-
-# By state DALY
-by_state_daly <- dt_daly[, .(
-  daly_pop_size_effect = sum(population_effect, na.rm = TRUE),
-  daly_prevalence_rate_effect = sum(case_rate_effect, na.rm = TRUE),
-  daly_case_composition_effect = sum(age_sex_frac_effect, na.rm = TRUE),
-  daly_intensity_effect = sum(daly_per_case_effect, na.rm = TRUE),
-  delta_daly = sum(delta_daly, na.rm = TRUE),
-  daly_2010 = sum(daly_2010, na.rm = TRUE),
-  daly_2019 = sum(daly_2019, na.rm = TRUE)
-), by = .(location_id, location_name)]
-
-# Validation
-by_state_daly[, sum_effects := daly_pop_size_effect + daly_prevalence_rate_effect + 
-                daly_case_composition_effect + daly_intensity_effect]
-by_state_daly[, diff_check := delta_daly - sum_effects]
-
-cat("\n=========== NATIONAL DALY DECOMPOSITION RESULTS (2010-2019) ===========\n\n")
-cat(sprintf("Total DALYs 2010:   %s\n", format(round(national_daly$daly_2010), big.mark=",")))
-cat(sprintf("Total DALYs 2019:   %s\n", format(round(national_daly$daly_2019), big.mark=",")))
-cat(sprintf("Total DALY Change:  %s\n\n", format(round(national_daly$delta_daly), big.mark=",")))
-
-cat("Factor Contributions:\n")
-cat(sprintf("  1. Population Size:      %15s\n", format(round(national_daly$daly_pop_size_effect), big.mark=",")))
-cat(sprintf("  2. Prevalence Rate:      %15s\n", format(round(national_daly$daly_prevalence_rate_effect), big.mark=",")))
-cat(sprintf("  3. Case Composition:     %15s\n", format(round(national_daly$daly_case_composition_effect), big.mark=",")))
-cat(sprintf("  4. DALYs per Case:       %15s\n", format(round(national_daly$daly_intensity_effect), big.mark=",")))
-cat(sprintf("\nDecomposition Validation (should be ~0): %.6f\n", national_daly$diff_check))
-
-
-###############################################################################
-# PART B: SPENDING EFFECTIVENESS TABLE
-###############################################################################
-
-# ----------------------------------------------------------------------------
-# B.1: Merge spending and DALY decomposition results
-# ----------------------------------------------------------------------------
-
-# Merge by_state (spending) with by_state_daly
-spend_eff_table <- merge(
-  by_state[, .(location_id, location_name, 
-               spend_2010, spend_2019, delta_spend,
-               spend_intensity_effect)],
-  by_state_daly[, .(location_id, location_name,
-                    daly_2010, daly_2019, delta_daly,
-                    daly_intensity_effect)],
-  by = c("location_id", "location_name")
-)
-
-# ----------------------------------------------------------------------------
-# B.2: Calculate spending effectiveness using decomposition effects
-# ----------------------------------------------------------------------------
-
-# DALYs AVERTED per case effect = negative of DALY intensity effect
-# (If DALYs per case decreased, that's positive DALYs averted)
-spend_eff_table[, daly_averted_effect := -daly_intensity_effect]
-
-# Spending effectiveness = Change in spending per case / Change in DALYs averted per case
-# Using decomposition effects (IHME method)
-spend_eff_table[, spend_effectiveness := fifelse(
-  daly_averted_effect != 0,
-  spend_intensity_effect / daly_averted_effect,
-  NA_real_
-)]
-
-# ----------------------------------------------------------------------------
-# B.3: Categorize results (per IHME methodology)
-# ----------------------------------------------------------------------------
-
-spend_eff_table[, category := fcase(
-  spend_intensity_effect > 0 & daly_averted_effect > 0, 1L,  # +Spend, +Health (report ratio)
-  spend_intensity_effect < 0 & daly_averted_effect > 0, 2L,  # -Spend, +Health (cost-saving)
-  spend_intensity_effect > 0 & daly_averted_effect < 0, 3L,  # +Spend, -Health (dominated)
-  spend_intensity_effect < 0 & daly_averted_effect < 0, 4L,  # -Spend, -Health (excluded)
-  default = NA_integer_
-)]
-
-# ASCII-safe category labels (no Unicode arrows)
-spend_eff_table[, category_label := fcase(
-  category == 1L, "Category 1: +Spend, +Health",
-  category == 2L, "Category 2: Cost-saving",
-  category == 3L, "Category 3: Dominated",
-  category == 4L, "Category 4: -Both",
-  default = "N/A"
-)]
-
-# Interpretation column
-spend_eff_table[, interpretation := fcase(
-  category == 1L, paste0("$", format(round(spend_effectiveness), big.mark = ","), " per DALY averted"),
-  category == 2L, "Cost-saving (less spending, better health)",
-  category == 3L, "Dominated (more spending, worse health)",
-  category == 4L, "Excluded from ratio calculation",
-  default = "N/A"
-)]
-
-# ----------------------------------------------------------------------------
-# B.4: Add simple (non-decomposition) spending effectiveness for comparison
-# ----------------------------------------------------------------------------
-
-# Simple method: (Spend/Prev in 2019 - Spend/Prev in 2010) / (DALY/Prev in 2010 - DALY/Prev in 2019)
-# Get state-level prevalence
-state_prev <- dt[, .(
-  prev_2010 = sum(prevalence_counts_2010),
-  prev_2019 = sum(prevalence_counts_2019)
-), by = .(location_id)]
-
-spend_eff_table <- merge(spend_eff_table, state_prev, by = "location_id")
-
-# Simple calculations
-spend_eff_table[, spend_per_case_2010 := spend_2010 / prev_2010]
-spend_eff_table[, spend_per_case_2019 := spend_2019 / prev_2019]
-spend_eff_table[, daly_per_case_2010 := daly_2010 / prev_2010]
-spend_eff_table[, daly_per_case_2019 := daly_2019 / prev_2019]
-
-spend_eff_table[, change_spend_per_case := spend_per_case_2019 - spend_per_case_2010]
-spend_eff_table[, change_daly_averted_per_case := daly_per_case_2010 - daly_per_case_2019]  # Note: flipped for "averted"
-
-spend_eff_table[, spend_effectiveness_simple := fifelse(
-  change_daly_averted_per_case != 0,
-  change_spend_per_case / change_daly_averted_per_case,
-  NA_real_
-)]
-
-# ----------------------------------------------------------------------------
-# B.5: Create state-level table
-# ----------------------------------------------------------------------------
-
-state_spend_eff <- spend_eff_table[, .(
-  Level = location_name,
-  `Spending 2010` = spend_2010,
-  `Spending 2019` = spend_2019,
-  `Spending Change` = delta_spend,
-  `DALYs 2010` = daly_2010,
-  `DALYs 2019` = daly_2019,
-  `DALY Change` = delta_daly,
-  `Spend per Case 2010` = spend_per_case_2010,
-  `Spend per Case 2019` = spend_per_case_2019,
-  `DALY per Case 2010` = daly_per_case_2010,
-  `DALY per Case 2019` = daly_per_case_2019,
-  `Change in Spend per Case` = change_spend_per_case,
-  `Change in DALYs Averted per Case` = change_daly_averted_per_case,
-  `Spend Intensity Effect (Decomp)` = spend_intensity_effect,
-  `DALY Averted Effect (Decomp)` = daly_averted_effect,
-  `Spending Effectiveness - Simple` = spend_effectiveness_simple,
-  `Spending Effectiveness - Decomp` = spend_effectiveness,
-  Category = category,
-  `Category Label` = category_label,
-  Interpretation = interpretation
-)]
-
-# Order by state name
-state_spend_eff <- state_spend_eff[order(Level)]
-
-# ----------------------------------------------------------------------------
-# B.6: Create national row and combine with states
-# ----------------------------------------------------------------------------
-
-# Calculate national simple spending effectiveness
-national_prev_2010 <- sum(spend_eff_table$prev_2010)
-national_prev_2019 <- sum(spend_eff_table$prev_2019)
-national_spend_pc_2010 <- national$spend_2010 / national_prev_2010
-national_spend_pc_2019 <- national$spend_2019 / national_prev_2019
-national_daly_pc_2010 <- national_daly$daly_2010 / national_prev_2010
-national_daly_pc_2019 <- national_daly$daly_2019 / national_prev_2019
-national_change_spend_pc <- national_spend_pc_2019 - national_spend_pc_2010
-national_change_daly_averted_pc <- national_daly_pc_2010 - national_daly_pc_2019
-national_spend_eff_simple <- national_change_spend_pc / national_change_daly_averted_pc
-national_spend_eff_decomp <- national$spend_intensity_effect / (-national_daly$daly_intensity_effect)
-
-# Determine national category
-national_category <- fcase(
-  national$spend_intensity_effect > 0 & (-national_daly$daly_intensity_effect) > 0, 1L,
-  national$spend_intensity_effect < 0 & (-national_daly$daly_intensity_effect) > 0, 2L,
-  national$spend_intensity_effect > 0 & (-national_daly$daly_intensity_effect) < 0, 3L,
-  national$spend_intensity_effect < 0 & (-national_daly$daly_intensity_effect) < 0, 4L,
-  default = NA_integer_
-)
-
-national_category_label <- fcase(
-  national_category == 1L, "Category 1: +Spend, +Health",
-  national_category == 2L, "Category 2: Cost-saving",
-  national_category == 3L, "Category 3: Dominated",
-  national_category == 4L, "Category 4: -Both",
-  default = "N/A"
-)
-
-national_interpretation <- fcase(
-  national_category == 1L, paste0("$", format(round(national_spend_eff_decomp), big.mark = ","), " per DALY averted"),
-  national_category == 2L, "Cost-saving (less spending, better health)",
-  national_category == 3L, "Dominated (more spending, worse health)",
-  national_category == 4L, "Excluded from ratio calculation",
-  default = "N/A"
-)
-
-# Create national row
-national_row <- data.table(
-  Level = "United States (National)",
-  `Spending 2010` = national$spend_2010,
-  `Spending 2019` = national$spend_2019,
-  `Spending Change` = national$delta_spend,
-  `DALYs 2010` = national_daly$daly_2010,
-  `DALYs 2019` = national_daly$daly_2019,
-  `DALY Change` = national_daly$delta_daly,
-  `Spend per Case 2010` = national_spend_pc_2010,
-  `Spend per Case 2019` = national_spend_pc_2019,
-  `DALY per Case 2010` = national_daly_pc_2010,
-  `DALY per Case 2019` = national_daly_pc_2019,
-  `Change in Spend per Case` = national_change_spend_pc,
-  `Change in DALYs Averted per Case` = national_change_daly_averted_pc,
-  `Spend Intensity Effect (Decomp)` = national$spend_intensity_effect,
-  `DALY Averted Effect (Decomp)` = -national_daly$daly_intensity_effect,
-  `Spending Effectiveness - Simple` = national_spend_eff_simple,
-  `Spending Effectiveness - Decomp` = national_spend_eff_decomp,
-  Category = national_category,
-  `Category Label` = national_category_label,
-  Interpretation = national_interpretation
-)
-
-# Combine national + states (national first)
-final_spend_eff <- rbind(national_row, state_spend_eff)
-
-# ----------------------------------------------------------------------------
-# B.7: Combine DALY decomposition tables (national + states)
-# ----------------------------------------------------------------------------
-
-# Create national DALY row with same columns as by_state_daly
-national_daly_row <- data.table(
-  location_id = NA_integer_,
-  location_name = "United States (National)",
-  daly_pop_size_effect = national_daly$daly_pop_size_effect,
-  daly_prevalence_rate_effect = national_daly$daly_prevalence_rate_effect,
-  daly_case_composition_effect = national_daly$daly_case_composition_effect,
-  daly_intensity_effect = national_daly$daly_intensity_effect,
-  delta_daly = national_daly$delta_daly,
-  daly_2010 = national_daly$daly_2010,
-  daly_2019 = national_daly$daly_2019,
-  sum_effects = national_daly$sum_effects,
-  diff_check = national_daly$diff_check
-)
-
-# Combine national + states
-final_daly_decomp <- rbind(national_daly_row, by_state_daly)
-
-# ----------------------------------------------------------------------------
-# B.8: Print summary
-# ----------------------------------------------------------------------------
-
-cat("\n=========== SPENDING EFFECTIVENESS SUMMARY ===========\n\n")
-
-cat("NATIONAL:\n")
-cat(sprintf("  Spend Intensity Effect:        $%s\n", 
-            format(round(national$spend_intensity_effect), big.mark = ",")))
-cat(sprintf("  DALY Averted Effect:           %s DALYs\n", 
-            format(round(-national_daly$daly_intensity_effect), big.mark = ",")))
-cat(sprintf("  Spending Effectiveness:        $%s per DALY averted\n",
-            format(round(national_spend_eff_decomp), big.mark = ",")))
-cat(sprintf("  Category:                      %d\n", national_category))
-
-cat("\nSTATE-LEVEL CATEGORY DISTRIBUTION:\n")
-print(table(spend_eff_table$category_label))
-
-cat("\nTOP 10 STATES BY SPENDING EFFECTIVENESS (Category 1 only):\n")
-print(final_spend_eff[Category == 1][order(`Spending Effectiveness - Decomp`)][1:10, 
-                                                                               .(Level, `Spending Effectiveness - Decomp`, Interpretation)])
-
-cat("\nCOST-SAVING STATES (Category 2):\n")
-print(final_spend_eff[Category == 2, .(Level, `Change in Spend per Case`, `Change in DALYs Averted per Case`)])
-
-# ----------------------------------------------------------------------------
-# B.9: Save results (2 tables instead of 4)
-# ----------------------------------------------------------------------------
-
-write.csv(final_spend_eff, file.path(dir_output, "T3_HIV_spending_effectiveness.csv"), row.names = FALSE)
-write.csv(final_daly_decomp, file.path(dir_output, "T8_HIV_decomp_daly.csv"), row.names = FALSE)
-
-cat(sprintf("\n=========== FILES SAVED TO: %s ===========\n", dir_output))
-cat("  - T3_HIV_spending_effectiveness.csv (national + all states)\n")
-cat("  - T8_HIV_decomp_daly.csv (national + all states)\n")
-
-
-
-
-##NOT SURE IF THIS BELOW WORKS 
-# ============================================================================
-# DALY Figure: All States Stacked Horizontal Bar (HIV)
-# Similar style to F4_HIV_decomp_all_states_stacked_bar
-# ============================================================================
-
-# ============================================================================
-# DALY Figure: All States Stacked Horizontal Bar (Percent change since 2010)
-# ============================================================================
 
 plot_data_daly <- by_state_daly %>%
-  dplyr::mutate(
-    # total percent change since 2010 (diamond marker)
-    delta_pct_from2010 = dplyr::if_else(daly_2010 > 0, 100 * delta_daly / daly_2010, NA_real_),
-    
-    # effect-level percent change since 2010
-    daly_pop_size_effect_pct = dplyr::if_else(daly_2010 > 0, 100 * daly_pop_size_effect / daly_2010, NA_real_),
-    daly_prevalence_rate_effect_pct = dplyr::if_else(daly_2010 > 0, 100 * daly_prevalence_rate_effect / daly_2010, NA_real_),
-    daly_case_composition_effect_pct = dplyr::if_else(daly_2010 > 0, 100 * daly_case_composition_effect / daly_2010, NA_real_),
-    daly_intensity_effect_pct = dplyr::if_else(daly_2010 > 0, 100 * daly_intensity_effect / daly_2010, NA_real_)
+  mutate(
+    delta_pct_from2010 = if_else(daly_2010 > 0, 100 * delta_daly / daly_2010, NA_real_),
+    daly_pop_size_effect_pct = if_else(daly_2010 > 0, 100 * daly_pop_size_effect / daly_2010, NA_real_),
+    daly_prevalence_rate_effect_pct = if_else(daly_2010 > 0, 100 * daly_prevalence_rate_effect / daly_2010, NA_real_),
+    daly_case_composition_effect_pct = if_else(daly_2010 > 0, 100 * daly_case_composition_effect / daly_2010, NA_real_),
+    daly_intensity_effect_pct = if_else(daly_2010 > 0, 100 * daly_intensity_effect / daly_2010, NA_real_)
   ) %>%
-  dplyr::select(
+  select(
     location_id, location_name, delta_pct_from2010,
     daly_pop_size_effect_pct, daly_prevalence_rate_effect_pct,
     daly_case_composition_effect_pct, daly_intensity_effect_pct
   ) %>%
-  tidyr::pivot_longer(
-    cols = c(
-      daly_pop_size_effect_pct, daly_prevalence_rate_effect_pct,
-      daly_case_composition_effect_pct, daly_intensity_effect_pct
-    ),
+  pivot_longer(
+    cols = c(daly_pop_size_effect_pct, daly_prevalence_rate_effect_pct,
+             daly_case_composition_effect_pct, daly_intensity_effect_pct),
     names_to = "factor",
     values_to = "effect_pct"
   ) %>%
-  dplyr::mutate(
-    factor = dplyr::case_when(
+  mutate(
+    factor = case_when(
       factor == "daly_pop_size_effect_pct" ~ "Population Size",
       factor == "daly_prevalence_rate_effect_pct" ~ "Prevalence Rate",
       factor == "daly_case_composition_effect_pct" ~ "Case Composition (Age-Sex)",
       factor == "daly_intensity_effect_pct" ~ "DALY Intensity"
     ),
-    factor = factor(
-      factor,
-      levels = c("Population Size", "Prevalence Rate",
-                 "Case Composition (Age-Sex)", "DALY Intensity")
-    )
+    factor = factor(factor, levels = c("Population Size", "Prevalence Rate",
+                                       "Case Composition (Age-Sex)", "DALY Intensity"))
   )
+
+# Order: United States at top, then by delta_daly
+daly_state_order <- by_state_daly %>%
+  arrange(delta_daly) %>%
+  pull(location_name)
+daly_state_order <- c(setdiff(daly_state_order, "United States"), "United States")
 
 plot_data_daly_all <- plot_data_daly %>%
-  dplyr::mutate(
-    location_name = factor(
-      location_name,
-      levels = plot_data_daly %>%
-        dplyr::distinct(location_name, delta_pct_from2010) %>%
-        dplyr::arrange(delta_pct_from2010) %>%
-        dplyr::pull(location_name)
-    )
-  )
+  mutate(location_name = factor(location_name, levels = daly_state_order))
 
-p_daly_states_all_pct <- ggplot2::ggplot(
-  plot_data_daly_all,
-  ggplot2::aes(x = location_name, y = effect_pct, fill = factor)
-) +
-  ggplot2::geom_bar(stat = "identity", position = "stack", width = 0.7) +
-  ggplot2::geom_hline(yintercept = 0, linetype = "dashed", color = "black", alpha = 0.5) +
-  ggplot2::geom_point(
-    data = plot_data_daly_all %>%
-      dplyr::distinct(location_name, delta_pct_from2010),
-    ggplot2::aes(x = location_name, y = delta_pct_from2010),
-    inherit.aes = FALSE,
-    shape = 18, size = 2.5, color = "black"
+p_daly_states_all <- ggplot(plot_data_daly_all, aes(x = location_name, y = effect_pct, fill = factor)) +
+  geom_bar(stat = "identity", position = "stack", width = 0.7) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black", alpha = 0.5) +
+  geom_point(
+    data = plot_data_daly_all %>% distinct(location_name, delta_pct_from2010),
+    aes(x = location_name, y = delta_pct_from2010),
+    inherit.aes = FALSE, shape = 18, size = 2.5, color = "black"
   ) +
-  ggplot2::coord_flip() +
-  ggplot2::scale_fill_brewer(palette = "Set2") +
-  ggplot2::scale_y_continuous(labels = scales::label_percent(scale = 1)) +
-  ggplot2::labs(
-    title = "HIV/AIDS DALY Decomposition by State (2010–2019)",
-    subtitle = "Percent change since 2010 | Diamond = Total % Change",
+  coord_flip() +
+  scale_fill_brewer(palette = "Set2") +
+  scale_y_continuous(labels = scales::percent_format(scale = 1)) +
+  labs(
+    title = "HIV/AIDS DALY Decomposition (2010-2019)",
+    subtitle = "United States and all states | Diamond = Total % Change from 2010 Baseline",
     x = "",
-    y = "Effect on DALY Change (% of 2010 DALYs)",
+    y = "Effect as % of 2010 DALYs",
     fill = "Factor"
   ) +
-  ggplot2::guides(fill = ggplot2::guide_legend(nrow = 1)) +
-  ggplot2::theme_bw() +
-  ggplot2::theme(
-    plot.title = ggplot2::element_text(size = 14, face = "bold"),
-    plot.subtitle = ggplot2::element_text(size = 10),
-    axis.text.y = ggplot2::element_text(size = 7),
+  theme_bw() +
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 10),
+    axis.text.y = element_text(size = 7),
     legend.position = "bottom",
-    legend.title = ggplot2::element_text(size = 10),
-    panel.grid.major = ggplot2::element_line(color = "grey80", linewidth = 0.3),
-    panel.grid.minor = ggplot2::element_line(color = "grey90", linewidth = 0.2)
-  )
+    legend.title = element_text(size = 10),
+    panel.grid.major = element_line(color = "grey80", linewidth = 0.3),
+    panel.grid.minor = element_line(color = "grey90", linewidth = 0.2)
+  ) +
+  guides(fill = guide_legend(nrow = 1))
 
-print(p_daly_states_all_pct)
+print(p_daly_states_all)
+ggsave(file.path(dir_output, "F7_HIV_daly_decomp_all_states_stacked_bar.png"), p_daly_states_all, 
+       width = 10, height = 15, dpi = 300)
 
-ggplot2::ggsave(
-  filename = file.path(dir_output, "F7_HIV_daly_decomp_all_states_stacked_bar_pct2010.png"),
-  plot = p_daly_states_all_pct,
-  width = 10, height = 14, dpi = 300
-)
+# ----------------------------------------------------------------------------
+# 7.6: Two-panel figure: Panel A Spending + Panel B DALY decomposition
+#      Alphabetical state order (A->Z top-down), United States at top
+# ----------------------------------------------------------------------------
 
+# State order: United States at end (top after flip), then A->Z from top
+state_levels_alpha <- c(rev(sort(unique(by_state$location_name[by_state$location_name != "United States"]))), 
+                        "United States")
 
-#######
-
-# ============================================================================
-# Two-panel figure: Panel A Spending + Panel B DALY decomposition
-# Percent change since 2010 baseline, alphabetical state order (A->Z top-down)
-# Requires objects: by_state, by_state_daly, dir_output
-# ============================================================================
-
-# 0) Libraries (safe to rerun)
-pacman::p_load(dplyr, tidyr, ggplot2, scales, ggpubr)
-
-# 1) State order: A->Z from TOP to BOTTOM in coord_flip
-state_levels_topAZ <- rev(sort(unique(by_state$location_name)))
-
-# 2) Build spending plot data (% of 2010 spending)
+# Build spending plot data
 plot_spend <- by_state %>%
-  dplyr::mutate(
-    delta_pct_from2010 = dplyr::if_else(spend_2010 > 0, 100 * delta_spend / spend_2010, NA_real_),
-    pop_size_effect_pct = dplyr::if_else(spend_2010 > 0, 100 * pop_size_effect / spend_2010, NA_real_),
-    prevalence_rate_effect_pct = dplyr::if_else(spend_2010 > 0, 100 * prevalence_rate_effect / spend_2010, NA_real_),
-    case_composition_effect_pct = dplyr::if_else(spend_2010 > 0, 100 * case_composition_effect / spend_2010, NA_real_),
-    spend_intensity_effect_pct = dplyr::if_else(spend_2010 > 0, 100 * spend_intensity_effect / spend_2010, NA_real_)
+  mutate(
+    delta_pct_from2010 = if_else(spend_2010 > 0, 100 * delta_spend / spend_2010, NA_real_),
+    pop_size_effect_pct = if_else(spend_2010 > 0, 100 * pop_size_effect / spend_2010, NA_real_),
+    prevalence_rate_effect_pct = if_else(spend_2010 > 0, 100 * prevalence_rate_effect / spend_2010, NA_real_),
+    case_composition_effect_pct = if_else(spend_2010 > 0, 100 * case_composition_effect / spend_2010, NA_real_),
+    spend_intensity_effect_pct = if_else(spend_2010 > 0, 100 * spend_intensity_effect / spend_2010, NA_real_)
   ) %>%
-  dplyr::select(
-    location_name, delta_pct_from2010,
-    pop_size_effect_pct, prevalence_rate_effect_pct,
-    case_composition_effect_pct, spend_intensity_effect_pct
+  select(location_name, delta_pct_from2010, pop_size_effect_pct, prevalence_rate_effect_pct,
+         case_composition_effect_pct, spend_intensity_effect_pct) %>%
+  pivot_longer(
+    cols = c(pop_size_effect_pct, prevalence_rate_effect_pct,
+             case_composition_effect_pct, spend_intensity_effect_pct),
+    names_to = "factor", values_to = "effect_pct"
   ) %>%
-  tidyr::pivot_longer(
-    cols = c(
-      pop_size_effect_pct, prevalence_rate_effect_pct,
-      case_composition_effect_pct, spend_intensity_effect_pct
-    ),
-    names_to = "factor",
-    values_to = "effect_pct"
-  ) %>%
-  dplyr::mutate(
-    factor = dplyr::case_when(
+  mutate(
+    factor = case_when(
       factor == "pop_size_effect_pct" ~ "Population Size",
       factor == "prevalence_rate_effect_pct" ~ "Prevalence Rate",
       factor == "case_composition_effect_pct" ~ "Case Composition (Age-Sex)",
       factor == "spend_intensity_effect_pct" ~ "Spending Intensity"
     ),
-    factor = factor(
-      factor,
-      levels = c("Population Size", "Prevalence Rate", "Case Composition (Age-Sex)", "Spending Intensity")
-    ),
-    location_name = factor(location_name, levels = state_levels_topAZ)
+    factor = factor(factor, levels = c("Population Size", "Prevalence Rate", 
+                                       "Case Composition (Age-Sex)", "Spending Intensity")),
+    location_name = factor(location_name, levels = state_levels_alpha)
   )
 
-# 3) Build DALY plot data (% of 2010 DALYs)
-plot_daly <- by_state_daly %>%
-  dplyr::mutate(
-    delta_pct_from2010 = dplyr::if_else(daly_2010 > 0, 100 * delta_daly / daly_2010, NA_real_),
-    pop_size_effect_pct = dplyr::if_else(daly_2010 > 0, 100 * daly_pop_size_effect / daly_2010, NA_real_),
-    prevalence_rate_effect_pct = dplyr::if_else(daly_2010 > 0, 100 * daly_prevalence_rate_effect / daly_2010, NA_real_),
-    case_composition_effect_pct = dplyr::if_else(daly_2010 > 0, 100 * daly_case_composition_effect / daly_2010, NA_real_),
-    daly_intensity_effect_pct = dplyr::if_else(daly_2010 > 0, 100 * daly_intensity_effect / daly_2010, NA_real_)
+# Build DALY plot data
+plot_daly_panel <- by_state_daly %>%
+  mutate(
+    delta_pct_from2010 = if_else(daly_2010 > 0, 100 * delta_daly / daly_2010, NA_real_),
+    pop_size_effect_pct = if_else(daly_2010 > 0, 100 * daly_pop_size_effect / daly_2010, NA_real_),
+    prevalence_rate_effect_pct = if_else(daly_2010 > 0, 100 * daly_prevalence_rate_effect / daly_2010, NA_real_),
+    case_composition_effect_pct = if_else(daly_2010 > 0, 100 * daly_case_composition_effect / daly_2010, NA_real_),
+    daly_intensity_effect_pct = if_else(daly_2010 > 0, 100 * daly_intensity_effect / daly_2010, NA_real_)
   ) %>%
-  dplyr::select(
-    location_name, delta_pct_from2010,
-    pop_size_effect_pct, prevalence_rate_effect_pct,
-    case_composition_effect_pct, daly_intensity_effect_pct
+  select(location_name, delta_pct_from2010, pop_size_effect_pct, prevalence_rate_effect_pct,
+         case_composition_effect_pct, daly_intensity_effect_pct) %>%
+  pivot_longer(
+    cols = c(pop_size_effect_pct, prevalence_rate_effect_pct,
+             case_composition_effect_pct, daly_intensity_effect_pct),
+    names_to = "factor", values_to = "effect_pct"
   ) %>%
-  tidyr::pivot_longer(
-    cols = c(
-      pop_size_effect_pct, prevalence_rate_effect_pct,
-      case_composition_effect_pct, daly_intensity_effect_pct
-    ),
-    names_to = "factor",
-    values_to = "effect_pct"
-  ) %>%
-  dplyr::mutate(
-    factor = dplyr::case_when(
+  mutate(
+    factor = case_when(
       factor == "pop_size_effect_pct" ~ "Population Size",
       factor == "prevalence_rate_effect_pct" ~ "Prevalence Rate",
       factor == "case_composition_effect_pct" ~ "Case Composition (Age-Sex)",
       factor == "daly_intensity_effect_pct" ~ "DALY Intensity"
     ),
-    factor = factor(
-      factor,
-      levels = c("Population Size", "Prevalence Rate", "Case Composition (Age-Sex)", "DALY Intensity")
-    ),
-    location_name = factor(location_name, levels = state_levels_topAZ)
+    factor = factor(factor, levels = c("Population Size", "Prevalence Rate", 
+                                       "Case Composition (Age-Sex)", "DALY Intensity")),
+    location_name = factor(location_name, levels = state_levels_alpha)
   )
 
-# 4) Panel-specific color mappings
+# Panel-specific color mappings
 factor_colors_spend <- c(
   "Population Size" = "#66C2A5",
   "Prevalence Rate" = "#FC8D62",
@@ -1429,79 +1234,73 @@ factor_colors_daly <- c(
   "DALY Intensity" = "#E78AC3"
 )
 
-# 5) Panel A: Spending
-pA <- ggplot2::ggplot(plot_spend, ggplot2::aes(x = location_name, y = effect_pct, fill = factor)) +
-  ggplot2::geom_col(width = 0.72) +
-  ggplot2::geom_point(
-    data = plot_spend %>% dplyr::distinct(location_name, delta_pct_from2010),
-    ggplot2::aes(x = location_name, y = delta_pct_from2010),
-    inherit.aes = FALSE,
-    shape = 18, size = 1.9, color = "black"
+# Panel A: Spending
+pA <- ggplot(plot_spend, aes(x = location_name, y = effect_pct, fill = factor)) +
+  geom_col(width = 0.72) +
+  geom_point(
+    data = plot_spend %>% distinct(location_name, delta_pct_from2010),
+    aes(x = location_name, y = delta_pct_from2010),
+    inherit.aes = FALSE, shape = 18, size = 1.9, color = "black"
   ) +
-  ggplot2::geom_hline(yintercept = 0, linetype = "dashed", color = "black", linewidth = 0.4) +
-  ggplot2::coord_flip() +
-  ggplot2::scale_fill_manual(values = factor_colors_spend) +
-  ggplot2::scale_y_continuous(labels = scales::label_percent(scale = 1)) +
-  ggplot2::labs(
-    title = "Panel A. HIV Spending Decomposition by State (2010–2019)",
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black", linewidth = 0.4) +
+  coord_flip() +
+  scale_fill_manual(values = factor_colors_spend) +
+  scale_y_continuous(labels = scales::percent_format(scale = 1)) +
+  labs(
+    title = "Panel A. HIV Spending Decomposition (2010-2019)",
     subtitle = "Effects as % of 2010 spending baseline | Diamond = total % change",
-    x = NULL,
-    y = "Effect (% of 2010 Spending)",
-    fill = "Spending factors"
+    x = NULL, y = "Effect (% of 2010 Spending)", fill = "Spending factors"
   ) +
-  ggplot2::theme_bw() +
-  ggplot2::theme(
-    axis.text.y = ggplot2::element_text(size = 6),
-    plot.title = ggplot2::element_text(size = 11, face = "bold"),
-    plot.subtitle = ggplot2::element_text(size = 8),
+  theme_bw() +
+  theme(
+    axis.text.y = element_text(size = 6),
+    plot.title = element_text(size = 11, face = "bold"),
+    plot.subtitle = element_text(size = 8),
     legend.position = "bottom",
-    legend.title = ggplot2::element_text(size = 9),
-    legend.text = ggplot2::element_text(size = 8)
+    legend.title = element_text(size = 9),
+    legend.text = element_text(size = 8)
   )
 
-# 6) Panel B: DALY
-pB <- ggplot2::ggplot(plot_daly, ggplot2::aes(x = location_name, y = effect_pct, fill = factor)) +
-  ggplot2::geom_col(width = 0.72) +
-  ggplot2::geom_point(
-    data = plot_daly %>% dplyr::distinct(location_name, delta_pct_from2010),
-    ggplot2::aes(x = location_name, y = delta_pct_from2010),
-    inherit.aes = FALSE,
-    shape = 18, size = 1.9, color = "black"
+# Panel B: DALY
+pB <- ggplot(plot_daly_panel, aes(x = location_name, y = effect_pct, fill = factor)) +
+  geom_col(width = 0.72) +
+  geom_point(
+    data = plot_daly_panel %>% distinct(location_name, delta_pct_from2010),
+    aes(x = location_name, y = delta_pct_from2010),
+    inherit.aes = FALSE, shape = 18, size = 1.9, color = "black"
   ) +
-  ggplot2::geom_hline(yintercept = 0, linetype = "dashed", color = "black", linewidth = 0.4) +
-  ggplot2::coord_flip() +
-  ggplot2::scale_fill_manual(values = factor_colors_daly) +
-  ggplot2::scale_y_continuous(labels = scales::label_percent(scale = 1)) +
-  ggplot2::labs(
-    title = "Panel B. HIV DALY Decomposition by State (2010–2019)",
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black", linewidth = 0.4) +
+  coord_flip() +
+  scale_fill_manual(values = factor_colors_daly) +
+  scale_y_continuous(labels = scales::percent_format(scale = 1)) +
+  labs(
+    title = "Panel B. HIV DALY Decomposition (2010-2019)",
     subtitle = "Effects as % of 2010 DALY baseline | Diamond = total % change",
-    x = NULL,
-    y = "Effect (% of 2010 DALYs)",
-    fill = "DALY factors"
+    x = NULL, y = "Effect (% of 2010 DALYs)", fill = "DALY factors"
   ) +
-  ggplot2::theme_bw() +
-  ggplot2::theme(
-    axis.text.y = ggplot2::element_text(size = 6),
-    plot.title = ggplot2::element_text(size = 11, face = "bold"),
-    plot.subtitle = ggplot2::element_text(size = 8),
+  theme_bw() +
+  theme(
+    axis.text.y = element_text(size = 6),
+    plot.title = element_text(size = 11, face = "bold"),
+    plot.subtitle = element_text(size = 8),
     legend.position = "bottom",
-    legend.title = ggplot2::element_text(size = 9),
-    legend.text = ggplot2::element_text(size = 8)
+    legend.title = element_text(size = 9),
+    legend.text = element_text(size = 8)
   )
 
-# 7) Combine panels (keep separate legends)
-p_combined <- ggpubr::ggarrange(
-  pA, pB,
-  ncol = 2, nrow = 1,
-  common.legend = FALSE,  # separate legend for each panel
-  align = "h"
-)
+# Combine panels
+p_combined <- ggpubr::ggarrange(pA, pB, ncol = 2, nrow = 1, common.legend = FALSE, align = "h")
 
 print(p_combined)
+ggsave(file.path(dir_output, "F8_HIV_spend_daly_decomp_two_panel.png"), p_combined, 
+       width = 18, height = 15, dpi = 300)
 
-# 8) Save
-ggplot2::ggsave(
-  filename = file.path(dir_output, "F8_HIV_spend_daly_decomp_two_panel_pct2010_alpha_topAZ.png"),
-  plot = p_combined,
-  width = 18, height = 14, dpi = 300
-)
+cat("\n=========== VISUALIZATIONS SAVED ===========\n")
+cat(sprintf("Files saved to: %s\n", dir_output))
+cat("  - F4_HIV_decomp_all_states_stacked_bar.png (all locations incl. US)\n")
+cat("  - F5_HIV_decomp_national_bar.png\n")
+cat("  - F6_HIV_decomp_15_states_stacked_bar.png\n")
+cat("  - F7_HIV_daly_decomp_all_states_stacked_bar.png\n")
+cat("  - F8_HIV_spend_daly_decomp_two_panel.png\n")
+
+cat("\n============ SCRIPT COMPLETE ============\n")
