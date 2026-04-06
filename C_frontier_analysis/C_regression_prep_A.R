@@ -269,7 +269,7 @@ df_m_pop <- left_join(
 )
 
 # Write out age*sex*year*loc strata file, used for decomp analysis
-write_parquet(df_m, file.path(dir_output, "df_decomp_draws.parquet"))
+write_parquet(df_m_pop, file.path(dir_output, "df_decomp_draws.parquet"))
 
 ##----------------------------------------------------------------
 ## 2. Collapse on sex_id
