@@ -1,8 +1,9 @@
 ##----------------------------------------------------------------
-##' Title: D_decomp_analysis.R
+##' Title: D_HIV_decomp_analysis.R
 ##'
 ##' Purpose: Das Gupta 4-Factor Decomposition of HIV Spending (2010-2019)
 ##'          WITH UNCERTAINTY INTERVALS FROM DRAW-LEVEL DATA
+##'          USING WEAVER ET AL. (2022) METHODOLOGY FOR SPENDING EFFECTIVENESS
 ##----------------------------------------------------------------
 
 ##----------------------------------------------------------------
@@ -275,6 +276,11 @@ by_location_draw[, sum_effects := pop_size_effect + prevalence_rate_effect +
                    case_composition_effect + spend_intensity_effect]
 by_location_draw[, diff_check := delta_spend - sum_effects]
 
+# Add per-case metrics at draw level (SPENDING)
+by_location_draw[, spend_per_case_2010 := fifelse(prev_2010 > 0, spend_2010 / prev_2010, NA_real_)]
+by_location_draw[, spend_per_case_2019 := fifelse(prev_2019 > 0, spend_2019 / prev_2019, NA_real_)]
+by_location_draw[, change_spend_per_case := spend_per_case_2019 - spend_per_case_2010]
+
 cat("Stage A complete: ", nrow(by_location_draw), "rows (", 
     length(unique(by_location_draw$location_name)), "locations ×", 
     length(unique(by_location_draw$draw)), "draws)\n")
@@ -285,7 +291,7 @@ cat("Max decomposition residual:", max(abs(by_location_draw$diff_check)), "\n")
 # ----------------------------------------------------------------------------
 
 by_state <- by_location_draw[, .(
-  # Factor effects: mean + UI
+  # Factor effects: mean + UI (with _lower/_upper immediately after point estimate)
   pop_size_effect = mean(pop_size_effect, na.rm = TRUE),
   pop_size_effect_lower = quantile(pop_size_effect, 0.025, na.rm = TRUE),
   pop_size_effect_upper = quantile(pop_size_effect, 0.975, na.rm = TRUE),
@@ -316,7 +322,20 @@ by_state <- by_location_draw[, .(
   spend_2019_upper = quantile(spend_2019, 0.975, na.rm = TRUE),
   
   prev_2010 = mean(prev_2010, na.rm = TRUE),
-  prev_2019 = mean(prev_2019, na.rm = TRUE)
+  prev_2019 = mean(prev_2019, na.rm = TRUE),
+  
+  # Spend per case with UI (grouped together)
+  spend_per_case_2010 = mean(spend_per_case_2010, na.rm = TRUE),
+  spend_per_case_2010_lower = quantile(spend_per_case_2010, 0.025, na.rm = TRUE),
+  spend_per_case_2010_upper = quantile(spend_per_case_2010, 0.975, na.rm = TRUE),
+  
+  spend_per_case_2019 = mean(spend_per_case_2019, na.rm = TRUE),
+  spend_per_case_2019_lower = quantile(spend_per_case_2019, 0.025, na.rm = TRUE),
+  spend_per_case_2019_upper = quantile(spend_per_case_2019, 0.975, na.rm = TRUE),
+  
+  change_spend_per_case = mean(change_spend_per_case, na.rm = TRUE),
+  change_spend_per_case_lower = quantile(change_spend_per_case, 0.025, na.rm = TRUE),
+  change_spend_per_case_upper = quantile(change_spend_per_case, 0.975, na.rm = TRUE)
   
 ), by = .(location_id, location_name)]
 
@@ -472,7 +491,9 @@ by_location_daly_draw <- dt_daly[, .(
   daly_intensity_effect = sum(daly_per_case_effect, na.rm = TRUE),
   delta_daly = sum(delta_daly, na.rm = TRUE),
   daly_2010 = sum(daly_2010, na.rm = TRUE),
-  daly_2019 = sum(daly_2019, na.rm = TRUE)
+  daly_2019 = sum(daly_2019, na.rm = TRUE),
+  prev_2010 = sum(prevalence_counts_2010, na.rm = TRUE),
+  prev_2019 = sum(prevalence_counts_2019, na.rm = TRUE)
 ), by = .(draw, location_id, location_name)]
 
 # Validation within each draw
@@ -481,6 +502,12 @@ by_location_daly_draw[, sum_effects := daly_pop_size_effect + daly_prevalence_ra
 by_location_daly_draw[, diff_check := delta_daly - sum_effects]
 
 cat("DALY Stage A complete. Max residual:", max(abs(by_location_daly_draw$diff_check)), "\n")
+
+# Add per-case metrics at draw level (DALY)
+by_location_daly_draw[, daly_per_case_2010 := fifelse(prev_2010 > 0, daly_2010 / prev_2010, NA_real_)]
+by_location_daly_draw[, daly_per_case_2019 := fifelse(prev_2019 > 0, daly_2019 / prev_2019, NA_real_)]
+by_location_daly_draw[, change_daly_per_case := daly_per_case_2019 - daly_per_case_2010]
+by_location_daly_draw[, change_daly_averted_per_case := daly_per_case_2010 - daly_per_case_2019]
 
 # STAGE B: Summarize ACROSS draws
 by_state_daly <- by_location_daly_draw[, .(
@@ -510,7 +537,24 @@ by_state_daly <- by_location_daly_draw[, .(
   
   daly_2019 = mean(daly_2019, na.rm = TRUE),
   daly_2019_lower = quantile(daly_2019, 0.025, na.rm = TRUE),
-  daly_2019_upper = quantile(daly_2019, 0.975, na.rm = TRUE)
+  daly_2019_upper = quantile(daly_2019, 0.975, na.rm = TRUE),
+  
+  # DALY per case with UI (grouped together)
+  daly_per_case_2010 = mean(daly_per_case_2010, na.rm = TRUE),
+  daly_per_case_2010_lower = quantile(daly_per_case_2010, 0.025, na.rm = TRUE),
+  daly_per_case_2010_upper = quantile(daly_per_case_2010, 0.975, na.rm = TRUE),
+  
+  daly_per_case_2019 = mean(daly_per_case_2019, na.rm = TRUE),
+  daly_per_case_2019_lower = quantile(daly_per_case_2019, 0.025, na.rm = TRUE),
+  daly_per_case_2019_upper = quantile(daly_per_case_2019, 0.975, na.rm = TRUE),
+  
+  change_daly_per_case = mean(change_daly_per_case, na.rm = TRUE),
+  change_daly_per_case_lower = quantile(change_daly_per_case, 0.025, na.rm = TRUE),
+  change_daly_per_case_upper = quantile(change_daly_per_case, 0.975, na.rm = TRUE),
+  
+  change_daly_averted_per_case = mean(change_daly_averted_per_case, na.rm = TRUE),
+  change_daly_averted_per_case_lower = quantile(change_daly_averted_per_case, 0.025, na.rm = TRUE),
+  change_daly_averted_per_case_upper = quantile(change_daly_averted_per_case, 0.975, na.rm = TRUE)
   
 ), by = .(location_id, location_name)]
 
@@ -556,10 +600,17 @@ cat(sprintf("  4. DALYs per Case:       %15s  [%s - %s]\n",
 
 
 ###############################################################################
-# PART B: SPENDING EFFECTIVENESS TABLE (WITH CROSSED DRAWS)
+# PART B: SPENDING EFFECTIVENESS TABLE (WEAVER METHODOLOGY)
+#
+# Key features of Weaver et al. (2022) approach:
+# 1. Cross all draws: 51 × 51 = 2,601 ratios (for independence)
+# 2. Rank-based ordering: Category 2 < Category 1 ratios < Category 3
+# 3. Exclude Category 4 from ranking
+# 4. Report MEDIAN and IQR (25th-75th percentile), not mean/95% UI
+# 5. IQR bounds can span categories (e.g., "Category 2 – $12,500")
 ###############################################################################
 
-cat("\n\n============ SPENDING EFFECTIVENESS ============\n")
+cat("\n\n============ SPENDING EFFECTIVENESS (WEAVER METHODOLOGY) ============\n")
 
 # ----------------------------------------------------------------------------
 # B.1: Get draw-level intensity effects for crossing
@@ -574,63 +625,139 @@ daly_intensity_by_draw <- by_location_daly_draw[, .(draw, location_id, location_
                                                     daly_averted_effect = -daly_intensity_effect)]
 
 # ----------------------------------------------------------------------------
-# B.2: Compute spending effectiveness with CROSSED DRAWS
+# B.2: Weaver-style functions for spending effectiveness
 # ----------------------------------------------------------------------------
 
-# Function to compute crossed-draw statistics for one location
-compute_crossed_stats <- function(spend_draws, daly_averted_draws) {
-  # Cross all draws: 51 × 51 = 2,601 ratios
-  crossed <- expand.grid(spend = spend_draws, daly_averted = daly_averted_draws)
-  crossed$ratio <- crossed$spend / crossed$daly_averted
+#' Compute spending effectiveness using Weaver methodology
+#' 
+#' @param spend_draws Vector of spending intensity effects (one per draw)
+#' @param daly_averted_draws Vector of DALY averted effects (one per draw)
+#' @return List with median, IQR values/categories, and category distribution
+compute_weaver_stats <- function(spend_draws, daly_averted_draws) {
   
-  # Handle infinite/NA values
-  valid_ratios <- crossed$ratio[is.finite(crossed$ratio)]
+  # Create all crossed combinations (51 × 51 = 2,601)
+  crossed <- expand.grid(
+    spend = spend_draws,
+    daly_averted = daly_averted_draws
+  )
   
-  if (length(valid_ratios) == 0) {
+  # Determine category for each combination
+  crossed$category <- with(crossed, ifelse(
+    spend > 0 & daly_averted > 0, 1L,
+    ifelse(spend < 0 & daly_averted > 0, 2L,
+           ifelse(spend > 0 & daly_averted < 0, 3L,
+                  ifelse(spend < 0 & daly_averted < 0, 4L, NA_integer_)))))
+  
+  # Compute ratio for Category 1 only (meaningful ratio)
+  crossed$ratio <- ifelse(crossed$category == 1L, 
+                          crossed$spend / crossed$daly_averted, 
+                          NA_real_)
+  
+  # Count by category (before excluding Cat 4)
+  n_cat1_all <- sum(crossed$category == 1L, na.rm = TRUE)
+  n_cat2_all <- sum(crossed$category == 2L, na.rm = TRUE)
+  n_cat3_all <- sum(crossed$category == 3L, na.rm = TRUE)
+  n_cat4_all <- sum(crossed$category == 4L, na.rm = TRUE)
+  n_total_all <- nrow(crossed)
+  
+  # Exclude Category 4 (per Weaver methodology)
+  crossed <- crossed[!is.na(crossed$category) & crossed$category != 4L, ]
+  
+  n_total <- nrow(crossed)
+  
+  if (n_total == 0) {
     return(list(
-      median = NA_real_,
-      lower = NA_real_,
-      upper = NA_real_,
-      n_valid = 0
+      median_value = NA_real_, median_category = NA_integer_,
+      q25_value = NA_real_, q25_category = NA_integer_,
+      q75_value = NA_real_, q75_category = NA_integer_,
+      n_cat1 = n_cat1_all, n_cat2 = n_cat2_all, 
+      n_cat3 = n_cat3_all, n_cat4 = n_cat4_all,
+      n_total = n_total_all,
+      pct_cat1 = 100 * n_cat1_all / n_total_all,
+      pct_cat2 = 100 * n_cat2_all / n_total_all,
+      pct_cat3 = 100 * n_cat3_all / n_total_all,
+      pct_cat4 = 100 * n_cat4_all / n_total_all
     ))
   }
   
+  # Create rank value for ordering (Weaver methodology):
+  # - Category 2 (Cost-saving): -Inf (most favorable, ranked first)
+  # - Category 1 (+Spend, +Health): ratio value (lower $/DALY = more favorable)
+  # - Category 3 (Dominated): +Inf (least favorable, ranked last)
+  crossed$rank_value <- with(crossed, ifelse(
+    category == 2L, -Inf,
+    ifelse(category == 1L, ratio, Inf)))
+  
+  # Sort by rank value (most favorable first)
+  crossed <- crossed[order(crossed$rank_value), ]
+  
+  # Find percentile positions
+  # Note: Using ceiling to match Weaver's approach
+  median_idx <- ceiling(n_total * 0.50)
+  q25_idx <- ceiling(n_total * 0.25)
+  q75_idx <- ceiling(n_total * 0.75)
+  
+  median_row <- crossed[median_idx, ]
+  q25_row <- crossed[q25_idx, ]
+  q75_row <- crossed[q75_idx, ]
+  
   list(
-    median = median(valid_ratios, na.rm = TRUE),
-    lower = quantile(valid_ratios, 0.025, na.rm = TRUE),
-    upper = quantile(valid_ratios, 0.975, na.rm = TRUE),
-    n_valid = length(valid_ratios)
+    median_value = if (median_row$category == 1L) median_row$ratio else NA_real_,
+    median_category = median_row$category,
+    q25_value = if (q25_row$category == 1L) q25_row$ratio else NA_real_,
+    q25_category = q25_row$category,
+    q75_value = if (q75_row$category == 1L) q75_row$ratio else NA_real_,
+    q75_category = q75_row$category,
+    n_cat1 = n_cat1_all,
+    n_cat2 = n_cat2_all,
+    n_cat3 = n_cat3_all,
+    n_cat4 = n_cat4_all,
+    n_total = n_total_all,
+    pct_cat1 = 100 * n_cat1_all / n_total_all,
+    pct_cat2 = 100 * n_cat2_all / n_total_all,
+    pct_cat3 = 100 * n_cat3_all / n_total_all,
+    pct_cat4 = 100 * n_cat4_all / n_total_all
   )
 }
 
-# Function to compute category percentages from matched draws
-compute_category_pcts <- function(spend_draws, daly_averted_draws) {
-  n_draws <- length(spend_draws)
-  
-  # Determine category for each matched draw
-  categories <- rep(NA_integer_, n_draws)
-  for (i in seq_len(n_draws)) {
-    s <- spend_draws[i]
-    d <- daly_averted_draws[i]
-    if (s > 0 && d > 0) categories[i] <- 1L
-    else if (s < 0 && d > 0) categories[i] <- 2L
-    else if (s > 0 && d < 0) categories[i] <- 3L
-    else if (s < 0 && d < 0) categories[i] <- 4L
+#' Format a single value/category for Weaver-style output
+#' @param val Ratio value (NA if not Category 1)
+#' @param cat Category (1, 2, or 3)
+#' @return Formatted string
+format_weaver_value <- function(val, cat) {
+  if (is.na(cat)) {
+    return("N/A")
+  } else if (cat == 1L && !is.na(val)) {
+    return(paste0("$", format(round(val), big.mark = ",")))
+  } else if (cat == 2L) {
+    return("Category 2")
+  } else if (cat == 3L) {
+    return("Category 3")
+  } else {
+    return("N/A")
   }
-  
-  # Count percentages
-  pct_1 <- 100 * sum(categories == 1L, na.rm = TRUE) / n_draws
-  pct_2 <- 100 * sum(categories == 2L, na.rm = TRUE) / n_draws
-  pct_3 <- 100 * sum(categories == 3L, na.rm = TRUE) / n_draws
-  pct_4 <- 100 * sum(categories == 4L, na.rm = TRUE) / n_draws
-  
-  list(pct_1 = pct_1, pct_2 = pct_2, pct_3 = pct_3, pct_4 = pct_4)
 }
+
+#' Format Weaver-style interpretation string
+#' Like: "$6,270 ($5,608 - $7,142)" or "Category 2 (Category 2 - Category 2)"
+#' @return Formatted string
+format_weaver_interpretation <- function(median_val, median_cat, q25_val, q25_cat, q75_val, q75_cat) {
+  median_str <- format_weaver_value(median_val, median_cat)
+  q25_str <- format_weaver_value(q25_val, q25_cat)
+  q75_str <- format_weaver_value(q75_val, q75_cat)
+  
+  paste0(median_str, " (", q25_str, " - ", q75_str, ")")
+}
+
+# ----------------------------------------------------------------------------
+# B.3: Compute spending effectiveness for each location
+# ----------------------------------------------------------------------------
 
 # Get unique locations
 locations <- unique(spend_intensity_by_draw$location_id)
 
-cat("Computing spending effectiveness for", length(locations), "locations using crossed draws...\n")
+cat("Computing spending effectiveness for", length(locations), 
+    "locations using Weaver methodology (crossed draws, rank-ordering, IQR)...\n")
 
 # Compute for each location
 spend_eff_results <- lapply(locations, function(loc_id) {
@@ -640,46 +767,69 @@ spend_eff_results <- lapply(locations, function(loc_id) {
   spend_draws <- spend_intensity_by_draw[location_id == loc_id, spend_intensity_effect]
   daly_averted_draws <- daly_intensity_by_draw[location_id == loc_id, daly_averted_effect]
   
-  # Crossed-draw statistics for ratio
-  ratio_stats <- compute_crossed_stats(spend_draws, daly_averted_draws)
+  # Weaver-style stats
   
-  # Category percentages from matched draws
-  cat_pcts <- compute_category_pcts(spend_draws, daly_averted_draws)
+  ws <- compute_weaver_stats(spend_draws, daly_averted_draws)
   
-  # Mean effects (for point estimate category)
+  # Mean effects (for point estimate reporting)
   mean_spend_intensity <- mean(spend_draws, na.rm = TRUE)
   mean_daly_averted <- mean(daly_averted_draws, na.rm = TRUE)
   
-  # Determine point estimate category
+  # Determine point estimate category (based on sign of means)
   category <- NA_integer_
   if (mean_spend_intensity > 0 && mean_daly_averted > 0) category <- 1L
   else if (mean_spend_intensity < 0 && mean_daly_averted > 0) category <- 2L
   else if (mean_spend_intensity > 0 && mean_daly_averted < 0) category <- 3L
   else if (mean_spend_intensity < 0 && mean_daly_averted < 0) category <- 4L
   
+  # Format Weaver-style interpretation
+  interpretation <- format_weaver_interpretation(
+    ws$median_value, ws$median_category,
+    ws$q25_value, ws$q25_category,
+    ws$q75_value, ws$q75_category
+  )
+  
   data.table(
     location_id = loc_id,
     location_name = loc_name,
+    
+    # Mean effects
     spend_intensity_effect = mean_spend_intensity,
     daly_averted_effect = mean_daly_averted,
-    spend_effectiveness_median = ratio_stats$median,
-    spend_effectiveness_lower = ratio_stats$lower,
-    spend_effectiveness_upper = ratio_stats$upper,
-    n_valid_ratios = ratio_stats$n_valid,
+    
+    # Weaver-style spending effectiveness (median and IQR)
+    spend_effectiveness_median = ws$median_value,
+    spend_effectiveness_median_category = ws$median_category,
+    spend_effectiveness_q25 = ws$q25_value,
+    spend_effectiveness_q25_category = ws$q25_category,
+    spend_effectiveness_q75 = ws$q75_value,
+    spend_effectiveness_q75_category = ws$q75_category,
+    
+    # Category distribution (from crossed draws)
+    n_cat1 = ws$n_cat1,
+    n_cat2 = ws$n_cat2,
+    n_cat3 = ws$n_cat3,
+    n_cat4 = ws$n_cat4,
+    n_total = ws$n_total,
+    pct_cat1 = ws$pct_cat1,
+    pct_cat2 = ws$pct_cat2,
+    pct_cat3 = ws$pct_cat3,
+    pct_cat4 = ws$pct_cat4,
+    
+    # Point estimate category (based on mean)
     category = category,
-    category_pct_1 = cat_pcts$pct_1,
-    category_pct_2 = cat_pcts$pct_2,
-    category_pct_3 = cat_pcts$pct_3,
-    category_pct_4 = cat_pcts$pct_4
+    
+    # Weaver-style interpretation string
+    interpretation = interpretation
   )
 })
 
 spend_eff_table <- rbindlist(spend_eff_results)
 
-cat("Crossed-draw computation complete.\n")
+cat("Weaver-style computation complete.\n")
 
 # ----------------------------------------------------------------------------
-# B.3: Add category labels and uncertainty indicators
+# B.4: Add category labels and stability indicators
 # ----------------------------------------------------------------------------
 
 spend_eff_table[, category_label := fcase(
@@ -690,104 +840,137 @@ spend_eff_table[, category_label := fcase(
   default = "N/A"
 )]
 
-# Is category stable (all draws in same category)?
-spend_eff_table[, category_stable := fcase(
-  category_pct_1 == 100, TRUE,
-  category_pct_2 == 100, TRUE,
-  category_pct_3 == 100, TRUE,
-  category_pct_4 == 100, TRUE,
-  default = FALSE
+# Category stability based on IQR (q25 to q75)
+# Stable if both q25 and q75 are in the same category as median
+spend_eff_table[, category_stable := (
+  spend_effectiveness_median_category == spend_effectiveness_q25_category &
+    spend_effectiveness_median_category == spend_effectiveness_q75_category
 )]
 
-# Create uncertainty text
+# Create uncertainty text showing IQR category span
+spend_eff_table[, iqr_category_span := paste0(
+  "q25: Cat ", spend_effectiveness_q25_category,
+  ", median: Cat ", spend_effectiveness_median_category,
+  ", q75: Cat ", spend_effectiveness_q75_category
+)]
+
+# Create compact category uncertainty text (percentage-based, from crossed draws)
 spend_eff_table[, category_uncertainty := fifelse(
   category_stable,
   NA_character_,
   paste0(
-    fifelse(category_pct_1 > 0, paste0(round(category_pct_1), "% Cat 1"), ""),
-    fifelse(category_pct_1 > 0 & (category_pct_2 > 0 | category_pct_3 > 0 | category_pct_4 > 0), ", ", ""),
-    fifelse(category_pct_2 > 0, paste0(round(category_pct_2), "% Cat 2"), ""),
-    fifelse(category_pct_2 > 0 & (category_pct_3 > 0 | category_pct_4 > 0), ", ", ""),
-    fifelse(category_pct_3 > 0, paste0(round(category_pct_3), "% Cat 3"), ""),
-    fifelse(category_pct_3 > 0 & category_pct_4 > 0, ", ", ""),
-    fifelse(category_pct_4 > 0, paste0(round(category_pct_4), "% Cat 4"), "")
+    fifelse(pct_cat1 > 0, paste0(round(pct_cat1), "% Cat 1"), ""),
+    fifelse(pct_cat1 > 0 & (pct_cat2 > 0 | pct_cat3 > 0 | pct_cat4 > 0), ", ", ""),
+    fifelse(pct_cat2 > 0, paste0(round(pct_cat2), "% Cat 2"), ""),
+    fifelse(pct_cat2 > 0 & (pct_cat3 > 0 | pct_cat4 > 0), ", ", ""),
+    fifelse(pct_cat3 > 0, paste0(round(pct_cat3), "% Cat 3"), ""),
+    fifelse(pct_cat3 > 0 & pct_cat4 > 0, ", ", ""),
+    fifelse(pct_cat4 > 0, paste0(round(pct_cat4), "% Cat 4"), "")
   )
 )]
 
-# Interpretation column
-spend_eff_table[, interpretation := fcase(
-  category == 1L, paste0("$", format(round(spend_effectiveness_median), big.mark = ","), " per DALY averted"),
-  category == 2L, "Cost-saving (less spending, better health)",
-  category == 3L, "Dominated (more spending, worse health)",
-  category == 4L, "Excluded from ratio calculation",
-  default = "N/A"
-)]
-
 # ----------------------------------------------------------------------------
-# B.4: Merge with other data for final table
+# B.5: Merge with other data for final table
 # ----------------------------------------------------------------------------
 
-# Get additional columns from by_state and by_state_daly
+# Get additional columns from by_state
 final_spend_eff <- merge(
   spend_eff_table,
   by_state[, .(location_id, location_name, 
+               # Spending totals with UI
                spend_2010, spend_2010_lower, spend_2010_upper,
                spend_2019, spend_2019_lower, spend_2019_upper,
                delta_spend, delta_spend_lower, delta_spend_upper,
-               spend_intensity_effect_lower, spend_intensity_effect_upper,
-               prev_2010, prev_2019)],
+               # Prevalence (point estimate only)
+               prev_2010, prev_2019,
+               # Spend per case with UI
+               spend_per_case_2010, spend_per_case_2010_lower, spend_per_case_2010_upper,
+               spend_per_case_2019, spend_per_case_2019_lower, spend_per_case_2019_upper,
+               change_spend_per_case, change_spend_per_case_lower, change_spend_per_case_upper,
+               # Spend intensity effect UI
+               spend_intensity_effect_lower, spend_intensity_effect_upper)],
   by = c("location_id", "location_name")
 )
 
+# Get DALY columns from by_state_daly
 final_spend_eff <- merge(
   final_spend_eff,
   by_state_daly[, .(location_id, location_name,
+                    # DALY totals with UI
                     daly_2010, daly_2010_lower, daly_2010_upper,
                     daly_2019, daly_2019_lower, daly_2019_upper,
                     delta_daly, delta_daly_lower, delta_daly_upper,
+                    # DALY per case with UI
+                    daly_per_case_2010, daly_per_case_2010_lower, daly_per_case_2010_upper,
+                    daly_per_case_2019, daly_per_case_2019_lower, daly_per_case_2019_upper,
+                    change_daly_per_case, change_daly_per_case_lower, change_daly_per_case_upper,
+                    change_daly_averted_per_case, change_daly_averted_per_case_lower, change_daly_averted_per_case_upper,
+                    # DALY intensity effect UI
                     daly_intensity_effect, daly_intensity_effect_lower, daly_intensity_effect_upper)],
   by = c("location_id", "location_name")
 )
 
-# Compute daly_averted effect UI
+# Compute daly_averted effect UI (flip signs)
 final_spend_eff[, daly_averted_effect_lower := -daly_intensity_effect_upper]
 final_spend_eff[, daly_averted_effect_upper := -daly_intensity_effect_lower]
 
-# Compute per-case metrics
-final_spend_eff[, spend_per_case_2010 := spend_2010 / prev_2010]
-final_spend_eff[, spend_per_case_2019 := spend_2019 / prev_2019]
-final_spend_eff[, daly_per_case_2010 := daly_2010 / prev_2010]
-final_spend_eff[, daly_per_case_2019 := daly_2019 / prev_2019]
-final_spend_eff[, change_spend_per_case := spend_per_case_2019 - spend_per_case_2010]
-final_spend_eff[, change_daly_averted_per_case := daly_per_case_2010 - daly_per_case_2019]
-
-# Simple spending effectiveness (for comparison)
+# Simple spending effectiveness (for comparison) - ratio of means
 final_spend_eff[, spend_effectiveness_simple := fifelse(
   change_daly_averted_per_case != 0,
   change_spend_per_case / change_daly_averted_per_case,
   NA_real_
 )]
 
-# Reorder columns for clarity
+# Reorder columns for clarity (grouping related columns together, UI after point estimates)
 setcolorder(final_spend_eff, c(
+  # Identifiers
   "location_id", "location_name",
+  
+  # Spending totals
   "spend_2010", "spend_2010_lower", "spend_2010_upper",
   "spend_2019", "spend_2019_lower", "spend_2019_upper",
   "delta_spend", "delta_spend_lower", "delta_spend_upper",
+  
+  # DALY totals
   "daly_2010", "daly_2010_lower", "daly_2010_upper",
   "daly_2019", "daly_2019_lower", "daly_2019_upper",
   "delta_daly", "delta_daly_lower", "delta_daly_upper",
+  
+  # Prevalence
   "prev_2010", "prev_2019",
-  "spend_per_case_2010", "spend_per_case_2019", "change_spend_per_case",
-  "daly_per_case_2010", "daly_per_case_2019", "change_daly_averted_per_case",
+  
+  # Per-case metrics (spending)
+  "spend_per_case_2010", "spend_per_case_2010_lower", "spend_per_case_2010_upper",
+  "spend_per_case_2019", "spend_per_case_2019_lower", "spend_per_case_2019_upper",
+  "change_spend_per_case", "change_spend_per_case_lower", "change_spend_per_case_upper",
+  
+  # Per-case metrics (DALY)
+  "daly_per_case_2010", "daly_per_case_2010_lower", "daly_per_case_2010_upper",
+  "daly_per_case_2019", "daly_per_case_2019_lower", "daly_per_case_2019_upper",
+  "change_daly_per_case", "change_daly_per_case_lower", "change_daly_per_case_upper",
+  "change_daly_averted_per_case", "change_daly_averted_per_case_lower", "change_daly_averted_per_case_upper",
+  
+  # Decomposition intensity effects
   "spend_intensity_effect", "spend_intensity_effect_lower", "spend_intensity_effect_upper",
   "daly_averted_effect", "daly_averted_effect_lower", "daly_averted_effect_upper",
+  
+  # Spending effectiveness (simple ratio)
   "spend_effectiveness_simple",
-  "spend_effectiveness_median", "spend_effectiveness_lower", "spend_effectiveness_upper",
-  "n_valid_ratios",
+  
+  # Spending effectiveness (Weaver methodology)
+  "spend_effectiveness_median", "spend_effectiveness_median_category",
+  "spend_effectiveness_q25", "spend_effectiveness_q25_category",
+  "spend_effectiveness_q75", "spend_effectiveness_q75_category",
+  
+  # Category distribution (from crossed draws)
+  "n_cat1", "n_cat2", "n_cat3", "n_cat4", "n_total",
+  "pct_cat1", "pct_cat2", "pct_cat3", "pct_cat4",
+  
+  # Category assignment and stability
   "category", "category_label",
-  "category_pct_1", "category_pct_2", "category_pct_3", "category_pct_4",
-  "category_stable", "category_uncertainty",
+  "category_stable", "iqr_category_span", "category_uncertainty",
+  
+  # Weaver-style interpretation
   "interpretation"
 ))
 
@@ -797,12 +980,12 @@ final_spend_eff <- final_spend_eff[order(sort_order, location_name)]
 final_spend_eff[, sort_order := NULL]
 
 # ----------------------------------------------------------------------------
-# B.5: Print summary
+# B.6: Print summary
 # ----------------------------------------------------------------------------
 
 national_se <- final_spend_eff[location_name == "United States"]
 
-cat("\n=========== SPENDING EFFECTIVENESS SUMMARY ===========\n\n")
+cat("\n=========== SPENDING EFFECTIVENESS SUMMARY (WEAVER METHODOLOGY) ===========\n\n")
 
 cat("NATIONAL (United States):\n")
 cat(sprintf("  Spend Intensity Effect:        $%s  (95%% UI: $%s - $%s)\n", 
@@ -813,49 +996,46 @@ cat(sprintf("  DALY Averted Effect:           %s DALYs  (95%% UI: %s - %s)\n",
             format(round(national_se$daly_averted_effect), big.mark = ","),
             format(round(national_se$daly_averted_effect_lower), big.mark = ","),
             format(round(national_se$daly_averted_effect_upper), big.mark = ",")))
-cat(sprintf("  Spending Effectiveness:        $%s per DALY averted  (95%% UI: $%s - $%s)\n",
-            format(round(national_se$spend_effectiveness_median), big.mark = ","),
-            format(round(national_se$spend_effectiveness_lower), big.mark = ","),
-            format(round(national_se$spend_effectiveness_upper), big.mark = ",")))
-cat(sprintf("  Category:                      %s\n", national_se$category_label))
-cat(sprintf("  Category Stable:               %s\n", national_se$category_stable))
+cat(sprintf("  Spending Effectiveness:        %s\n", national_se$interpretation))
+cat(sprintf("  Category (point estimate):     %s\n", national_se$category_label))
+cat(sprintf("  Category Stable (IQR):         %s\n", national_se$category_stable))
+cat(sprintf("  IQR Category Span:             %s\n", national_se$iqr_category_span))
 if (!national_se$category_stable) {
   cat(sprintf("  Category Uncertainty:          %s\n", national_se$category_uncertainty))
 }
 
-cat("\nSTATE-LEVEL CATEGORY DISTRIBUTION:\n")
+cat("\nSTATE-LEVEL CATEGORY DISTRIBUTION (point estimates):\n")
 print(table(final_spend_eff[location_name != "United States", category_label]))
 
-cat("\nSTATES WITH CATEGORY UNCERTAINTY (category_stable = FALSE):\n")
+cat("\nSTATES WITH UNSTABLE CATEGORY (IQR spans multiple categories):\n")
 uncertain_states <- final_spend_eff[category_stable == FALSE & location_name != "United States", 
-                                    .(location_name, category_label, category_uncertainty)]
+                                    .(location_name, category_label, interpretation, iqr_category_span)]
 if (nrow(uncertain_states) > 0) {
   print(uncertain_states)
 } else {
-  cat("None - all states have stable category assignments.\n")
+  cat("None - all states have stable category assignments within IQR.\n")
 }
 
-cat("\nTOP 10 STATES BY SPENDING EFFECTIVENESS (Category 1 only):\n")
-cat1_states <- final_spend_eff[category == 1 & location_name != "United States"][
+cat("\nTOP 10 STATES BY SPENDING EFFECTIVENESS (Category 1, median ratio):\n")
+cat1_states <- final_spend_eff[category == 1 & location_name != "United States" & !is.na(spend_effectiveness_median)][
   order(spend_effectiveness_median)][1:min(10, .N)]
 if (nrow(cat1_states) > 0) {
-  print(cat1_states[, .(location_name, spend_effectiveness_median, 
-                        spend_effectiveness_lower, spend_effectiveness_upper, interpretation)])
+  print(cat1_states[, .(location_name, interpretation, category_stable)])
 } else {
-  cat("No Category 1 states.\n")
+  cat("No Category 1 states with valid ratios.\n")
 }
 
 # ----------------------------------------------------------------------------
-# B.6: Save results
+# B.7: Save results
 # ----------------------------------------------------------------------------
 
 write.csv(final_spend_eff, file.path(dir_output, "T3_HIV_spending_effectiveness.csv"), row.names = FALSE)
 write.csv(by_state_daly, file.path(dir_output, "T8_HIV_decomp_daly.csv"), row.names = FALSE)
 
 cat(sprintf("\n=========== FILES SAVED TO: %s ===========\n", dir_output))
-cat("  - T3_HIV_spending_effectiveness.csv (national + all states with UI)\n")
-cat("  - T6_HIV_decomp_by_state.csv (spending decomposition with UI)\n")
-cat("  - T8_HIV_decomp_daly.csv (DALY decomposition with UI)\n")
+cat("  - T3_HIV_spending_effectiveness.csv (Weaver methodology: median, IQR, category stability)\n")
+cat("  - T6_HIV_decomp_by_state.csv (spending decomposition with 95% UI)\n")
+cat("  - T8_HIV_decomp_daly.csv (DALY decomposition with 95% UI)\n")
 
 
 ###############################################################################

@@ -14,7 +14,7 @@
 ## Clear environment and set library paths
 ##----------------------------------------------------------------
 rm(list = ls())
-pacman::p_load(data.table, arrow, tidyverse, glue, dplyr)
+pacman::p_load(data.table, arrow, tidyverse, glue, dplyr,conflicted,readxl)
 conflicts_prefer(dplyr::filter)
 conflicts_prefer(dplyr::summarize)
 
@@ -273,6 +273,7 @@ df_m_collapse <- df_m_collapse %>%
     yld_prev_ratio = (yld_counts / prevalence_counts)
   )
 
+
 ##----------------------------------------------------------------
 ## 4. Apply age-standardization
 ##----------------------------------------------------------------
@@ -327,6 +328,44 @@ df_as$incidence_rates <- df_as$incidence_counts / df_as$population
 df_as$yll_rates <- df_as$yll_counts / df_as$population
 df_as$yld_rates <- df_as$yld_counts / df_as$population
 
+
+##----------------------------------------------------------------
+## 5.1 Create treated prevalence & spending per treated case (Opioid use disorders only)
+##----------------------------------------------------------------
+df_as <- df_as %>%
+  mutate(
+    census_region = case_when(
+      location_name %in% c("Connecticut","Maine","Massachusetts","New Hampshire",
+                           "Rhode Island","Vermont","New Jersey","New York",
+                           "Pennsylvania") ~ "Northeast",
+      location_name %in% c("Illinois","Indiana","Iowa","Kansas","Michigan",
+                           "Minnesota","Missouri","Nebraska","North Dakota",
+                           "Ohio","South Dakota","Wisconsin") ~ "Midwest",
+      location_name %in% c("Alabama","Arkansas","Delaware","District of Columbia",
+                           "Florida","Georgia","Kentucky","Louisiana","Maryland",
+                           "Mississippi","North Carolina","Oklahoma",
+                           "South Carolina","Tennessee","Texas","Virginia",
+                           "West Virginia") ~ "South",
+      location_name %in% c("Alaska","Arizona","California","Colorado","Hawaii",
+                           "Idaho","Montana","Nevada","New Mexico","Oregon",
+                           "Utah","Washington","Wyoming") ~ "West"
+    ),
+    treat_rate = case_when(
+      cause_name != "Opioid use disorders" ~ NA_real_,
+      census_region == "Midwest"   ~ 0.530,
+      census_region == "Northeast" ~ 0.630,
+      census_region == "South"     ~ 0.556,
+      census_region == "West"      ~ 0.501
+    ),
+    treated_prev_counts = if_else(cause_name == "Opioid use disorders",
+                                  prevalence_counts * treat_rate,
+                                  NA_real_),
+    spend_tx_prev_ratio = if_else(cause_name == "Opioid use disorders",
+                                  spend_all / treated_prev_counts,
+                                  NA_real_)
+  )
+
+
 ##----------------------------------------------------------------
 ## 6. Add variance column from mortality and deaths data
 ## Variance column needed for SFMA package 
@@ -335,6 +374,8 @@ df_as$variance <- (df_as$mortality_counts / (df_as$prevalence_counts^2))
 
 # Write out age-standardized data to today's dated folder in C_frontier_analysis
 write.csv(x = df_as, row.names = FALSE, file = file.path(dir_output, "df_as.csv"))
+
+
 
 ##----------------------------------------------------------------
 ## 7. Collapse on year_id for df_as_no_year data (used in D_tables.R)

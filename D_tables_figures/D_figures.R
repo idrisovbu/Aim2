@@ -200,7 +200,7 @@ payer_colors_maps <- list("priv" =	c("#f1f1f1", "#f5dbbc", "#f4c788", "#efb353",
 #colors for type of care
 toc_colors <- c(
   "ED" = "#B6AB98",
-  "AM" = "#ACDABA",
+  "AM" = "#6BAF92",
   "HH" = "#D68093",
   "IP" = "#2D5963",
   "NF" = "#BCD1DA",
@@ -2801,3 +2801,460 @@ ggsave(
 message("Plot saved as: ", normalizePath(file.path(dir_output, "F1b_OUD_spending_per_case_and_prevalence_2panel.png")))
 
 ### END CHECK PANEL 
+
+
+
+
+# --- OUD: Combined Payer + TOC figure v3 with original colors ---
+
+# --- Data prep ---
+df_oud_payer <- df_dex %>%
+  filter(geo == "national", acause == "mental_drug_opioids",
+         year_id == 2019, payer != "all") %>%
+  collect() %>%
+  group_by(payer, age_name, sex_name) %>%
+  summarise(spend_mean = sum(spend_mean, na.rm = TRUE), .groups = "drop") %>%
+  mutate(age_name = str_replace_all(age_name, " ", ""))
+
+payer_order <- df_oud_payer %>%
+  group_by(payer) %>% summarise(t = sum(spend_mean)) %>%
+  arrange(desc(t)) %>% pull(payer)
+
+df_oud_payer <- df_oud_payer %>%
+  mutate(payer = factor(payer, levels = payer_order),
+         age_name = factor(age_name, levels = age_factor),
+         sex_name = factor(sex_name, levels = c("Male", "Female")))
+
+df_oud_toc <- df_dex %>%
+  filter(geo == "national", acause == "mental_drug_opioids",
+         year_id == 2019, payer == "all") %>%
+  collect() %>%
+  group_by(toc, age_name, sex_name) %>%
+  summarise(spend_mean = sum(spend_mean, na.rm = TRUE), .groups = "drop") %>%
+  mutate(age_name = str_replace_all(age_name, " ", ""))
+
+toc_order <- df_oud_toc %>%
+  group_by(toc) %>% summarise(t = sum(spend_mean)) %>%
+  arrange(desc(t)) %>% pull(toc)
+
+df_oud_toc <- df_oud_toc %>%
+  mutate(toc = factor(toc, levels = toc_order),
+         age_name = factor(age_name, levels = age_factor),
+         sex_name = factor(sex_name, levels = c("Male", "Female")))
+
+# Sex totals for strip labels
+sex_totals <- df_oud_payer %>%
+  group_by(sex_name) %>%
+  summarise(total = sum(spend_mean, na.rm = TRUE), .groups = "drop") %>%
+  mutate(label = paste0(sex_name, " ($",
+                        format(round(total / 1e9, 1), nsmall = 1), "B)"))
+sex_label_map <- setNames(sex_totals$label, sex_totals$sex_name)
+
+# Global axis limit
+global_max <- max(
+  df_oud_payer %>% group_by(sex_name, age_name) %>%
+    summarise(t = sum(spend_mean), .groups = "drop") %>% pull(t),
+  df_oud_toc %>% group_by(sex_name, age_name) %>%
+    summarise(t = sum(spend_mean), .groups = "drop") %>% pull(t)
+) * 1.05
+
+x_breaks <- seq(0, global_max, by = 250e6)
+
+# Shared theme
+base <- theme_classic() +
+  theme(
+    text = element_text(size = 12),
+    axis.text.x = element_text(size = 10),
+    axis.text.y = element_text(size = 11),
+    strip.text = element_text(size = 13, face = "bold"),
+    strip.background = element_rect(fill = "grey94", color = "grey70"),
+    panel.grid.major.x = element_line(color = "grey80", linewidth = 0.3),
+    panel.spacing.x = unit(0.8, "cm"),
+    legend.position = "bottom",
+    legend.text = element_text(size = 11),
+    legend.title = element_text(size = 12, face = "bold"),
+    legend.key.size = unit(14, "pt"),
+    legend.margin = margin(t = 2, b = 2)
+  )
+
+# --- Payer row ---
+p_payer <- ggplot(df_oud_payer,
+                  aes(x = age_name, y = spend_mean, fill = payer)) +
+  geom_col(color = "black", width = 0.85, linewidth = 0.15) +
+  facet_wrap(~ sex_name, nrow = 1,
+             labeller = labeller(sex_name = sex_label_map)) +
+  coord_flip(ylim = c(0, global_max)) +
+  scale_fill_manual(values = unlist(payer_colors), labels = unlist(payer_list),
+                    name = "Payer") +
+  scale_y_continuous(labels = axis_dollar_mb, breaks = x_breaks,
+                     expand = expansion(mult = c(0, 0.01))) +
+  labs(x = "", y = "") +
+  base +
+  guides(fill = guide_legend(nrow = 1))
+
+# --- TOC row ---
+p_toc <- ggplot(df_oud_toc,
+                aes(x = age_name, y = spend_mean, fill = toc)) +
+  geom_col(color = "black", width = 0.85, linewidth = 0.15) +
+  facet_wrap(~ sex_name, nrow = 1,
+             labeller = labeller(sex_name = sex_label_map)) +
+  coord_flip(ylim = c(0, global_max)) +
+  scale_fill_manual(values = toc_colors, labels = toc_labels,
+                    name = "Type of Care") +
+  scale_y_continuous(labels = axis_dollar_mb, breaks = x_breaks,
+                     expand = expansion(mult = c(0, 0.01))) +
+  labs(x = "", y = "Inflation Adjusted Spending (2019 USD)") +
+  base +
+  theme(strip.text = element_blank(),
+        strip.background = element_blank()) +
+  guides(fill = guide_legend(nrow = 1))
+
+# --- Combine ---
+f_oud_v3 <- p_payer / p_toc +
+  plot_layout(heights = c(1, 1)) +
+  plot_annotation(
+    title = "OUD spending by age, sex, payer, and type of care, 2019",
+    theme = theme(plot.title = element_text(size = 15, face = "bold"))
+  )
+
+ggsave(file.path(dir_output, "F1_OUD_Health_Affairs_combined_payer_toc_v3.png"),
+       plot = f_oud_v3, width = 14, height = 12, dpi = 500)
+
+
+
+
+
+
+#### BELOW FOR HIV
+
+# --- HIV: Combined Payer + TOC figure (Option 3 with Ryan White) ---
+
+# Payer data + Ryan White
+df_hiv_payer <- df_dex %>%
+  filter(geo == "national", acause == "hiv",
+         year_id == 2019, payer != "all") %>%
+  collect() %>%
+  group_by(payer, age_name, sex_name) %>%
+  summarise(spend_mean = sum(spend_mean, na.rm = TRUE), .groups = "drop") %>%
+  mutate(age_name = str_replace_all(age_name, " ", ""))
+
+# Add Ryan White as a payer
+df_hiv_rw_payer <- build_rw_dex_bins_uniform(df_rw_long, rw_age_split, yr = 2019)
+
+df_hiv_payer <- bind_rows(df_hiv_payer, df_hiv_rw_payer)
+
+payer_order_hiv <- df_hiv_payer %>%
+  group_by(payer) %>% summarise(t = sum(spend_mean)) %>%
+  arrange(desc(t)) %>% pull(payer)
+
+df_hiv_payer <- df_hiv_payer %>%
+  mutate(payer = factor(payer, levels = payer_order_hiv),
+         age_name = factor(age_name, levels = age_factor),
+         sex_name = factor(sex_name, levels = c("Male", "Female")))
+
+# TOC data + Ryan White
+df_hiv_toc <- df_dex %>%
+  filter(geo == "national", acause == "hiv",
+         year_id == 2019, payer == "all") %>%
+  collect() %>%
+  group_by(toc, age_name, sex_name) %>%
+  summarise(spend_mean = sum(spend_mean, na.rm = TRUE), .groups = "drop") %>%
+  mutate(age_name = str_replace_all(age_name, " ", ""))
+
+df_hiv_rw_toc <- build_rw_dex_bins_uniform(df_rw_long, rw_age_split, yr = 2019) %>%
+  rename(toc = payer)
+
+df_hiv_toc <- bind_rows(df_hiv_toc, df_hiv_rw_toc)
+
+toc_order_hiv <- df_hiv_toc %>%
+  group_by(toc) %>% summarise(t = sum(spend_mean)) %>%
+  arrange(desc(t)) %>% pull(toc)
+
+df_hiv_toc <- df_hiv_toc %>%
+  mutate(toc = factor(toc, levels = toc_order_hiv),
+         age_name = factor(age_name, levels = age_factor),
+         sex_name = factor(sex_name, levels = c("Male", "Female")))
+
+# Sex totals for strip labels (payer + RW)
+sex_totals_hiv <- df_hiv_payer %>%
+  group_by(sex_name) %>%
+  summarise(total = sum(spend_mean, na.rm = TRUE), .groups = "drop") %>%
+  mutate(label = paste0(sex_name, " ($",
+                        format(round(total / 1e9, 1), nsmall = 1), "B)"))
+sex_label_map_hiv <- setNames(sex_totals_hiv$label, sex_totals_hiv$sex_name)
+
+# Global axis limit
+global_max_hiv <- max(
+  df_hiv_payer %>% group_by(sex_name, age_name) %>%
+    summarise(t = sum(spend_mean), .groups = "drop") %>% pull(t),
+  df_hiv_toc %>% group_by(sex_name, age_name) %>%
+    summarise(t = sum(spend_mean), .groups = "drop") %>% pull(t)
+) * 1.05
+
+x_breaks_hiv <- seq(0, global_max_hiv, by = 500e6)
+
+# Colors/labels with Ryan White
+toc_colors_rw <- c(toc_colors, "ryan_white" = "#6A51A3")
+toc_labels_rw <- c(toc_labels, "ryan_white" = "Ryan White")
+
+# Shared theme
+base <- theme_classic() +
+  theme(
+    text = element_text(size = 12),
+    axis.text.x = element_text(size = 10),
+    axis.text.y = element_text(size = 11),
+    strip.text = element_text(size = 13, face = "bold"),
+    strip.background = element_rect(fill = "grey94", color = "grey70"),
+    panel.grid.major.x = element_line(color = "grey80", linewidth = 0.3),
+    panel.spacing.x = unit(0.8, "cm"),
+    legend.position = "bottom",
+    legend.text = element_text(size = 11),
+    legend.title = element_text(size = 12, face = "bold"),
+    legend.key.size = unit(14, "pt"),
+    legend.margin = margin(t = 2, b = 2)
+  )
+
+# Payer row
+p_hiv_payer <- ggplot(df_hiv_payer,
+                      aes(x = age_name, y = spend_mean, fill = payer)) +
+  geom_col(color = "black", width = 0.85, linewidth = 0.15) +
+  facet_wrap(~ sex_name, nrow = 1,
+             labeller = labeller(sex_name = sex_label_map_hiv)) +
+  coord_flip(ylim = c(0, global_max_hiv)) +
+  scale_fill_manual(values = unlist(payer_colors), labels = unlist(payer_list),
+                    name = "Payer") +
+  scale_y_continuous(labels = axis_dollar_mb, breaks = x_breaks_hiv,
+                     expand = expansion(mult = c(0, 0.01))) +
+  labs(x = "", y = "") +
+  base +
+  guides(fill = guide_legend(nrow = 1))
+
+# TOC row
+p_hiv_toc <- ggplot(df_hiv_toc,
+                    aes(x = age_name, y = spend_mean, fill = toc)) +
+  geom_col(color = "black", width = 0.85, linewidth = 0.15) +
+  facet_wrap(~ sex_name, nrow = 1,
+             labeller = labeller(sex_name = sex_label_map_hiv)) +
+  coord_flip(ylim = c(0, global_max_hiv)) +
+  scale_fill_manual(values = toc_colors_rw, labels = toc_labels_rw,
+                    name = "Type of Care") +
+  scale_y_continuous(labels = axis_dollar_mb, breaks = x_breaks_hiv,
+                     expand = expansion(mult = c(0, 0.01))) +
+  labs(x = "", y = "Inflation Adjusted Spending (2019 USD)") +
+  base +
+  theme(strip.text = element_blank(),
+        strip.background = element_blank()) +
+  guides(fill = guide_legend(nrow = 1))
+
+# Combine
+f_hiv_combined <- p_hiv_payer / p_hiv_toc +
+  plot_layout(heights = c(1, 1)) +
+  plot_annotation(
+    title = "HIV spending by age, sex, payer, and type of care, 2019",
+    theme = theme(plot.title = element_text(size = 15, face = "bold"))
+  )
+
+ggsave(file.path(dir_output, "F1_HIV_Health_Affairs_combined_payer_toc.png"),
+       plot = f_hiv_combined, width = 14, height = 12, dpi = 500)
+
+
+### OUD CI 
+
+
+
+# --- OUD F1b with confidence intervals from draw-level data ---
+
+# Load draw-level data (same source as decomp script)
+date_decomp <- "20260406"
+fp_decomp <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_decomp, "/df_decomp_draws.parquet")
+df_decomp_draws <- read_parquet(fp_decomp)
+
+# Filter to OUD, national, 2019 only
+df_f1b_oud_draws <- df_decomp_draws %>%
+  filter(acause == "mental_drug_opioids",
+         geo == "national",
+         year_id == 2019) %>%
+  mutate(
+    age_name = str_replace_all(age_name, " ", ""),
+    sex_name = case_when(sex_id == 1 ~ "Male",
+                         sex_id == 2 ~ "Female",
+                         TRUE ~ NA_character_)
+  ) %>%
+  filter(!is.na(sex_name)) %>%
+  group_by(draw, age_name, sex_name) %>%
+  summarise(
+    spend_all = sum(spend_all, na.rm = TRUE),
+    prevalence_counts = sum(prevalence_counts, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    spend_per_case = ifelse(prevalence_counts > 0,
+                            spend_all / prevalence_counts,
+                            NA_real_)
+  )
+
+# Collapse draws to mean + 95% UI
+df_f1b_oud_ci <- df_f1b_oud_draws %>%
+  group_by(age_name, sex_name) %>%
+  summarise(
+    spend_per_case_mean  = mean(spend_per_case, na.rm = TRUE),
+    spend_per_case_lower = quantile(spend_per_case, 0.025, na.rm = TRUE),
+    spend_per_case_upper = quantile(spend_per_case, 0.975, na.rm = TRUE),
+    prevalence_mean      = mean(prevalence_counts, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  filter(!age_name %in% c("0-<1", "1-<5", "5-<10", "10-<15")) %>%
+  mutate(
+    age_name = factor(age_name, levels = age_factor),
+    sex_name = factor(sex_name, levels = c("Male", "Female")),
+    # Flip male for pyramid
+    spc_mean_inv  = ifelse(sex_name == "Male", spend_per_case_mean * -1, spend_per_case_mean),
+    # NOTE: for Male, lower/upper swap because of sign flip
+    spc_lower_inv = ifelse(sex_name == "Male", spend_per_case_upper * -1, spend_per_case_lower),
+    spc_upper_inv = ifelse(sex_name == "Male", spend_per_case_lower * -1, spend_per_case_upper)
+  )
+
+# Prevalence overlay scaling
+max_spend_oud <- max(abs(df_f1b_oud_ci$spc_mean_inv), na.rm = TRUE)
+max_prev_oud  <- max(df_f1b_oud_ci$prevalence_mean, na.rm = TRUE)
+
+df_f1b_oud_ci <- df_f1b_oud_ci %>%
+  mutate(
+    prevalence_scaled = prevalence_mean / max_prev_oud * max_spend_oud,
+    prevalence_scaled_inv = ifelse(sex_name == "Male",
+                                   prevalence_scaled * -1,
+                                   prevalence_scaled)
+  )
+
+# Plot
+f1b_oud_ci <- ggplot(df_f1b_oud_ci, aes(age_name, spc_mean_inv)) +
+  facet_share(~ sex_name, scales = "free", reverse_num = FALSE) +
+  geom_col(aes(fill = sex_name), width = 0.9) +
+  geom_errorbar(
+    aes(ymin = spc_lower_inv, ymax = spc_upper_inv),
+    width = 0.3, linewidth = 0.4, color = "grey30"
+  ) +
+  geom_line(
+    aes(y = prevalence_scaled_inv, group = sex_name),
+    color = "black", linewidth = 0.7
+  ) +
+  geom_point(
+    aes(y = prevalence_scaled_inv),
+    color = "black", size = 2
+  ) +
+  coord_flip() +
+  scale_y_continuous(
+    labels = function(x) scales::dollar(abs(x), accuracy = 100),
+    name = "Spending per prevalent case (2019 USD)",
+    sec.axis = sec_axis(
+      trans = ~ abs(.) / max_spend_oud * max_prev_oud,
+      name = "Prevalent cases",
+      labels = scales::label_number(big.mark = ",")
+    )
+  ) +
+  theme_classic() +
+  labs(
+    x = "",
+    title = "OUD spending per case by sex and age group, All Payers, 2019"
+  ) +
+  theme_settings +
+  theme(
+    legend.position = "none",
+    plot.margin = margin(t = 10, r = 90, b = 0, l = 0)
+  )
+
+save_plot(f1b_oud_ci, "F1b_OUD_spending_per_case_with_CI", dir_output)
+
+
+
+# --- HIV F1b with confidence intervals from draw-level data (no RW) ---
+
+df_f1b_hiv_draws <- df_decomp_draws %>%
+  filter(acause == "hiv",
+         geo == "national",
+         year_id == 2019) %>%
+  mutate(
+    age_name = str_replace_all(age_name, " ", ""),
+    sex_name = case_when(sex_id == 1 ~ "Male",
+                         sex_id == 2 ~ "Female",
+                         TRUE ~ NA_character_)
+  ) %>%
+  filter(!is.na(sex_name)) %>%
+  group_by(draw, age_name, sex_name) %>%
+  summarise(
+    spend_all = sum(spend_all, na.rm = TRUE),
+    prevalence_counts = sum(prevalence_counts, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    spend_per_case = ifelse(prevalence_counts > 0,
+                            spend_all / prevalence_counts,
+                            NA_real_)
+  )
+
+df_f1b_hiv_ci <- df_f1b_hiv_draws %>%
+  group_by(age_name, sex_name) %>%
+  summarise(
+    spend_per_case_mean  = mean(spend_per_case, na.rm = TRUE),
+    spend_per_case_lower = quantile(spend_per_case, 0.025, na.rm = TRUE),
+    spend_per_case_upper = quantile(spend_per_case, 0.975, na.rm = TRUE),
+    prevalence_mean      = mean(prevalence_counts, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  filter(!age_name %in% c("0-<1", "1-<5", "5-<10", "10-<15")) %>%
+  mutate(
+    age_name = factor(age_name, levels = age_factor),
+    sex_name = factor(sex_name, levels = c("Male", "Female")),
+    spc_mean_inv  = ifelse(sex_name == "Male", spend_per_case_mean * -1, spend_per_case_mean),
+    spc_lower_inv = ifelse(sex_name == "Male", spend_per_case_upper * -1, spend_per_case_lower),
+    spc_upper_inv = ifelse(sex_name == "Male", spend_per_case_lower * -1, spend_per_case_upper)
+  )
+
+max_spend_hiv <- max(abs(df_f1b_hiv_ci$spc_mean_inv), na.rm = TRUE)
+max_prev_hiv  <- max(df_f1b_hiv_ci$prevalence_mean, na.rm = TRUE)
+
+df_f1b_hiv_ci <- df_f1b_hiv_ci %>%
+  mutate(
+    prevalence_scaled = prevalence_mean / max_prev_hiv * max_spend_hiv,
+    prevalence_scaled_inv = ifelse(sex_name == "Male",
+                                   prevalence_scaled * -1,
+                                   prevalence_scaled)
+  )
+
+f1b_hiv_ci <- ggplot(df_f1b_hiv_ci, aes(age_name, spc_mean_inv)) +
+  facet_share(~ sex_name, scales = "free", reverse_num = FALSE) +
+  geom_col(aes(fill = sex_name), width = 0.9) +
+  geom_errorbar(
+    aes(ymin = spc_lower_inv, ymax = spc_upper_inv),
+    width = 0.3, linewidth = 0.4, color = "grey30"
+  ) +
+  geom_line(
+    aes(y = prevalence_scaled_inv, group = sex_name),
+    color = "black", linewidth = 0.7
+  ) +
+  geom_point(
+    aes(y = prevalence_scaled_inv),
+    color = "black", size = 2
+  ) +
+  coord_flip() +
+  scale_y_continuous(
+    labels = function(x) scales::dollar(abs(x), accuracy = 100),
+    name = "Spending per prevalent case (2019 USD)",
+    sec.axis = sec_axis(
+      trans = ~ abs(.) / max_spend_hiv * max_prev_hiv,
+      name = "Prevalent cases",
+      labels = scales::label_number(big.mark = ",")
+    )
+  ) +
+  theme_classic() +
+  labs(
+    x = "",
+    title = "HIV spending per case by sex and age group, All Payers (excl. Ryan White), 2019"
+  ) +
+  theme_settings +
+  theme(
+    legend.position = "none",
+    plot.margin = margin(t = 10, r = 90, b = 0, l = 0)
+  )
+
+save_plot(f1b_hiv_ci, "F1b_HIV_spending_per_case_with_CI", dir_output)

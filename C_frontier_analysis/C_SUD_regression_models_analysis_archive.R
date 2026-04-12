@@ -604,7 +604,7 @@ write.csv(variance_decomp,
 
 
 ##================================================================
-## 7.  FIT REGRESSION MODELS  (between_yfe family only)
+## 7.  FIT REGRESSION MODELS
 ##================================================================
 
 list_models    <- list()
@@ -630,10 +630,212 @@ register_model <- function(family, spec, formula, data,
   invisible(fit)
 }
 
+
 # ==============================================================
-# PRIMARY MODELS (mort then daly)
+# A)  BETWEEN_TRUE FAMILY  (Joe's Option A -- ~51 observations)
+#
+#     TRUE between estimator: collapse to state means for BOTH
+#     Y and X, run cross-sectional OLS.  No time dimension.
+#
+#     On collapsed data, "race_prop_BLCK" IS the state mean,
+#     so we use the raw name.
+#
+#     PRIMARY includes unemployment_rate (strongest confounder
+#     in state-level screen: r_out=0.44).
 # ==============================================================
 
+# A1. PRIMARY — includes homelessness + unemployment (main model).
+register_model(
+  family   = "between_true",
+  spec     = "primary",
+  formula  = "as_mort_prev_ratio_log ~
+                as_spend_prev_ratio_log +
+                unemployment_rate +
+                race_prop_BLCK +
+                race_prop_HISP +
+                log_prop_homeless_B +
+                log_incidence_rates_B",
+  data     = df_between,
+  is_final = TRUE
+)
+
+# A1a. PRIMARY — with spend_tx_prev_ratio as predcitor
+register_model(
+  family   = "between_true",
+  spec     = "primary_tx_prev",
+  formula  = "as_mort_prev_ratio_log ~
+                spend_tx_prev_ratio_log +
+                unemployment_rate +
+                race_prop_BLCK +
+                race_prop_HISP +
+                log_prop_homeless_B +
+                log_incidence_rates_B",
+  data     = df_between,
+  is_final = TRUE
+)
+
+
+
+# A2. SECONDARY — without homelessness (tests homeless sensitivity).
+register_model(
+  family   = "between_true",
+  spec     = "secondary_nohomeless",
+  formula  = "as_mort_prev_ratio_log ~
+                as_spend_prev_ratio_log +
+                unemployment_rate +
+                race_prop_BLCK +
+                log_incidence_rates_B +
+                race_prop_HISP",
+  data     = df_between,
+  is_final = TRUE
+)
+
+# A3. WITHOUT UNEMPLOYMENT — shows effect of omitting key confounder.
+#     Demonstrates how much unemployment explains the positive coeff.
+register_model(
+  family   = "between_true",
+  spec     = "no_unemployment",
+  formula  = "as_mort_prev_ratio_log ~
+                as_spend_prev_ratio_log +
+                race_prop_BLCK +
+                log_incidence_rates_B +
+                race_prop_HISP +
+                log_prop_homeless_B",
+  data     = df_between,
+  is_final = TRUE
+)
+
+# A4. PRIMARY DALY — DALY outcome, primary covariates.
+register_model(
+  family   = "between_true",
+  spec     = "primary_daly",
+  formula  = "as_daly_prev_ratio_log ~
+                as_spend_prev_ratio_log +
+                unemployment_rate +
+                race_prop_BLCK +
+                log_incidence_rates_B +
+                race_prop_HISP +
+                log_prop_homeless_B",
+  data     = df_between,
+  is_final = TRUE
+)
+
+
+# A4a. PRIMARY DALY — DALY outcome, primary covariates.
+register_model(
+  family   = "between_true",
+  spec     = "primary_daly_tx_prev",
+  formula  = "as_daly_prev_ratio_log ~
+                spend_tx_prev_ratio_log +
+                unemployment_rate +
+                race_prop_BLCK +
+                log_incidence_rates_B +
+                race_prop_HISP +
+                log_prop_homeless_B",
+  data     = df_between,
+  is_final = TRUE
+)
+
+# A5. INTERACTION — spending x high_sud_prev_B (binary, safe).
+register_model(
+  family   = "between_true",
+  spec     = "interact_highprev",
+  formula  = "as_mort_prev_ratio_log ~
+                as_spend_prev_ratio_log * high_sud_prev_B_f +
+                unemployment_rate +
+                race_prop_BLCK +
+                log_incidence_rates_B +
+                race_prop_HISP +
+                log_prop_homeless_B",
+  data     = df_between,
+  is_final = TRUE
+)
+
+# A6. ROBUSTNESS — add diabetes prevalence.
+register_model(
+  family   = "between_true",
+  spec     = "robustness_diabetes",
+  formula  = "as_mort_prev_ratio_log ~
+                as_spend_prev_ratio_log +
+                unemployment_rate +
+                race_prop_BLCK +
+                log_incidence_rates_B +
+                race_prop_HISP +
+                log_prop_homeless_B +
+                log_prev_diabetes_B",
+  data     = df_between,
+  is_final = FALSE
+)
+
+# A7. ROBUSTNESS — add LDI (income).
+register_model(
+  family   = "between_true",
+  spec     = "robustness_ldi",
+  formula  = "as_mort_prev_ratio_log ~
+                as_spend_prev_ratio_log +
+                unemployment_rate +
+                race_prop_BLCK +
+                log_incidence_rates_B +
+                race_prop_HISP +
+                log_prop_homeless_B +
+                log_ldi_pc_B",
+  data     = df_between,
+  is_final = FALSE
+)
+
+# A8. BIVARIATE — mortality outcome only, no covariates.
+register_model(
+  family   = "between_true",
+  spec     = "bivariate_mort",
+  formula  = "as_mort_prev_ratio_log ~ as_spend_prev_ratio_log",
+  data     = df_between,
+  is_final = FALSE
+)
+
+register_model(
+  family   = "between_true",
+  spec     = "bivariate_mort_tx_prev",
+  formula  = "as_mort_prev_ratio_log ~ spend_tx_prev_ratio_log",
+  data     = df_between,
+  is_final = FALSE
+)
+
+
+
+# A9. BIVARIATE — DALY outcome only, no covariates.
+register_model(
+  family   = "between_true",
+  spec     = "bivariate_daly",
+  formula  = "as_daly_prev_ratio_log ~ as_spend_prev_ratio_log",
+  data     = df_between,
+  is_final = FALSE
+)
+
+
+
+# A9. BIVARIATE — DALY outcome only, no covariates.
+register_model(
+  family   = "between_true",
+  spec     = "bivariate_daly_tx_prev",
+  formula  = "as_daly_prev_ratio_log ~ spend_tx_prev_ratio_log",
+  data     = df_between,
+  is_final = FALSE
+)
+
+# ==============================================================
+# B)  BETWEEN_YFE FAMILY  (Joe's Option B -- full panel + year FE)
+#
+#     Full panel (~510 obs) with year fixed effects (year dummies).
+#     ALL predictors are TIME-VARYING (x_it, not x_bar_i).
+#     Year FE absorb common time trends; cross-sectional variation
+#     in the time-varying x_it identifies the spending coefficient.
+#
+#     Only allowed _B term: high_sud_prev_B_f (time-invariant by
+#     construction -- state-level median split, constant over years).
+# ==============================================================
+
+
+# B1b. PRIMARY — panel model with year FE and ACA.
 register_model(
   family   = "between_yfe",
   spec     = "primary",
@@ -649,101 +851,6 @@ register_model(
 
 register_model(
   family   = "between_yfe",
-  spec     = "primary_daly",
-  formula  = "as_daly_prev_ratio_log ~
-                as_spend_prev_ratio_log + year_factor +
-                unemployment_rate +
-                race_prop_BLCK + log_incidence_rates +
-                race_prop_HISP +
-                log_prop_homeless",
-  data     = df_sud,
-  is_final = TRUE
-)
-
-# ==============================================================
-# BIVARIATE MODELS
-# ==============================================================
-
-register_model(
-  family   = "between_yfe",
-  spec     = "bivariate_mort",
-  formula  = "as_mort_prev_ratio_log ~ as_spend_prev_ratio_log + year_factor",
-  data     = df_sud,
-  is_final = FALSE
-)
-
-register_model(
-  family   = "between_yfe",
-  spec     = "bivariate_daly",
-  formula  = "as_daly_prev_ratio_log ~ as_spend_prev_ratio_log + year_factor",
-  data     = df_sud,
-  is_final = FALSE
-)
-
-register_model(
-  family   = "between_yfe",
-  spec     = "bivariate_mort_tx_prev",
-  formula  = "as_mort_prev_ratio_log ~ spend_tx_prev_ratio_log + year_factor",
-  data     = df_sud,
-  is_final = FALSE
-)
-
-register_model(
-  family   = "between_yfe",
-  spec     = "bivariate_daly_tx_prev",
-  formula  = "as_daly_prev_ratio_log ~ spend_tx_prev_ratio_log + year_factor",
-  data     = df_sud,
-  is_final = FALSE
-)
-
-# ==============================================================
-# TOC MODELS (by type of care)
-# ==============================================================
-
-register_model(
-  family   = "between_yfe",
-  spec     = "primary_by_toc_mort",
-  formula  = "as_mort_prev_ratio_log ~
-                spend_AM_prev_ratio_log +
-                spend_ED_prev_ratio_log +
-                spend_HH_prev_ratio_log +
-                spend_IP_prev_ratio_log +
-                spend_NF_prev_ratio_log +
-                spend_RX_prev_ratio_log +
-                year_factor +
-                unemployment_rate +
-                race_prop_BLCK + log_incidence_rates +
-                race_prop_HISP +
-                log_prop_homeless",
-  data     = df_sud,
-  is_final = TRUE
-)
-
-register_model(
-  family   = "between_yfe",
-  spec     = "primary_by_toc_daly",
-  formula  = "as_daly_prev_ratio_log ~
-                spend_AM_prev_ratio_log +
-                spend_ED_prev_ratio_log +
-                spend_HH_prev_ratio_log +
-                spend_IP_prev_ratio_log +
-                spend_NF_prev_ratio_log +
-                spend_RX_prev_ratio_log +
-                year_factor +
-                unemployment_rate +
-                race_prop_BLCK + log_incidence_rates +
-                race_prop_HISP +
-                log_prop_homeless",
-  data     = df_sud,
-  is_final = TRUE
-)
-
-# ==============================================================
-# TX_PREV MODELS (treatment spending predictor)
-# ==============================================================
-
-register_model(
-  family   = "between_yfe",
   spec     = "primary_tx_prev",
   formula  = "as_mort_prev_ratio_log ~
                 spend_tx_prev_ratio_log + year_factor +
@@ -755,11 +862,40 @@ register_model(
   is_final = TRUE
 )
 
+
+
+# B2. SECONDARY — without homelessness.
 register_model(
   family   = "between_yfe",
-  spec     = "primary_tx_prev_daly",
+  spec     = "secondary_nohomeless",
+  formula  = "as_mort_prev_ratio_log ~
+                as_spend_prev_ratio_log + year_factor +
+                unemployment_rate +
+                race_prop_BLCK + log_incidence_rates +
+                race_prop_HISP",
+  data     = df_sud,
+  is_final = TRUE
+)
+
+# B3. WITHOUT UNEMPLOYMENT — comparator.
+register_model(
+  family   = "between_yfe",
+  spec     = "no_unemployment",
+  formula  = "as_mort_prev_ratio_log ~
+                as_spend_prev_ratio_log + year_factor +
+                race_prop_BLCK + log_incidence_rates +
+                race_prop_HISP +
+                log_prop_homeless",
+  data     = df_sud,
+  is_final = TRUE
+)
+
+# B4. PRIMARY DALY — DALY outcome.
+register_model(
+  family   = "between_yfe",
+  spec     = "primary_daly",
   formula  = "as_daly_prev_ratio_log ~
-                spend_tx_prev_ratio_log + year_factor +
+                as_spend_prev_ratio_log + year_factor +
                 unemployment_rate +
                 race_prop_BLCK + log_incidence_rates +
                 race_prop_HISP +
@@ -768,28 +904,11 @@ register_model(
   is_final = TRUE
 )
 
-# ==============================================================
-# INTERACTION MODEL
-# ==============================================================
-
+# B5. INTERACTION — spending x high_sud_prev_B_f.
 register_model(
   family   = "between_yfe",
   spec     = "interact_highprev",
   formula  = "as_mort_prev_ratio_log ~
-                as_spend_prev_ratio_log * high_sud_prev_B_f +
-                year_factor +
-                unemployment_rate +
-                race_prop_BLCK + log_incidence_rates +
-                race_prop_HISP +
-                log_prop_homeless",
-  data     = df_sud,
-  is_final = TRUE
-)
-
-register_model(
-  family   = "between_yfe",
-  spec     = "interact_highprev_daly",
-  formula  = "as_daly_prev_ratio_log ~
                 as_spend_prev_ratio_log * high_sud_prev_B_f +
                 year_factor +
                 unemployment_rate +
@@ -817,6 +936,279 @@ for (mid in yfe_ids) {
   }
 }
 cat("SAFEGUARD PASSED: no _B terms found in between_yfe formulas.\n")
+
+# B6. BIVARIATE — mortality + year FE only, no covariates.
+register_model(
+  family   = "between_yfe",
+  spec     = "bivariate_mort",
+  formula  = "as_mort_prev_ratio_log ~ as_spend_prev_ratio_log + year_factor",
+  data     = df_sud,
+  is_final = FALSE
+)
+
+# B7. BIVARIATE — DALY + year FE only, no covariates.
+register_model(
+  family   = "between_yfe",
+  spec     = "bivariate_daly",
+  formula  = "as_daly_prev_ratio_log ~ as_spend_prev_ratio_log + year_factor",
+  data     = df_sud,
+  is_final = FALSE
+)
+
+
+# ==============================================================
+# C)  MUNDLAK FAMILY  (within-between CRE)
+#
+#     Decomposes spending into _B (cross-sectional) and _W
+#     (temporal).  The key diagnostic: if _B >> 0 and _W ~ 0,
+#     the positive association is entirely cross-sectional
+#     (needs-based allocation, not causal).
+# ==============================================================
+
+# C1. PRIMARY — matches between primary covariates, with
+#     spending + incidence + homeless decomposed into _B / _W.
+register_model(
+  family   = "mundlak",
+  spec     = "primary",
+  formula  = "as_mort_prev_ratio_log ~
+                as_spend_prev_ratio_log_B + as_spend_prev_ratio_log_W +
+                year_centered +
+                unemployment_rate_B + unemployment_rate_W +
+                race_prop_BLCK_B +
+                log_incidence_rates_B + log_incidence_rates_W +
+                race_prop_HISP_B +
+                log_prop_homeless_B + log_prop_homeless_W",
+  data     = df_sud,
+  is_final = TRUE
+)
+
+# C2. SECONDARY — without homelessness.
+register_model(
+  family   = "mundlak",
+  spec     = "secondary_nohomeless",
+  formula  = "as_mort_prev_ratio_log ~
+                as_spend_prev_ratio_log_B + as_spend_prev_ratio_log_W +
+                year_centered +
+                unemployment_rate_B + unemployment_rate_W +
+                race_prop_BLCK_B +
+                log_incidence_rates_B + log_incidence_rates_W +
+                race_prop_HISP_B",
+  data     = df_sud,
+  is_final = FALSE
+)
+
+# C3. BASELINE — original Mundlak specification with BMI + ACA
+#     (backward compatibility / robustness).
+register_model(
+  family   = "mundlak",
+  spec     = "baseline_bmi_aca",
+  formula  = "as_mort_prev_ratio_log ~
+                as_spend_prev_ratio_log_B + as_spend_prev_ratio_log_W +
+                year_centered +
+                race_prop_BLCK_B +
+                incidence_rates_B + incidence_rates_W +
+                bmi_B + bmi_W +
+                aca_implemented_status_B",
+  data     = df_sud,
+  is_final = FALSE
+)
+
+
+# ==============================================================
+# D)  LAG FAMILY  (temporal precedence)
+#
+#     Tests whether spending at t-1 predicts mortality at t.
+#     Uses primary covariate set (state-mean confounders).
+# ==============================================================
+
+# D1. LAG-1 — spending at t-1.
+register_model(
+  family   = "lag",
+  spec     = "l1",
+  formula  = "as_mort_prev_ratio_log ~
+                as_spend_prev_ratio_log_l1 + year_centered +
+                unemployment_rate_B +
+                race_prop_BLCK_B + log_incidence_rates_B +
+                race_prop_HISP_B +
+                log_prop_homeless_B",
+  data     = df_sud,
+  is_final = FALSE
+)
+
+
+# ==============================================================
+# E)  DOSE-RESPONSE FAMILY  (non-linearity)
+#
+#     Tests whether spending-mortality relationship has
+#     diminishing returns or threshold effects.
+# ==============================================================
+
+# E1. QUADRATIC — tests for curvature.
+register_model(
+  family   = "dose",
+  spec     = "quadratic",
+  formula  = "as_mort_prev_ratio_log ~
+                as_spend_prev_ratio_log + as_spend_prev_ratio_log_sq +
+                year_centered +
+                unemployment_rate_B +
+                race_prop_BLCK_B + log_incidence_rates_B +
+                race_prop_HISP_B +
+                log_prop_homeless_B",
+  data     = df_sud,
+  is_final = FALSE
+)
+
+# E2. THRESHOLD — piecewise linear at 75th percentile.
+register_model(
+  family   = "dose",
+  spec     = "threshold_p75",
+  formula  = "as_mort_prev_ratio_log ~
+                as_spend_prev_ratio_log + over_p75 +
+                year_centered +
+                unemployment_rate_B +
+                race_prop_BLCK_B + log_incidence_rates_B +
+                race_prop_HISP_B +
+                log_prop_homeless_B",
+  data     = df_sud,
+  is_final = FALSE
+)
+
+
+# ==============================================================
+# F)  FIRST-DIFFERENCE FAMILY  (removes ALL time-invariant confounding)
+#
+#     Δy_it = α + β·Δx_it + γ·Δz_it + ε_it
+#
+#     KEY TEST: if β ≈ 0 in FD but β > 0 in between,
+#     the cross-sectional coefficient reflects confounding
+#     (needs-based allocation), not a causal spending effect.
+#     This is the strongest evidence against causal interpretation.
+# ==============================================================
+
+# Prepare filtered datasets (drop NAs from differencing)
+df_fd_basic <- df_sud %>%
+  dplyr::filter(!is.na(d_mort_log) & !is.na(d_spend_log))
+
+df_fd_full <- df_sud %>%
+  dplyr::filter(
+    !is.na(d_mort_log) & !is.na(d_spend_log) &
+      !is.na(d_unemployment) & !is.na(d_log_incidence)
+  )
+
+df_fd_daly <- df_sud %>%
+  dplyr::filter(
+    !is.na(d_daly_log) & !is.na(d_spend_log) & !is.na(d_unemployment)
+  )
+
+# F1. BASIC — spending change only.
+register_model(
+  family   = "first_diff",
+  spec     = "basic",
+  formula  = "d_mort_log ~ d_spend_log",
+  data     = df_fd_basic,
+  is_final = TRUE
+)
+
+# F2. WITH CONFOUNDERS — add Δunemployment, Δincidence.
+register_model(
+  family   = "first_diff",
+  spec     = "with_confounders",
+  formula  = "d_mort_log ~ d_spend_log + d_unemployment + d_log_incidence",
+  data     = df_fd_full,
+  is_final = TRUE
+)
+
+# F3. FULL — all differenced confounders.
+register_model(
+  family   = "first_diff",
+  spec     = "full",
+  formula  = "d_mort_log ~ d_spend_log + d_unemployment + d_log_incidence + d_log_homeless",
+  data     = df_sud %>% dplyr::filter(
+    !is.na(d_mort_log) & !is.na(d_spend_log) &
+      !is.na(d_unemployment) & !is.na(d_log_incidence) & !is.na(d_log_homeless)
+  ),
+  is_final = TRUE
+)
+
+# F4. DALY OUTCOME — first-differenced DALY.
+register_model(
+  family   = "first_diff",
+  spec     = "daly",
+  formula  = "d_daly_log ~ d_spend_log + d_unemployment",
+  data     = df_fd_daly,
+  is_final = FALSE
+)
+
+
+# ==============================================================
+# G)  SUBSAMPLE FAMILY  (pre/post fentanyl era splits)
+#
+#     The fentanyl surge starting ~2015 drove the sharpest
+#     mortality acceleration.  If the positive coefficient is
+#     weaker pre-2015, it supports the interpretation that
+#     reactive spending during the crisis inflated the
+#     spending-mortality correlation.
+# ==============================================================
+
+# G1. PRE-FENTANYL — between estimator, 2010-2014.
+register_model(
+  family   = "subsample",
+  spec     = "pre_fentanyl_between",
+  formula  = "as_mort_prev_ratio_log ~
+                as_spend_prev_ratio_log +
+                unemployment_rate +
+                race_prop_BLCK +
+                log_incidence_rates_B +
+                race_prop_HISP +
+                log_prop_homeless_B",
+  data     = df_between_pre,
+  is_final = TRUE
+)
+
+# G2. POST-FENTANYL — between estimator, 2015-2019.
+register_model(
+  family   = "subsample",
+  spec     = "post_fentanyl_between",
+  formula  = "as_mort_prev_ratio_log ~
+                as_spend_prev_ratio_log +
+                unemployment_rate +
+                race_prop_BLCK +
+                log_incidence_rates_B +
+                race_prop_HISP +
+                log_prop_homeless_B",
+  data     = df_between_post,
+  is_final = TRUE
+)
+
+# G3. PRE-FENTANYL YFE — panel with year FE, 2010-2014.
+register_model(
+  family   = "subsample",
+  spec     = "pre_fentanyl_yfe",
+  formula  = "as_mort_prev_ratio_log ~
+                as_spend_prev_ratio_log + year_factor +
+                unemployment_rate +
+                race_prop_BLCK + log_incidence_rates +
+                race_prop_HISP +
+                log_prop_homeless",
+  data     = df_sud_pre2015 %>% mutate(year_factor = factor(year_id)),
+  is_final = FALSE
+)
+
+# G4. POST-FENTANYL YFE — panel with year FE, 2015-2019.
+register_model(
+  family   = "subsample",
+  spec     = "post_fentanyl_yfe",
+  formula  = "as_mort_prev_ratio_log ~
+                as_spend_prev_ratio_log + year_factor +
+                unemployment_rate +
+                race_prop_BLCK + log_incidence_rates +
+                race_prop_HISP +
+                log_prop_homeless",
+  data     = df_sud_post2015 %>% mutate(year_factor = factor(year_id)),
+  is_final = FALSE
+)
+
+
 ##================================================================
 ## 8.  EXTRACT RESULTS  (cluster-robust SEs) & SAVE
 ##================================================================

@@ -275,6 +275,11 @@ by_location_draw[, sum_effects := pop_size_effect + prevalence_rate_effect +
                    case_composition_effect + spend_intensity_effect]
 by_location_draw[, diff_check := delta_spend - sum_effects]
 
+# Add per-case metrics at draw level (SPENDING)
+by_location_draw[, spend_per_case_2010 := fifelse(prev_2010 > 0, spend_2010 / prev_2010, NA_real_)]
+by_location_draw[, spend_per_case_2019 := fifelse(prev_2019 > 0, spend_2019 / prev_2019, NA_real_)]
+by_location_draw[, change_spend_per_case := spend_per_case_2019 - spend_per_case_2010]
+
 cat("Stage A complete: ", nrow(by_location_draw), "rows (", 
     length(unique(by_location_draw$location_name)), "locations ×", 
     length(unique(by_location_draw$draw)), "draws)\n")
@@ -316,7 +321,20 @@ by_state <- by_location_draw[, .(
   spend_2019_upper = quantile(spend_2019, 0.975, na.rm = TRUE),
   
   prev_2010 = mean(prev_2010, na.rm = TRUE),
-  prev_2019 = mean(prev_2019, na.rm = TRUE)
+  prev_2019 = mean(prev_2019, na.rm = TRUE),
+  
+  # Spend per case with UI
+  spend_per_case_2010 = mean(spend_per_case_2010, na.rm = TRUE),
+  spend_per_case_2010_lower = quantile(spend_per_case_2010, 0.025, na.rm = TRUE),
+  spend_per_case_2010_upper = quantile(spend_per_case_2010, 0.975, na.rm = TRUE),
+  
+  spend_per_case_2019 = mean(spend_per_case_2019, na.rm = TRUE),
+  spend_per_case_2019_lower = quantile(spend_per_case_2019, 0.025, na.rm = TRUE),
+  spend_per_case_2019_upper = quantile(spend_per_case_2019, 0.975, na.rm = TRUE),
+  
+  change_spend_per_case = mean(change_spend_per_case, na.rm = TRUE),
+  change_spend_per_case_lower = quantile(change_spend_per_case, 0.025, na.rm = TRUE),
+  change_spend_per_case_upper = quantile(change_spend_per_case, 0.975, na.rm = TRUE)
   
 ), by = .(location_id, location_name)]
 
@@ -472,7 +490,10 @@ by_location_daly_draw <- dt_daly[, .(
   daly_intensity_effect = sum(daly_per_case_effect, na.rm = TRUE),
   delta_daly = sum(delta_daly, na.rm = TRUE),
   daly_2010 = sum(daly_2010, na.rm = TRUE),
-  daly_2019 = sum(daly_2019, na.rm = TRUE)
+  daly_2019 = sum(daly_2019, na.rm = TRUE),
+  # ADD THIS LINE:
+  prev_2010 = sum(prevalence_counts_2010, na.rm = TRUE),
+  prev_2019 = sum(prevalence_counts_2019, na.rm = TRUE)
 ), by = .(draw, location_id, location_name)]
 
 # Validation within each draw
@@ -481,6 +502,12 @@ by_location_daly_draw[, sum_effects := daly_pop_size_effect + daly_prevalence_ra
 by_location_daly_draw[, diff_check := delta_daly - sum_effects]
 
 cat("DALY Stage A complete. Max residual:", max(abs(by_location_daly_draw$diff_check)), "\n")
+
+# Add per-case metrics at draw level (DALY)
+by_location_daly_draw[, daly_per_case_2010 := fifelse(prev_2010 > 0, daly_2010 / prev_2010, NA_real_)]
+by_location_daly_draw[, daly_per_case_2019 := fifelse(prev_2019 > 0, daly_2019 / prev_2019, NA_real_)]
+by_location_daly_draw[, change_daly_per_case := daly_per_case_2019 - daly_per_case_2010]
+by_location_daly_draw[, change_daly_averted_per_case := daly_per_case_2010 - daly_per_case_2019]
 
 # STAGE B: Summarize ACROSS draws
 by_state_daly <- by_location_daly_draw[, .(
@@ -510,7 +537,24 @@ by_state_daly <- by_location_daly_draw[, .(
   
   daly_2019 = mean(daly_2019, na.rm = TRUE),
   daly_2019_lower = quantile(daly_2019, 0.025, na.rm = TRUE),
-  daly_2019_upper = quantile(daly_2019, 0.975, na.rm = TRUE)
+  daly_2019_upper = quantile(daly_2019, 0.975, na.rm = TRUE),
+  
+  # DALY per case with UI
+  daly_per_case_2010 = mean(daly_per_case_2010, na.rm = TRUE),
+  daly_per_case_2010_lower = quantile(daly_per_case_2010, 0.025, na.rm = TRUE),
+  daly_per_case_2010_upper = quantile(daly_per_case_2010, 0.975, na.rm = TRUE),
+  
+  daly_per_case_2019 = mean(daly_per_case_2019, na.rm = TRUE),
+  daly_per_case_2019_lower = quantile(daly_per_case_2019, 0.025, na.rm = TRUE),
+  daly_per_case_2019_upper = quantile(daly_per_case_2019, 0.975, na.rm = TRUE),
+  
+  change_daly_per_case = mean(change_daly_per_case, na.rm = TRUE),
+  change_daly_per_case_lower = quantile(change_daly_per_case, 0.025, na.rm = TRUE),
+  change_daly_per_case_upper = quantile(change_daly_per_case, 0.975, na.rm = TRUE),
+  
+  change_daly_averted_per_case = mean(change_daly_averted_per_case, na.rm = TRUE),
+  change_daly_averted_per_case_lower = quantile(change_daly_averted_per_case, 0.025, na.rm = TRUE),
+  change_daly_averted_per_case_upper = quantile(change_daly_averted_per_case, 0.975, na.rm = TRUE)
   
 ), by = .(location_id, location_name)]
 
@@ -735,7 +779,11 @@ final_spend_eff <- merge(
                spend_2019, spend_2019_lower, spend_2019_upper,
                delta_spend, delta_spend_lower, delta_spend_upper,
                spend_intensity_effect_lower, spend_intensity_effect_upper,
-               prev_2010, prev_2019)],
+               prev_2010, prev_2019,
+               # ADD THESE:
+               spend_per_case_2010, spend_per_case_2010_lower, spend_per_case_2010_upper,
+               spend_per_case_2019, spend_per_case_2019_lower, spend_per_case_2019_upper,
+               change_spend_per_case, change_spend_per_case_lower, change_spend_per_case_upper)],
   by = c("location_id", "location_name")
 )
 
@@ -745,7 +793,12 @@ final_spend_eff <- merge(
                     daly_2010, daly_2010_lower, daly_2010_upper,
                     daly_2019, daly_2019_lower, daly_2019_upper,
                     delta_daly, delta_daly_lower, delta_daly_upper,
-                    daly_intensity_effect, daly_intensity_effect_lower, daly_intensity_effect_upper)],
+                    daly_intensity_effect, daly_intensity_effect_lower, daly_intensity_effect_upper,
+                    # ADD THESE:
+                    daly_per_case_2010, daly_per_case_2010_lower, daly_per_case_2010_upper,
+                    daly_per_case_2019, daly_per_case_2019_lower, daly_per_case_2019_upper,
+                    change_daly_per_case, change_daly_per_case_lower, change_daly_per_case_upper,
+                    change_daly_averted_per_case, change_daly_averted_per_case_lower, change_daly_averted_per_case_upper)],
   by = c("location_id", "location_name")
 )
 
@@ -753,13 +806,13 @@ final_spend_eff <- merge(
 final_spend_eff[, daly_averted_effect_lower := -daly_intensity_effect_upper]
 final_spend_eff[, daly_averted_effect_upper := -daly_intensity_effect_lower]
 
-# Compute per-case metrics
-final_spend_eff[, spend_per_case_2010 := spend_2010 / prev_2010]
-final_spend_eff[, spend_per_case_2019 := spend_2019 / prev_2019]
-final_spend_eff[, daly_per_case_2010 := daly_2010 / prev_2010]
-final_spend_eff[, daly_per_case_2019 := daly_2019 / prev_2019]
-final_spend_eff[, change_spend_per_case := spend_per_case_2019 - spend_per_case_2010]
-final_spend_eff[, change_daly_averted_per_case := daly_per_case_2010 - daly_per_case_2019]
+# # Compute per-case metrics (DEPRECATED)
+# final_spend_eff[, spend_per_case_2010 := spend_2010 / prev_2010]
+# final_spend_eff[, spend_per_case_2019 := spend_2019 / prev_2019]
+# final_spend_eff[, daly_per_case_2010 := daly_2010 / prev_2010]
+# final_spend_eff[, daly_per_case_2019 := daly_2019 / prev_2019]
+# final_spend_eff[, change_spend_per_case := spend_per_case_2019 - spend_per_case_2010]
+# final_spend_eff[, change_daly_averted_per_case := daly_per_case_2010 - daly_per_case_2019]
 
 # Simple spending effectiveness (for comparison)
 final_spend_eff[, spend_effectiveness_simple := fifelse(

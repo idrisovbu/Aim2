@@ -1,37 +1,25 @@
 """
 Filename: C_frontier_analysis_sfma_hiv.py
-Description: Python script for running SFMA frontier analysis for HIV (Aim 2).
-             Two frontier models, NO stratification by prevalence/incidence.
+Description: SFMA frontier analysis for HIV (Aim 2).
+             Year-FE panel model only (~510 obs), two outcomes: Mortality and DALY.
+             No stratification by prevalence/incidence.
 
-Model 1: BETWEEN FRONTIER (cross-sectional, ~51 observations)
-  Data:    df_hiv_analysis_between.csv
-  Outcome: as_mort_prev_ratio_log  (log mortality/prevalence)
-  Spending: rw_dex_hiv_prev_ratio_log  (SplineVariable, increasing + concave)
-  Covariates: race_prop_BLCK, log_incidence_rates_B, race_prop_HISP, log_prop_homeless_B
+Both models share identical covariates and prior directions:
+  Spending (SplineVariable): rw_dex_hiv_prev_ratio_log  → increasing + concave on neg outcome
+  Year dummies (2011–2019, ref=2010):  all neg on outcome → pos prior on neg outcome
+  race_prop_BLCK:     +0.624 / +0.492  → neg prior on neg outcome (n.s. in both)
+  log_incidence_rates: -0.297 / -0.285 → pos prior on neg outcome
+  race_prop_HISP:     +0.739 / +0.780  → neg prior on neg outcome
+  log_prop_homeless:  +0.039 / +0.055  → neg prior on neg outcome (n.s. mort / sig DALY)
 
-  Regression informing priors (hiv__between_true__primary):
-    rw_dex_hiv_prev_ratio_log:  -0.253  → LOWER mort → spline: increasing+concave on neg_mort
-    race_prop_BLCK:              +0.835  → HIGHER mort → neg prior on neg_mort
-    log_incidence_rates_B:       -0.364  → LOWER mort → pos prior on neg_mort
-    race_prop_HISP:              +0.840  → HIGHER mort → neg prior on neg_mort
-    log_prop_homeless_B:         +0.070  → HIGHER mort → neg prior on neg_mort
+Outputs per outcome:
+  - hiv_yfe_{outcome}_output.csv          (state-year level, n=510)
+  - hiv_yfe_{outcome}_state_summary.csv   (state level, n=51)
+  - hiv_yfe_{outcome}_covariates.csv
+  - hiv_yfe_{outcome}_frontier.png
+  - hiv_yfe_{outcome}_state_frontier.png  (state abbreviation labels)
 
-Model 2: YEAR-FE FRONTIER (panel, ~510 observations)
-  Data:    df_hiv_analysis_panel.csv
-  Outcome: as_mort_prev_ratio_log
-  Spending: rw_dex_hiv_prev_ratio_log  (SplineVariable, increasing + concave)
-  Covariates: factor(year_id) dummies, race_prop_BLCK, log_incidence_rates,
-              race_prop_HISP, log_prop_homeless
-
-  Regression informing priors (hiv__between_yfe__primary):
-    rw_dex_hiv_prev_ratio_log:  -0.157  → spline: increasing+concave on neg_mort
-    year_factor2011..2019:       all neg → LOWER mort → pos prior on neg_mort
-    race_prop_BLCK:              +0.624  → HIGHER mort → neg prior on neg_mort (n.s.)
-    log_incidence_rates:         -0.297  → LOWER mort → pos prior on neg_mort
-    race_prop_HISP:              +0.739  → HIGHER mort → neg prior on neg_mort
-    log_prop_homeless:           +0.039  → HIGHER mort → neg prior on neg_mort (n.s.)
-
-How to run: Modify fp_input_* / dir_output as needed, then run entire script.
+How to run: python C_frontier_analysis_sfma_hiv.py
 """
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -52,117 +40,120 @@ from anml.data.component import Component
 # ── Paths ──
 dir_base = Path('/ihme/homes/idrisov/aim_outputs/Aim2/C_frontier_analysis/')
 
-fp_input_between = Path('/ihme/homes/idrisov/aim_outputs/Aim2/C_frontier_analysis/20260303/analysis/df_hiv_analysis_between.csv')
-fp_input_panel   = Path('/ihme/homes/idrisov/aim_outputs/Aim2/C_frontier_analysis/20260303/analysis/df_hiv_analysis_panel.csv')
+fp_input_panel = Path('/ihme/homes/idrisov/aim_outputs/Aim2/C_frontier_analysis/20260303/analysis/df_hiv_analysis_panel.csv')
 
 today_yyyymmdd = date.today().strftime("%Y%m%d")
 dir_output = dir_base / today_yyyymmdd
 dir_output.mkdir(parents=True, exist_ok=True)
 
 # ── Common column names ──
-mort_col     = 'as_mort_prev_ratio_log'           # outcome: log(mortality/prevalence)
-spend_col    = 'rw_dex_hiv_prev_ratio_log'        # spending: log(spending+RW / prevalence)
+spend_col    = 'rw_dex_hiv_prev_ratio_log'
 variance_col = 'variance'
 
 acause = 'hiv'
 
-# ── Model configurations ──
-MODEL_CONFIGS = {
-    'between': {
-        'label': 'Between (Cross-Sectional, ~51 obs)',
-        'fp_input': fp_input_between,
-        'spend_col': spend_col,
-        'cov_cols': ['race_prop_BLCK', 'log_incidence_rates_B', 'race_prop_HISP', 'log_prop_homeless_B'],
-        'year_fe': False,
-        # Priors on NEGATED mortality (pos = reduces mort, neg = increases mort)
-        'pos_prior_vars': ['log_incidence_rates_B'],          # β<0 on mort → pos on neg_mort
-        'neg_prior_vars': ['race_prop_BLCK', 'race_prop_HISP', 'log_prop_homeless_B'],  # β>0 on mort → neg on neg_mort
+# ── State name → abbreviation mapping ──
+STATE_ABBREV = {
+    'Alabama': 'AL', 'Alaska': 'AK', 'Arizona': 'AZ', 'Arkansas': 'AR',
+    'California': 'CA', 'Colorado': 'CO', 'Connecticut': 'CT', 'Delaware': 'DE',
+    'Florida': 'FL', 'Georgia': 'GA', 'Hawaii': 'HI', 'Idaho': 'ID',
+    'Illinois': 'IL', 'Indiana': 'IN', 'Iowa': 'IA', 'Kansas': 'KS',
+    'Kentucky': 'KY', 'Louisiana': 'LA', 'Maine': 'ME', 'Maryland': 'MD',
+    'Massachusetts': 'MA', 'Michigan': 'MI', 'Minnesota': 'MN', 'Mississippi': 'MS',
+    'Missouri': 'MO', 'Montana': 'MT', 'Nebraska': 'NE', 'Nevada': 'NV',
+    'New Hampshire': 'NH', 'New Jersey': 'NJ', 'New Mexico': 'NM', 'New York': 'NY',
+    'North Carolina': 'NC', 'North Dakota': 'ND', 'Ohio': 'OH', 'Oklahoma': 'OK',
+    'Oregon': 'OR', 'Pennsylvania': 'PA', 'Rhode Island': 'RI', 'South Carolina': 'SC',
+    'South Dakota': 'SD', 'Tennessee': 'TN', 'Texas': 'TX', 'Utah': 'UT',
+    'Vermont': 'VT', 'Virginia': 'VA', 'Washington': 'WA', 'West Virginia': 'WV',
+    'Wisconsin': 'WI', 'Wyoming': 'WY', 'District of Columbia': 'DC',
+}
+
+# ── Outcome configurations ──
+OUTCOME_CONFIGS = {
+    'mortality': {
+        'label': 'HIV Mortality (Year-FE, n≈510)',
+        'outcome_col': 'as_mort_prev_ratio_log',
     },
-    'year_fe': {
-        'label': 'Year-FE Panel (~510 obs)',
-        'fp_input': fp_input_panel,
-        'spend_col': spend_col,
-        'cov_cols': ['race_prop_BLCK', 'log_incidence_rates', 'race_prop_HISP', 'log_prop_homeless'],
-        'year_fe': True,
-        # Year dummies get pos priors (all year coefficients < 0 on mort → pos on neg_mort)
-        'pos_prior_vars': ['log_incidence_rates'],  # + year dummies added dynamically
-        'neg_prior_vars': ['race_prop_BLCK', 'race_prop_HISP', 'log_prop_homeless'],
+    'daly': {
+        'label': 'HIV DALY (Year-FE, n≈510)',
+        'outcome_col': 'as_daly_prev_ratio_log',
     },
 }
+
+# Shared across both outcomes
+COV_COLS = ['race_prop_BLCK', 'log_incidence_rates', 'race_prop_HISP', 'log_prop_homeless']
+POS_PRIOR_VARS_BASE = ['log_incidence_rates']
+NEG_PRIOR_VARS = ['race_prop_BLCK', 'race_prop_HISP', 'log_prop_homeless']
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # MAIN FUNCTION
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def runSFA_HIV(model_key):
+def runSFA_HIV(outcome_key):
     """
-    Run SFMA frontier analysis for HIV.
-
-    Approach (following Lescinsky/Haley's method):
-      - Covariates go INSIDE the SFMA model with direction priors from regression
-      - Spending modeled as SplineVariable (nonlinear frontier, increasing, concave)
-      - Outcome is negated log(mortality/prevalence) so SFMA fits upper envelope
-      - All continuous variables z-scored for numerical stability
+    Run SFMA frontier analysis for HIV, Year-FE panel model.
 
     Parameters
     ----------
-    model_key : str
-        'between' or 'year_fe'
+    outcome_key : str
+        'mortality' or 'daly'
 
     Returns
     -------
     out : pd.DataFrame
-        Output with inefficiency scores, adjusted values, frontier predictions
+        State-year output with inefficiency scores
+    state_summary : pd.DataFrame
+        State-level collapsed summary
     covs_df : pd.DataFrame
         Selected covariate information and betas
     """
 
-    config = MODEL_CONFIGS[model_key]
-    cov_cols = config['cov_cols'].copy()
-    pos_prior_vars = config['pos_prior_vars'].copy()
-    neg_prior_vars = config['neg_prior_vars'].copy()
+    oc = OUTCOME_CONFIGS[outcome_key]
+    outcome_col = oc['outcome_col']
+    cov_cols = COV_COLS.copy()
+    pos_prior_vars = POS_PRIOR_VARS_BASE.copy()
+    neg_prior_vars = NEG_PRIOR_VARS.copy()
 
     # ── Read data ──
-    df = pd.read_csv(config['fp_input'])
+    df = pd.read_csv(fp_input_panel)
 
     print(f"\n{'=' * 70}")
-    print(f"SFMA HIV FRONTIER: {config['label'].upper()}")
-    print(f"  Input:  {config['fp_input']}")
+    print(f"SFMA HIV FRONTIER: {oc['label'].upper()}")
+    print(f"  Input:    {fp_input_panel}")
+    print(f"  Outcome:  {outcome_col}")
     print(f"  n = {len(df)}")
     print(f"  Covariates: {cov_cols}")
-    if config['year_fe']:
-        print(f"  Year FE: YES (dummies for each year except reference)")
+    print(f"  Year FE: YES (dummies, ref = first year)")
     print(f"{'=' * 70}")
 
-    # ── Create year dummies if needed ──
+    # ── Create year dummies ──
     year_dummy_cols = []
-    if config['year_fe']:
-        years = sorted(df['year_id'].unique())
-        ref_year = years[0]  # 2010 as reference
-        print(f"  Reference year: {ref_year}")
-        for yr in years[1:]:
-            col = f'year_{yr}'
-            df[col] = (df['year_id'] == yr).astype(float)
-            year_dummy_cols.append(col)
-            pos_prior_vars.append(col)  # all year dummies → pos prior on neg_mort
-        cov_cols = cov_cols + year_dummy_cols
-        print(f"  Year dummies: {year_dummy_cols}")
+    years = sorted(df['year_id'].unique())
+    ref_year = years[0]
+    print(f"  Reference year: {ref_year}")
+    for yr in years[1:]:
+        col = f'year_{yr}'
+        df[col] = (df['year_id'] == yr).astype(float)
+        year_dummy_cols.append(col)
+        pos_prior_vars.append(col)
+    cov_cols = cov_cols + year_dummy_cols
+    print(f"  Year dummies: {year_dummy_cols}")
 
     all_model_vars = [spend_col] + cov_cols
 
-    # ── Drop NaN in key variables ──
-    key_vars = [mort_col, spend_col] + config['cov_cols'] + [variance_col]  # use original cov_cols for NaN check
+    # ── Drop NaN ──
+    key_vars = [outcome_col, spend_col] + COV_COLS + [variance_col]
     n_before = len(df)
     df = df.dropna(subset=key_vars).copy()
     if len(df) < n_before:
         print(f"  Dropped {n_before - len(df)} rows with NaN")
 
-    # ── Preserve original spending for plotting (pre-normalization) ──
+    # ── Preserve original spending for plotting ──
     df['log_spend_orig'] = df[spend_col].copy()
 
-    # ── Z-score normalize all continuous model variables ──
-    # (year dummies are 0/1, do NOT normalize them)
+    # ── Z-score continuous variables only ──
     vars_to_zscore = [v for v in all_model_vars if v not in year_dummy_cols]
     zscore_params = {}
     for var in vars_to_zscore:
@@ -174,10 +165,10 @@ def runSFA_HIV(model_key):
         else:
             print(f"  WARNING: {var} has zero std, skipping z-score")
 
-    # ── Negate outcome for SFMA (so frontier = upper envelope = best outcomes) ──
-    df[mort_col] = -1.0 * df[mort_col]
+    # ── Negate outcome ──
+    df[outcome_col] = -1.0 * df[outcome_col]
 
-    # ── Standard error (use median variance, matching Haley's approach) ──
+    # ── Standard error ──
     df['standard_error'] = np.sqrt(np.median(df[variance_col]))
 
     # ── Sort by spending ──
@@ -189,14 +180,9 @@ def runSFA_HIV(model_key):
     # ══════════════════════════════════════════════════════════════════════
 
     def get_model(df, covs_to_use):
-        """Build SFMA model with covariates and spending spline."""
-
-        data = Data(obs=mort_col, obs_se='standard_error')
-
-        # Intercept
+        data = Data(obs=outcome_col, obs_se='standard_error')
         variables = [Variable(Component("intercept", default_value=1.0))]
 
-        # Linear covariate Variables with direction priors
         for cov in covs_to_use:
             if cov == spend_col:
                 continue
@@ -205,17 +191,12 @@ def runSFA_HIV(model_key):
             elif cov in neg_prior_vars:
                 variables.append(Variable(cov, priors=[UniformPrior(lb=-np.inf, ub=0.0)]))
             else:
-                # No direction constraint (unconstrained)
                 variables.append(Variable(cov))
 
-        # Spending as SplineVariable: increasing + concave (on negated mortality)
-        # More spending → lower mortality → higher neg_mort → increasing
-        # Diminishing returns → concave
         spline_priors = [
-            SplinePriorGetter(UniformPrior(lb=0.0, ub=np.inf), order=1, size=100),   # increasing
-            SplinePriorGetter(UniformPrior(lb=-np.inf, ub=0.0), order=2, size=100),  # concave
+            SplinePriorGetter(UniformPrior(lb=0.0, ub=np.inf), order=1, size=100),
+            SplinePriorGetter(UniformPrior(lb=-np.inf, ub=0.0), order=2, size=100),
         ]
-
         variables.append(
             SplineVariable(
                 spend_col,
@@ -233,14 +214,13 @@ def runSFA_HIV(model_key):
 
         model = SFMAModel(data, variables, include_re=False)
         model.attach(df)
-
         return model
 
-    # ── Initial model with all covariates ──
+    # ── Initial model ──
     covs = cov_cols.copy()
     model = get_model(df, covs)
 
-    # ── Covariate direction test (pre-selection) ──
+    # ── Covariate direction test ──
     print(f"\n  Testing covariate directions...")
     model.eta = 0.1
     model.beta.fill(1.0)
@@ -256,7 +236,6 @@ def runSFA_HIV(model_key):
             selected_covs.append(name)
     print(f"  Selected covariates: {selected_covs}")
 
-    # Rebuild model with selected covariates
     model = get_model(df, selected_covs)
 
     # ── Final fit with 5% trimming ──
@@ -277,11 +256,9 @@ def runSFA_HIV(model_key):
     # EXTRACT RESULTS
     # ══════════════════════════════════════════════════════════════════════
 
-    X = df[spend_col].values
-    Y = df[mort_col].values
+    Y = df[outcome_col].values
     Y_hat = model.predict(df)
 
-    # Prediction with covariates zeroed → spending-only frontier
     df_null_covs = df.copy()
     covs_to_zero = [c for c in selected_covs if c != spend_col]
     if covs_to_zero:
@@ -292,33 +269,18 @@ def runSFA_HIV(model_key):
     Y_adj = Y - cov_hat
     ineff = model.get_inefficiency()
 
-    # Build output dataframe
     id_cols = ['location_name', 'location_id', 'year_id', 'cause_id', 'acause', 'cause_name']
-    # Only include id_cols that exist in df
     id_cols_present = [c for c in id_cols if c in df.columns]
 
     out = df[id_cols_present + [spend_col, 'log_spend_orig']].copy()
-    out[mort_col] = Y
+    out[outcome_col] = Y
     out['ineff'] = ineff
-    out['y_adj'] = -Y_adj           # flip back: lower = better
-    out['y_adj_hat'] = -Y_hat_adj   # frontier in original mortality direction
+    out['y_adj'] = -Y_adj
+    out['y_adj_hat'] = -Y_hat_adj
     out['y_adj_log'] = out['y_adj']
     out['y_adj_hat_log'] = out['y_adj_hat']
-    out['model_key'] = model_key
-
+    out['outcome_key'] = outcome_key
     out.sort_values(spend_col, inplace=True)
-
-    # Covariate info
-    covs_only = [c for c in selected_covs if c != spend_col]
-    if len(covs_only) > 0:
-        covs_df = pd.DataFrame({'selected_covs': covs_only, 'acause': acause, 'model_key': model_key})
-    else:
-        covs_df = pd.DataFrame({'selected_covs': ['no covs selected'], 'acause': acause, 'model_key': model_key})
-
-    for name, value in betas.items():
-        if value.size == 1 and name != spend_col:
-            update_idx = covs_df['selected_covs'] == name
-            covs_df.loc[update_idx, 'beta'] = value[0]
 
     # Rescale inefficiency to 0–1
     out['ineff_raw'] = out['ineff']
@@ -327,27 +289,101 @@ def runSFA_HIV(model_key):
     else:
         out['ineff'] = 0
 
-    # Summary
-    print(f"\n  Results Summary ({config['label']}):")
-    print(f"    N observations:     {len(out)}")
-    print(f"    Mean inefficiency:  {out['ineff_raw'].mean():.4f}")
-    print(f"    Median ineff:       {out['ineff_raw'].median():.4f}")
-    print(f"    Min/Max ineff:      {out['ineff_raw'].min():.4f} / {out['ineff_raw'].max():.4f}")
-    print(f"    eta:                {model.eta:.6f}")
+    # ══════════════════════════════════════════════════════════════════════
+    # STATE-LEVEL COLLAPSED SUMMARY
+    # ══════════════════════════════════════════════════════════════════════
 
-    return out, covs_df
+    state_mean = out.groupby(['location_name', 'location_id']).agg(
+        ineff_raw_mean=('ineff_raw', 'mean'),
+        ineff_mean=('ineff', 'mean'),
+    ).reset_index()
+
+    early = out[out['year_id'].between(2010, 2014)].groupby(['location_name', 'location_id'])['ineff_raw'].mean().rename('ineff_raw_early')
+    late  = out[out['year_id'].between(2015, 2019)].groupby(['location_name', 'location_id'])['ineff_raw'].mean().rename('ineff_raw_late')
+
+    early_sc = out[out['year_id'].between(2010, 2014)].groupby(['location_name', 'location_id'])['ineff'].mean().rename('ineff_early')
+    late_sc  = out[out['year_id'].between(2015, 2019)].groupby(['location_name', 'location_id'])['ineff'].mean().rename('ineff_late')
+
+    # Mean spending per state (original scale for state-level plot)
+    spend_mean = out.groupby(['location_name', 'location_id'])['log_spend_orig'].mean().rename('log_spend_mean')
+    # Mean covariate-adjusted outcome per state
+    y_adj_mean = out.groupby(['location_name', 'location_id'])['y_adj_log'].mean().rename('y_adj_log_mean')
+
+    state_summary = state_mean \
+        .merge(early, on=['location_name', 'location_id']) \
+        .merge(late, on=['location_name', 'location_id']) \
+        .merge(early_sc, on=['location_name', 'location_id']) \
+        .merge(late_sc, on=['location_name', 'location_id']) \
+        .merge(spend_mean, on=['location_name', 'location_id']) \
+        .merge(y_adj_mean, on=['location_name', 'location_id'])
+
+    state_summary['ineff_raw_change'] = state_summary['ineff_raw_late'] - state_summary['ineff_raw_early']
+    state_summary['ineff_change'] = state_summary['ineff_late'] - state_summary['ineff_early']
+
+    # State abbreviation
+    state_summary['state_abbrev'] = state_summary['location_name'].map(STATE_ABBREV).fillna(
+        state_summary['location_name'].str[:2].str.upper()
+    )
+
+    state_summary['outcome_key'] = outcome_key
+
+    # ── Reorder columns logically ──
+    col_order = [
+        'location_name', 'location_id', 'state_abbrev', 'outcome_key',
+        # Raw inefficiency block
+        'ineff_raw_mean', 'ineff_raw_early', 'ineff_raw_late', 'ineff_raw_change',
+        # Scaled (0–1) inefficiency block
+        'ineff_mean', 'ineff_early', 'ineff_late', 'ineff_change',
+        # Spending & outcome for state-level plot
+        'log_spend_mean', 'y_adj_log_mean',
+    ]
+    state_summary = state_summary[col_order]
+    state_summary.sort_values('ineff_mean', inplace=True)
+
+    # ── Add "United States" row with mean across all states ──
+    us_row = pd.DataFrame([{
+        'location_name': 'United States',
+        'location_id': 102,
+        'state_abbrev': 'US',
+        'outcome_key': outcome_key,
+        **{c: state_summary[c].mean() for c in col_order
+           if c not in ['location_name', 'location_id', 'state_abbrev', 'outcome_key']},
+    }])
+    state_summary = pd.concat([state_summary, us_row], ignore_index=True)
+
+    # Covariate info
+    covs_only = [c for c in selected_covs if c != spend_col]
+    if len(covs_only) > 0:
+        covs_df = pd.DataFrame({'selected_covs': covs_only, 'acause': acause, 'outcome_key': outcome_key})
+    else:
+        covs_df = pd.DataFrame({'selected_covs': ['no covs selected'], 'acause': acause, 'outcome_key': outcome_key})
+
+    for name, value in betas.items():
+        if value.size == 1 and name != spend_col:
+            update_idx = covs_df['selected_covs'] == name
+            covs_df.loc[update_idx, 'beta'] = value[0]
+
+    # Summary print
+    print(f"\n  Results Summary ({oc['label']}):")
+    print(f"    N state-years:      {len(out)}")
+    print(f"    N states:           {len(state_summary)}")
+    print(f"    Mean ineff (raw):   {out['ineff_raw'].mean():.4f}")
+    print(f"    Median ineff (raw): {out['ineff_raw'].median():.4f}")
+    print(f"    eta:                {model.eta:.6f}")
+    print(f"\n    State-level change (2015-19 minus 2010-14):")
+    print(f"      Mean change (scaled): {state_summary['ineff_change'].mean():.4f}")
+    print(f"      States improving:     {(state_summary['ineff_change'] < 0).sum()}")
+    print(f"      States worsening:     {(state_summary['ineff_change'] > 0).sum()}")
+
+    return out, state_summary, covs_df
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # PLOTTING
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def plot_frontier(df_output, config_label, cov_cols_str, save_path=None):
-    """
-    Frontier visualization in log-log space.
-    X-axis: original log(spending) (pre-normalization)
-    Y-axis: covariate-adjusted log(mortality)
-    """
+def plot_frontier(df_output, config_label, outcome_col, save_path=None):
+    """Frontier visualization in log-log space (state-year dots)."""
 
     fig, ax = plt.subplots(figsize=(10, 7))
 
@@ -369,16 +405,18 @@ def plot_frontier(df_output, config_label, cov_cols_str, save_path=None):
     )
 
     ax.set_xlabel('log(Spending per Prevalent Case)', fontsize=12)
-    ax.set_ylabel('log(Mortality per Prevalent Case) [Covariate-Adjusted]', fontsize=12)
+    outcome_label = 'Mortality' if 'mort' in outcome_col else 'DALY'
+    ax.set_ylabel(f'log({outcome_label} per Prevalent Case) [Covariate-Adjusted]', fontsize=12)
     ax.set_title(f'HIV Healthcare Efficiency Frontier: {config_label}\n(n={len(df_output)}, Log-Log Space)',
                  fontsize=14, fontweight='bold')
     ax.legend(loc='upper right', fontsize=10)
     ax.grid(True, alpha=0.3, linestyle='--')
 
+    cov_str = 'factor(year_id), race_prop_BLCK, log_incidence_rates, race_prop_HISP, log_prop_homeless'
     fig.text(
         0.5, 0.01,
-        f'Note: Points above frontier = inefficient. Frontier = best achievable mortality at each spending level.\n'
-        f'Covariates: {cov_cols_str}',
+        f'Note: Points above frontier = inefficient. Frontier = best achievable outcome at each spending level.\n'
+        f'Covariates: {cov_str}',
         ha='center', fontsize=8, style='italic', color='gray'
     )
 
@@ -392,6 +430,68 @@ def plot_frontier(df_output, config_label, cov_cols_str, save_path=None):
     return fig
 
 
+def plot_state_frontier(state_summary, config_label, outcome_col, save_path=None):
+    """
+    State-level frontier plot with state abbreviation labels instead of dots.
+    X-axis: mean log(spending) across years
+    Y-axis: mean covariate-adjusted log(outcome) across years
+    Color: mean inefficiency (scaled 0–1)
+    """
+
+    fig, ax = plt.subplots(figsize=(12, 8))
+
+    outcome_label = 'Mortality' if 'mort' in outcome_col else 'DALY'
+
+    # Color by inefficiency (exclude US summary row)
+    plot_df = state_summary[state_summary['location_name'] != 'United States'].copy()
+    ineff_vals = plot_df['ineff_mean'].values
+    norm = plt.Normalize(vmin=ineff_vals.min(), vmax=ineff_vals.max())
+    cmap = plt.cm.RdYlGn_r  # red = high inefficiency, green = low
+
+    for _, row in plot_df.iterrows():
+        color = cmap(norm(row['ineff_mean']))
+        ax.text(
+            row['log_spend_mean'],
+            row['y_adj_log_mean'],
+            row['state_abbrev'],
+            fontsize=8, fontweight='bold',
+            ha='center', va='center',
+            color=color,
+            zorder=5
+        )
+
+    # Colorbar
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array([])
+    cbar = plt.colorbar(sm, ax=ax, shrink=0.8, pad=0.02)
+    cbar.set_label('Mean Inefficiency (0=most efficient, 1=least)', fontsize=10)
+
+    ax.set_xlabel('Mean log(Spending per Prevalent Case)', fontsize=12)
+    ax.set_ylabel(f'Mean log({outcome_label} per Prevalent Case) [Covariate-Adjusted]', fontsize=12)
+    ax.set_title(
+        f'HIV State-Level Efficiency: {config_label}\n'
+        f'(State means across 2010–2019, n={len(plot_df)} states)',
+        fontsize=14, fontweight='bold'
+    )
+    ax.grid(True, alpha=0.3, linestyle='--')
+
+    fig.text(
+        0.5, 0.01,
+        f'Note: Lower {outcome_label.lower()} = better. Green = more efficient, Red = less efficient.\n'
+        f'Each label is a state abbreviation positioned at its mean spending and covariate-adjusted {outcome_label.lower()}.',
+        ha='center', fontsize=8, style='italic', color='gray'
+    )
+
+    plt.tight_layout(rect=[0, 0.05, 1, 1])
+
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"  State plot saved to: {save_path}")
+
+    plt.close(fig)
+    return fig
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # MAIN EXECUTION
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -400,54 +500,59 @@ if __name__ == '__main__':
 
     print("\n" + "=" * 70)
     print("SFMA FRONTIER ANALYSIS - HIV")
-    print("Two models: Between (cross-sectional) & Year-FE (panel)")
+    print("Year-FE panel model, two outcomes: Mortality & DALY")
     print("=" * 70)
+    print(f"  Input:  {fp_input_panel}")
     print(f"  Output: {dir_output}\n")
 
     all_results = {}
 
-    for model_key in ['between', 'year_fe']:
-        config = MODEL_CONFIGS[model_key]
+    for outcome_key in ['mortality', 'daly']:
+        oc = OUTCOME_CONFIGS[outcome_key]
 
         print(f"\n\n{'#' * 70}")
-        print(f"# {config['label']}")
+        print(f"# {oc['label']}")
         print(f"{'#' * 70}")
 
-        out, covs = runSFA_HIV(model_key)
-        all_results[model_key] = (out, covs)
+        out, state_summary, covs = runSFA_HIV(outcome_key)
+        all_results[outcome_key] = (out, state_summary, covs)
 
         # Save outputs
-        fname_prefix = f"hiv_{model_key}"
+        fname_prefix = f"hiv_yfe_{outcome_key}"
         out.to_csv(dir_output / f'{fname_prefix}_output.csv', index=False)
+        state_summary.to_csv(dir_output / f'{fname_prefix}_state_summary.csv', index=False)
         covs.to_csv(dir_output / f'{fname_prefix}_covariates.csv', index=False)
 
-        # Covariates string for plot annotation
-        cov_str = ', '.join(config['cov_cols'])
-        if config['year_fe']:
-            cov_str = 'factor(year_id), ' + cov_str
-
+        # State-year frontier plot
         plot_frontier(
             out,
-            config_label=config['label'],
-            cov_cols_str=cov_str,
+            config_label=oc['label'],
+            outcome_col=oc['outcome_col'],
             save_path=dir_output / f'{fname_prefix}_frontier.png'
+        )
+
+        # State-level abbreviation plot
+        plot_state_frontier(
+            state_summary,
+            config_label=oc['label'],
+            outcome_col=oc['outcome_col'],
+            save_path=dir_output / f'{fname_prefix}_state_frontier.png'
         )
 
     # ─────────────────────────────────────────────────────────────────────
     # SUMMARY COMPARISON
     # ─────────────────────────────────────────────────────────────────────
     print("\n\n" + "=" * 90)
-    print("SUMMARY COMPARISON: BOTH MODELS")
+    print("SUMMARY COMPARISON: MORTALITY vs DALY")
     print("=" * 90)
 
-    print(f"\n{'Model':<30} {'N':>6} {'Mean Ineff':>12} {'Med Ineff':>12} {'Max Ineff':>12}")
+    print(f"\n{'Outcome':<15} {'N':>6} {'Mean Ineff':>12} {'Med Ineff':>12} {'Max Ineff':>12} {'Δ Ineff':>12}")
     print("-" * 75)
 
-    for model_key, (out_df, _) in all_results.items():
-        label = MODEL_CONFIGS[model_key]['label']
-        print(f"{label:<30} {len(out_df):>6} "
+    for outcome_key, (out_df, state_df, _) in all_results.items():
+        print(f"{outcome_key:<15} {len(out_df):>6} "
               f"{out_df['ineff_raw'].mean():>12.4f} {out_df['ineff_raw'].median():>12.4f} "
-              f"{out_df['ineff_raw'].max():>12.4f}")
+              f"{out_df['ineff_raw'].max():>12.4f} {state_df['ineff_raw_change'].mean():>12.4f}")
 
     print("\n" + "=" * 90)
     print("ANALYSIS COMPLETE!")
@@ -455,5 +560,5 @@ if __name__ == '__main__':
     print("=" * 90)
 
     print("\nOutput files generated:")
-    for f in sorted(dir_output.glob('hiv_*')):
+    for f in sorted(dir_output.glob('hiv_yfe_*')):
         print(f"  - {f.name}")
