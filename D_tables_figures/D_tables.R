@@ -92,10 +92,10 @@ ensure_dir_exists(dir_output)
 df_dex <- open_dataset(fp_dex)
 
 # USHD Data
-#df_ushd <- read_parquet(fp_ushd)
+#df_ushd <- read_parquet(fp_ushd) (UNUSED)
 
 # GBD Data
-df_gbd <- read_parquet(fp_gbd)
+#df_gbd <- read_parquet(fp_gbd) (UNUSED)
 
 # Age-standardized State level GBD + Dex data
 df_as <- read.csv(fp_as)
