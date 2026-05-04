@@ -1103,14 +1103,349 @@ write.csv(model_registry,
 ##================================================================
 ## END OF PIPELINE
 ##================================================================
+##================================================================
+## 9. CDC HIV ROBUSTNESS CHECK (per mentor feedback)
+##    Drop-in block: runs at end of C_regression_models_analysis.R
+##================================================================
 
-cat("\n==============================\n")
-cat("Pipeline complete.\n")
-cat("Models fitted:", length(list_models), "\n")
-cat("  between_true:", sum(grepl("between_true", names(list_models))), "\n")
-cat("  between_yfe:",  sum(grepl("between_yfe",  names(list_models))), "\n")
-cat("  mundlak:",      sum(grepl("mundlak",      names(list_models))), "\n")
-cat("  lag:",          sum(grepl("lag",           names(list_models))), "\n")
-cat("  dose:",         sum(grepl("dose",          names(list_models))), "\n")
-cat("Output directory:", dir_output, "\n")
-cat("==============================\n")
+# ---- 9a. Paths: CDC data lives in prep_A output folder ----
+prep_a_date <- "20260424"   # <-- EDIT: date of prep_A run that wrote df_as_cdc.csv
+fp_as_cdc   <- file.path(h, "aim_outputs/Aim2/C_frontier_analysis",
+                         prep_a_date, "df_as_cdc.csv")
+
+df_as_cdc <- read.csv(fp_as_cdc, stringsAsFactors = FALSE)
+
+# ---- 9b. Build CDC analytic frame: HIV only + join covariates from df_hiv ----
+# df_hiv already has RW funding, race, incidence, homelessness, etc. merged in.
+cov_cols <- c("location_id", "year_id",
+              "ryan_white_funding_final",
+              "race_prop_BLCK", "race_prop_HISP",
+              "prop_homeless", "log_prop_homeless",
+              "unemployment_rate",
+              "incidence_rates", "log_incidence_rates")
+cov_cols <- intersect(cov_cols, names(df_hiv))
+
+df_cdc_hiv <- df_as_cdc %>%
+  dplyr::filter(acause == "hiv") %>%
+  select(year_id, location_id, location_name,
+         cdc_hiv_mortality_counts, cdc_hiv_prevalence_counts,
+         as_cdc_mort_prev_ratio, as_cdc_spend_prev_ratio,
+         as_mort_prev_ratio_25plus   = as_mort_prev_ratio,   # GBD, 25+ bins
+         as_spend_prev_ratio_25plus  = as_spend_prev_ratio,
+         mortality_counts, prevalence_counts, spend_all) %>%
+  left_join(df_hiv %>% select(all_of(cov_cols)) %>% distinct(),
+            by = c("year_id", "location_id"))
+
+##----------------------------------------------------------------
+## 9c. CDC vs GBD correlations (raw counts + matched ratios)
+##----------------------------------------------------------------
+df_corr <- df_cdc_hiv %>%
+  dplyr::filter(cdc_hiv_prevalence_counts > 0,
+                !is.na(cdc_hiv_mortality_counts))
+
+cor_row <- function(x, y, method, label) {
+  tibble(measure = label, method = method,
+         r = cor(x, y, use = "complete.obs", method = method),
+         n = sum(complete.cases(x, y)))
+}
+
+cdc_gbd_corr_tbl <- bind_rows(
+  cor_row(df_corr$prevalence_counts, df_corr$cdc_hiv_prevalence_counts, "pearson",  "prevalence_counts"),
+  cor_row(df_corr$prevalence_counts, df_corr$cdc_hiv_prevalence_counts, "spearman", "prevalence_counts"),
+  cor_row(df_corr$mortality_counts,  df_corr$cdc_hiv_mortality_counts,  "pearson",  "mortality_counts"),
+  cor_row(df_corr$mortality_counts,  df_corr$cdc_hiv_mortality_counts,  "spearman", "mortality_counts"),
+  cor_row(df_corr$as_mort_prev_ratio_25plus, df_corr$as_cdc_mort_prev_ratio, "pearson",  "as_mort_prev_ratio_25plus"),
+  cor_row(df_corr$as_mort_prev_ratio_25plus, df_corr$as_cdc_mort_prev_ratio, "spearman", "as_mort_prev_ratio_25plus")
+)
+
+write.csv(cdc_gbd_corr_tbl,
+          file.path(dir_output, "cdc_gbd_correlations.csv"),
+          row.names = FALSE)
+
+##----------------------------------------------------------------
+## 9d. CDC robustness regressions (primary spec, matched 25+ comparison)
+##----------------------------------------------------------------
+# Build log outcome + log spending predictors on matched 25+ frame
+df_cdc_est <- df_cdc_hiv %>%
+  dplyr::filter(cdc_hiv_prevalence_counts > 0,
+                as_cdc_mort_prev_ratio    > 0,
+                as_mort_prev_ratio_25plus > 0) %>%
+  mutate(
+    # Outcomes (both 25+ standardized -> apples to apples)
+    as_cdc_mort_prev_ratio_log    = log(as_cdc_mort_prev_ratio),
+    as_mort_prev_ratio_25plus_log = log(as_mort_prev_ratio_25plus),
+    # CDC-based RW+DEX spending per CDC prevalent case
+    rw_dex_cdc_hiv_prev_ratio     = (ryan_white_funding_final + spend_all) /
+      cdc_hiv_prevalence_counts,
+    rw_dex_cdc_hiv_prev_ratio_log = log(rw_dex_cdc_hiv_prev_ratio),
+    # GBD-based spending per GBD 25+ prevalent case (from prep_A df_as_cdc)
+    rw_dex_hiv_prev_ratio_25plus     = (ryan_white_funding_final + spend_all) /
+      prevalence_counts,  # GBD prev in df_as_cdc
+    rw_dex_hiv_prev_ratio_25plus_log = log(rw_dex_hiv_prev_ratio_25plus),
+    year_factor = factor(year_id)
+  )
+
+# Primary covariate set (matches your between_yfe__primary)
+rhs_primary <- paste(
+  "year_factor",
+  "race_prop_BLCK",
+  "log_incidence_rates",
+  "race_prop_HISP",
+  "log_prop_homeless",
+  sep = " + "
+)
+
+# R0: MATCHED BASELINE -- GBD outcome + GBD spending, both on 25+ frame.
+#     This is the reference point for the CDC swap (controls out age-std).
+m_cdc_ref <- lm(
+  as.formula(paste("as_mort_prev_ratio_25plus_log ~ rw_dex_hiv_prev_ratio_25plus_log +", rhs_primary)),
+  data = df_cdc_est
+)
+
+# R1: OUTCOME SWAP -- CDC outcome, GBD spending (diagnoses numerator effect).
+m_cdc_outcome_only <- lm(
+  as.formula(paste("as_cdc_mort_prev_ratio_log ~ rw_dex_hiv_prev_ratio_25plus_log +", rhs_primary)),
+  data = df_cdc_est
+)
+
+# R2: FULL CDC ANALOG -- CDC in numerator AND denominator (mentor's ask).
+m_cdc_full <- lm(
+  as.formula(paste("as_cdc_mort_prev_ratio_log ~ rw_dex_cdc_hiv_prev_ratio_log +", rhs_primary)),
+  data = df_cdc_est
+)
+
+# Cluster-robust SEs (CR2/Satterthwaite) -- same as your primary pipeline
+tidy_cr2 <- function(model, data, model_id) {
+  vc <- vcovCR(model, cluster = data$location_id, type = "CR2")
+  ct <- coef_test(model, vcov = vc, test = "Satterthwaite")
+  tibble(
+    model_id  = model_id,
+    term      = rownames(ct),
+    estimate  = ct$beta,
+    std.error = ct$SE,
+    statistic = ct$tstat,
+    p.value   = ct$p_Satt
+  ) %>%
+    mutate(signif_stars = case_when(
+      p.value < 0.001 ~ "***",
+      p.value < 0.01  ~ "**",
+      p.value < 0.05  ~ "*",
+      p.value < 0.1   ~ ".",
+      TRUE            ~ ""
+    ))
+}
+
+coef_cdc_robust <- bind_rows(
+  tidy_cr2(m_cdc_ref,          df_cdc_est, "hiv__cdc_robust__ref_gbd25plus"),
+  tidy_cr2(m_cdc_outcome_only, df_cdc_est, "hiv__cdc_robust__outcome_only"),
+  tidy_cr2(m_cdc_full,         df_cdc_est, "hiv__cdc_robust__full_cdc")
+)
+
+write.csv(coef_cdc_robust,
+          file.path(dir_output, "regression_results_hiv_cdc_robustness.csv"),
+          row.names = FALSE)
+
+cat(sprintf("\nCDC robustness: N = %d state-years (primary uses N = %d)\n",
+            nrow(df_cdc_est), nrow(df_hiv)))
+cat("CDC vs GBD correlations and robustness coefficients saved to dir_output.\n")
+
+
+
+##----------------------------------------------------------------
+## 9c.1 CDC vs GBD scatter plots (for supplement)
+##----------------------------------------------------------------
+pacman::p_load(ggplot2, patchwork, scales)
+
+# Use the same filtered frame as correlations (suppressed rows removed)
+df_plot <- df_corr %>%
+  dplyr::filter(mortality_counts > 0,
+                cdc_hiv_mortality_counts > 0,
+                prevalence_counts > 0,
+                cdc_hiv_prevalence_counts > 0)
+
+# Pre-compute correlations to display in panel subtitles
+r_mort_p <- round(cor(df_plot$mortality_counts,  df_plot$cdc_hiv_mortality_counts,  method = "pearson"), 2)
+r_mort_s <- round(cor(df_plot$mortality_counts,  df_plot$cdc_hiv_mortality_counts,  method = "spearman"), 2)
+r_prev_p <- round(cor(df_plot$prevalence_counts, df_plot$cdc_hiv_prevalence_counts, method = "pearson"), 2)
+r_prev_s <- round(cor(df_plot$prevalence_counts, df_plot$cdc_hiv_prevalence_counts, method = "spearman"), 2)
+
+# Shared theme
+theme_scatter <- theme_minimal(base_size = 11) +
+  theme(
+    plot.title    = element_text(face = "bold", size = 12),
+    plot.subtitle = element_text(size = 10, color = "grey30"),
+    panel.grid.minor = element_blank()
+  )
+
+# Mortality panel
+p_mort <- ggplot(df_plot, aes(x = mortality_counts, y = cdc_hiv_mortality_counts)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "grey40") +
+  geom_point(alpha = 0.4, size = 1.2) +
+  scale_x_log10(labels = comma) +
+  scale_y_log10(labels = comma) +
+  labs(
+    title    = "A. HIV mortality counts",
+    subtitle = paste0("Pearson r = ", r_mort_p, "; Spearman \u03c1 = ", r_mort_s),
+    x        = "GBD mortality (log scale)",
+    y        = "CDC mortality (log scale)"
+  ) +
+  theme_scatter
+
+# Prevalence panel
+p_prev <- ggplot(df_plot, aes(x = prevalence_counts, y = cdc_hiv_prevalence_counts)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "grey40") +
+  geom_point(alpha = 0.4, size = 1.2) +
+  scale_x_log10(labels = comma) +
+  scale_y_log10(labels = comma) +
+  labs(
+    title    = "B. HIV prevalence counts",
+    subtitle = paste0("Pearson r = ", r_prev_p, "; Spearman \u03c1 = ", r_prev_s),
+    x        = "GBD prevalence (log scale)",
+    y        = "CDC prevalence (log scale)"
+  ) +
+  theme_scatter
+
+# Combine side by side
+p_combined <- p_mort + p_prev +
+  plot_annotation(
+    title   = "CDC vs GBD HIV estimates at the state-year level, 2010\u20132019",
+    caption = paste0(
+      "Each point is one state-year (N = ", nrow(df_plot), "). ",
+      "Dashed line is the 45\u00b0 identity (CDC = GBD). ",
+      "Horizontal banding reflects CDC small-cell suppression and reporting thresholds."
+    ),
+    theme = theme(
+      plot.title   = element_text(face = "bold", size = 13),
+      plot.caption = element_text(size = 9, color = "grey30", hjust = 0)
+    )
+  )
+
+# Save (PNG for Word, PDF for vector submission)
+ggsave(
+  filename = file.path(dir_output, "cdc_vs_gbd_scatter.png"),
+  plot     = p_combined,
+  width    = 11, height = 5, dpi = 300, bg = "white"
+)
+ggsave(
+  filename = file.path(dir_output, "cdc_vs_gbd_scatter.pdf"),
+  plot     = p_combined,
+  width    = 11, height = 5
+)
+
+cat("Saved: cdc_vs_gbd_scatter.png and .pdf to", dir_output, "\n")
+
+##================================================================
+## 10. SUPPLEMENT SCATTER: outcome vs spending per prevalent case
+##     Per Joe Dieleman: "a simple scatter of DALY per case (y) and
+##     spend per case (x) would be useful". Extended with mortality
+##     (secondary outcome) and CDC robustness as a 3-panel figure.
+##     NOTE: requires df_cdc_est from section 9d to be in memory.
+##================================================================
+
+pacman::p_load(ggplot2, patchwork, scales)
+
+# ---- Helper: build one scatter panel ----
+build_outcome_scatter <- function(data, x, y, panel_letter,
+                                  panel_title, subtitle_lab,
+                                  x_lab, y_lab) {
+  d <- data %>%
+    dplyr::filter(.data[[x]] > 0, .data[[y]] > 0,
+                  is.finite(.data[[x]]), is.finite(.data[[y]]))
+  
+  # Pearson r on the log-log scale (matches regression specification)
+  r_ll <- cor(log(d[[x]]), log(d[[y]]),
+              use = "complete.obs", method = "pearson")
+  n_obs <- nrow(d)
+  
+  ggplot(d, aes(x = .data[[x]], y = .data[[y]])) +
+    geom_point(alpha = 0.35, size = 1.3, color = "grey25") +
+    geom_smooth(method = "lm", formula = y ~ x, se = TRUE,
+                color = "#2C3E80", fill = "#2C3E80",
+                alpha = 0.18, linewidth = 0.7) +
+    scale_x_log10(labels = scales::label_dollar(accuracy = 1)) +
+    scale_y_log10(labels = scales::label_number(accuracy = 0.001)) +
+    labs(
+      title    = paste0(panel_letter, ". ", panel_title),
+      subtitle = sprintf("%s  |  log-log Pearson r = %.2f  |  N = %d state-years",
+                         subtitle_lab, r_ll, n_obs),
+      x = x_lab,
+      y = y_lab
+    ) +
+    theme_minimal(base_size = 11) +
+    theme(
+      plot.title       = element_text(face = "bold", size = 12),
+      plot.subtitle    = element_text(size = 9.5, color = "grey30"),
+      panel.grid.minor = element_blank()
+    )
+}
+
+# ---- Panel A: DALYs per case vs spending (GBD, primary outcome) ----
+p_scat_a <- build_outcome_scatter(
+  data         = df_hiv,
+  x            = "rw_dex_hiv_prev_ratio",
+  y            = "as_daly_prev_ratio",
+  panel_letter = "A",
+  panel_title  = "DALYs per prevalent case (GBD)",
+  subtitle_lab = "Primary outcome",
+  x_lab        = "HIV spending per prevalent case (2019 USD, log scale)",
+  y_lab        = "Age-std DALYs per prevalent case (log scale)"
+)
+
+# ---- Panel B: Mortality per case vs spending (GBD, secondary) ----
+p_scat_b <- build_outcome_scatter(
+  data         = df_hiv,
+  x            = "rw_dex_hiv_prev_ratio",
+  y            = "as_mort_prev_ratio",
+  panel_letter = "B",
+  panel_title  = "Mortality per prevalent case (GBD)",
+  subtitle_lab = "Secondary outcome",
+  x_lab        = "HIV spending per prevalent case (2019 USD, log scale)",
+  y_lab        = "Age-std mortality per prevalent case (log scale)"
+)
+
+# ---- Panel C: CDC robustness (CDC mortality and CDC spending, ages 25+) ----
+p_scat_c <- build_outcome_scatter(
+  data         = df_cdc_est,
+  x            = "rw_dex_cdc_hiv_prev_ratio",
+  y            = "as_cdc_mort_prev_ratio",
+  panel_letter = "C",
+  panel_title  = "Mortality per prevalent case (CDC, ages 25+)",
+  subtitle_lab = "CDC robustness",
+  x_lab        = "HIV spending per CDC prevalent case (2019 USD, log scale)",
+  y_lab        = "Age-std mortality per CDC prevalent case (log scale)"
+)
+
+# ---- Combine ----
+p_outcome_scatter <- p_scat_a + p_scat_b + p_scat_c +
+  plot_layout(nrow = 1) +
+  plot_annotation(
+    title = "Bivariate association between HIV spending per prevalent case and health outcomes, U.S. states, 2010\u20132019",
+    caption = paste0(
+      "Each point is one state-year. ",
+      "Solid line is the bivariate linear fit on the log-log scale; ",
+      "shaded band is the 95% confidence interval. ",
+      "Panel C is restricted to ages 25+ and to state-years with non-suppressed CDC counts. ",
+      "Multivariable estimates with cluster-robust SEs are reported in the regression tables; ",
+      "this figure shows the unadjusted bivariate relationship."
+    ),
+    theme = theme(
+      plot.title   = element_text(face = "bold", size = 12),
+      plot.caption = element_text(size = 8, color = "grey30", hjust = 0)
+    )
+  )
+
+# ---- Save ----
+ggsave(
+  filename = file.path(dir_output, "scatter_outcome_vs_spending.png"),
+  plot     = p_outcome_scatter,
+  width    = 14, height = 5.5, dpi = 300, bg = "white"
+)
+ggsave(
+  filename = file.path(dir_output, "scatter_outcome_vs_spending.pdf"),
+  plot     = p_outcome_scatter,
+  width    = 14, height = 5.5
+)
+
+cat("Saved: scatter_outcome_vs_spending.png and .pdf to", dir_output, "\n")
+
+

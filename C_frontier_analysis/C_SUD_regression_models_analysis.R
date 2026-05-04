@@ -630,6 +630,153 @@ register_model <- function(family, spec, formula, data,
   invisible(fit)
 }
 
+
+# ==============================================================
+# CATEGORY 1/2 FILTERED MODELS  (OUD spending-effectiveness)
+#
+# Subset to states whose median spending-effectiveness falls in
+# Cat 1 (+spend, +health) or Cat 2 (cost-saving) per the Weaver
+# decomposition output (T3).  Drops states dominated by Cat 3
+# (dominated) or Cat 4 (disinvestment with health loss), which
+# run the opposite direction and add noise to the pooled fit.
+# ==============================================================
+
+# ==============================================================
+# CATEGORY-STRATIFIED & CATEGORY-INTERACTION MODELS
+#
+# A. INTERACTION: as_spend * dom_cat_f -> per-category spending slope
+#    in one model, with pooled SEs.
+# B. STRATIFIED: separate regression per dominant category. Cat 3/4
+#    typically have very few states; results there are diagnostic only.
+# ==============================================================
+
+# ---- Merge dominant_category from T3 onto panel ----
+df_cat_lookup <- df_t3 %>%
+  dplyr::filter(location_name != "United States") %>%
+  dplyr::select(location_id, dominant_category,
+                pct_cat1, pct_cat2, pct_cat3, pct_cat4)
+
+df_sud <- df_sud %>%
+  dplyr::left_join(df_cat_lookup, by = "location_id") %>%
+  dplyr::mutate(
+    dom_cat_f = factor(
+      dominant_category,
+      levels = c(1, 2, 3, 4),
+      labels = c("Cat1", "Cat2", "Cat3", "Cat4")
+    )
+  )
+
+cat("\n---- Dominant category counts (states & panel obs) ----\n")
+print(df_sud %>%
+        dplyr::distinct(location_id, location_name, dom_cat_f) %>%
+        dplyr::count(dom_cat_f, name = "n_states") %>%
+        dplyr::left_join(
+          df_sud %>% dplyr::count(dom_cat_f, name = "n_obs"),
+          by = "dom_cat_f"
+        ) %>% as.data.frame())
+
+# ==============================================================
+# A. INTERACTION MODELS  (Cat1 = reference)
+# ==============================================================
+
+register_model(
+  family = "between_yfe", spec = "primary_catinteract_mort",
+  formula = "as_mort_prev_ratio_log ~
+               as_spend_prev_ratio_log * dom_cat_f +
+               year_factor +
+               unemployment_rate +
+               race_prop_BLCK + log_incidence_rates +
+               race_prop_HISP +
+               log_prop_homeless",
+  data = df_sud, is_final = TRUE
+)
+
+register_model(
+  family = "between_yfe", spec = "primary_catinteract_daly",
+  formula = "as_daly_prev_ratio_log ~
+               as_spend_prev_ratio_log * dom_cat_f +
+               year_factor +
+               unemployment_rate +
+               race_prop_BLCK + log_incidence_rates +
+               race_prop_HISP +
+               log_prop_homeless",
+  data = df_sud, is_final = TRUE
+)
+
+register_model(
+  family = "between_yfe", spec = "bivariate_catinteract_mort",
+  formula = "as_mort_prev_ratio_log ~
+               as_spend_prev_ratio_log * dom_cat_f + year_factor",
+  data = df_sud, is_final = FALSE
+)
+
+register_model(
+  family = "between_yfe", spec = "bivariate_catinteract_daly",
+  formula = "as_daly_prev_ratio_log ~
+               as_spend_prev_ratio_log * dom_cat_f + year_factor",
+  data = df_sud, is_final = FALSE
+)
+
+# ==============================================================
+# B. STRATIFIED MODELS  (one fit per category)
+# Skip categories with < 3 states.
+# ==============================================================
+
+min_states_for_strat <- 3
+
+for (cat_lvl in 1:4) {
+  
+  n_states_cat <- df_sud %>%
+    dplyr::filter(dominant_category == cat_lvl) %>%
+    dplyr::distinct(location_id) %>% nrow()
+  
+  if (n_states_cat < min_states_for_strat) {
+    cat(sprintf("Skipping stratified Cat %d (only %d states)\n",
+                cat_lvl, n_states_cat))
+    next
+  }
+  
+  df_subset <- df_sud %>% dplyr::filter(dominant_category == cat_lvl)
+  
+  register_model(
+    family = "between_yfe",
+    spec   = paste0("primary_mort_cat", cat_lvl, "only"),
+    formula = "as_mort_prev_ratio_log ~
+                 as_spend_prev_ratio_log + year_factor +
+                 unemployment_rate +
+                 race_prop_BLCK + log_incidence_rates +
+                 race_prop_HISP +
+                 log_prop_homeless",
+    data = df_subset, is_final = FALSE
+  )
+  
+  register_model(
+    family = "between_yfe",
+    spec   = paste0("primary_daly_cat", cat_lvl, "only"),
+    formula = "as_daly_prev_ratio_log ~
+                 as_spend_prev_ratio_log + year_factor +
+                 unemployment_rate +
+                 race_prop_BLCK + log_incidence_rates +
+                 race_prop_HISP +
+                 log_prop_homeless",
+    data = df_subset, is_final = FALSE
+  )
+  
+  register_model(
+    family = "between_yfe",
+    spec   = paste0("bivariate_mort_cat", cat_lvl, "only"),
+    formula = "as_mort_prev_ratio_log ~ as_spend_prev_ratio_log + year_factor",
+    data = df_subset, is_final = FALSE
+  )
+  
+  register_model(
+    family = "between_yfe",
+    spec   = paste0("bivariate_daly_cat", cat_lvl, "only"),
+    formula = "as_daly_prev_ratio_log ~ as_spend_prev_ratio_log + year_factor",
+    data = df_subset, is_final = FALSE
+  )
+}
+
 # ==============================================================
 # PRIMARY MODELS (mort then daly)
 # ==============================================================

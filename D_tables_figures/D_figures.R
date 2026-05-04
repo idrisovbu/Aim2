@@ -3027,7 +3027,7 @@ p_hiv_payer <- ggplot(df_hiv_payer,
                      expand = expansion(mult = c(0, 0.01))) +
   labs(x = "", y = "") +
   base +
-  guides(fill = guide_legend(nrow = 1))
+  guides(fill = guide_legend(nrow = 1, reverse = TRUE))
 
 # TOC row
 p_hiv_toc <- ggplot(df_hiv_toc,
@@ -3044,7 +3044,7 @@ p_hiv_toc <- ggplot(df_hiv_toc,
   base +
   theme(strip.text = element_blank(),
         strip.background = element_blank()) +
-  guides(fill = guide_legend(nrow = 1))
+  guides(fill = guide_legend(nrow = 1, reverse = TRUE))
 
 # Combine
 f_hiv_combined <- p_hiv_payer / p_hiv_toc +
