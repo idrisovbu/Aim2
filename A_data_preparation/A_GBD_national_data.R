@@ -1,7 +1,7 @@
 ##----------------------------------------------------------------
-##' Title: A_GBD_state_data.R
+##' Title: A_GBD_national_data.R
 ##'
-##' Purpose: Pulls STATE LEVEL DATA ONLY and saves Mortality, Prevalence, DALY, Incidence, YLD, YLL, and Population data needed for C Frontier Analysis
+##' Purpose: Pulls NATIONAL LEVEL DATA ONLY and saves Mortality, Prevalence, DALY, Incidence, YLD, YLL, and Population data needed for C Frontier Analysis
 ##' Use: Run script from start to finish, data will save to Aim2/A_data_preparation/FA/<current_date>
 ##----------------------------------------------------------------
 
@@ -70,11 +70,7 @@ sex_ids <- c(1,2)
 df_loc <- get_location_metadata(location_set_id = 35,
                                 release_id = 16)
 
-df_state_loc_ids <- df_loc %>%
-  filter(parent_id == 102) %>%
-  select(location_name, location_id)
-
-list_state_loc_ids <- df_state_loc_ids$location_id
+usa_loc_id <- 102
 
 # Age Group ids
 df_age_groups <- get_age_metadata(release_id = 16)
@@ -101,7 +97,7 @@ args_get_machinery_estimates <- list(entity = "cause",
                                      estimates="draws", # PE = Point Estimates, UI = Uncertainty Intervals, draws = draws
                                      #measure_id (specified in call)
                                      #metric_id (specified in call)
-                                     location_id=list_state_loc_ids, 
+                                     location_id=usa_loc_id, 
                                      sex_id=sex_ids, 
                                      age_group_id=list_age_group_ids,
                                      year_id=year_ids,
@@ -196,7 +192,7 @@ df_final <- bind_rows(df_age_non_collapse, df_age_collapse)
 # Population data
 df_population <- get_population(release_id = rel_id,
                                 age_group_id = "all",
-                                location_id = list_state_loc_ids,
+                                location_id = usa_loc_id,
                                 location_set_id = 35,
                                 year_id = year_ids,
                                 sex_id = sex_ids
@@ -262,17 +258,17 @@ df_pop_collapse <- df_pop_collapse %>%
 
 # Rejoin data
 df_pop_final <- bind_rows(df_pop_collapse, df_pop_non_collapse %>% select(!c("run_id"))) %>%
-  select(!c("age_group_id", "age_name"))
+  select(!c("age_group_id"))
 
 ##----------------------------------------------------------------
 ## 3. Save data
 ##----------------------------------------------------------------
 # Prevalence, Mortality, DALY, Incidence, YLL, YLD data
-fn_counts <- file.path(dir_out, "df_gbd_counts_draws.parquet")
+fn_counts <- file.path(dir_out, "df_gbd_counts_national_draws.parquet")
 write_parquet(df_final, fn_counts)
 
 # Population data
-fn_pop <- file.path(dir_out, "df_gbd_pop.parquet")
+fn_pop <- file.path(dir_out, "df_gbd_national_pop.parquet")
 write_parquet(df_pop_final, fn_pop)
 
 ##----------------------------------------------------------------

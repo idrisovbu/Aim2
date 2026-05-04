@@ -4,9 +4,8 @@
 ##' Purpose: TBD
 ##' 
 ##' Outputs: 
-##' df_as_cdc.csv
-##' df_decomp.csv
-##' df_as.csv
+##' df_decomp.parquet
+##' df_as.csv & .parquet
 ##' df_as_no_year.csv
 ##----------------------------------------------------------------
 
@@ -51,21 +50,22 @@ ensure_dir_exists <- function(dir_path) {
 ## 0.1 Set directories for input data
 ##----------------------------------------------------------------
 # Set path for data
-date_dex <- "20260120"
-fp_dex <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_dex, "/compiled_dex_data_2010_2019.parquet")
+date_dex <- "20260402"
+fp_dex <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_dex, "/compiled_dex_data_2010_2019_draws.parquet")
 
-date_gbd <- "20260313"
-fp_gbd <- file.path(h, "/aim_outputs/Aim2/A_data_preparation/", date_gbd, "/GBD/df_gbd.parquet")
+date_gbd_state <- "20260401"
+fp_gbd <- file.path(h, "/aim_outputs/Aim2/A_data_preparation/", date_gbd_state, "/GBD/df_gbd_counts_draws.parquet")
 
-# date_ushd <- "20251204"
-# fp_ushd <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_ushd, "/compiled_ushd_data_2010_2019.parquet")
+date_gbd_nat <- "20260403"
+fp_gbd_nat <- file.path(h, "/aim_outputs/Aim2/A_data_preparation/", date_gbd_nat, "/GBD/df_gbd_counts_national_draws.parquet")
+
+date_gbd_pop <- "20260402"
+fp_gbd_pop <- file.path(h, "/aim_outputs/Aim2/A_data_preparation/", date_gbd_pop, "/GBD/df_gbd_pop.parquet")
+
+date_gbd_pop_nat <- "20260403"
+fp_gbd_pop_nat <- file.path(h, "/aim_outputs/Aim2/A_data_preparation/", date_gbd_pop_nat, "/GBD/df_gbd_national_pop.parquet")
 
 fp_ushd_age_weights <- file.path(j, "Project/us_counties/covariates/census_age_weights.csv")
-df_ushd_age_weights <- read.csv(fp_ushd_age_weights)
-
-# CDC data
-fp_cdc <- file.path(h, "/aim_outputs/Aim2/R_resources/CDC_data/hiv_mort_prev_data_trimmed.xlsx")
-df_cdc <- read_excel(fp_cdc)
 
 # Set output directories
 date_today <- format(Sys.time(), "%Y%m%d")
@@ -79,10 +79,10 @@ ensure_dir_exists(dir_output)
 ds_des <- open_dataset(fp_dex)
 
 df_dex <- ds_des %>%
-  filter(geo == "state") %>%
+  filter(!geo == "cnty") %>%
   select(c("year_id", "geo", "location_name", "fips", "toc", "payer",
            "acause", "cause_name", "age_group_years_start", "age_name", 
-           "sex_id", "spend_mean", "spend_lower", "spend_upper")) %>%
+           "sex_id", "spend", "draw")) %>%
   collect()
 
 # Add location_id to DEX data
@@ -97,8 +97,20 @@ df_dex <- left_join(
   by = c("location_name" = "state_name")
 )
 
+# need to label national USA with location_id = 102
+df_dex[geo == "national", location_id := 102]
+
 # GBD Prevalence, Mortality, Population data
 df_gbd <- read_parquet(fp_gbd)
+df_gbd_nat <- read_parquet(fp_gbd_nat)
+
+# rename United States of America -> United States
+df_gbd_nat <- df_gbd_nat %>%
+  mutate(location_name = if_else(
+    location_name == "United States of America", "United States", location_name))
+
+# rbind state level and national level data
+df_gbd <- rbind(df_gbd, df_gbd_nat)
 
 # Modify age group names to match DEX age group names
 age_map <- c(
@@ -135,13 +147,13 @@ df_gbd <- df_gbd %>%
 ##----------------------------------------------------------------
 # Collapse on TOC & Payer respectively in DEX data
 df_dex_payer <- df_dex %>%
-  group_by(year_id, geo, location_name, location_id, fips, payer, acause, cause_name, age_group_years_start, age_name, sex_id) %>%
-  summarize(spend_mean = sum(spend_mean))
+  group_by(year_id, geo, location_name, location_id, fips, payer, acause, cause_name, age_group_years_start, age_name, sex_id, draw) %>%
+  summarize(spend = sum(spend))
 
 df_dex_toc <- df_dex %>%
   filter(!payer == "all") %>%
-  group_by(year_id, geo, location_name, location_id, fips, toc, acause, cause_name, age_group_years_start, age_name, sex_id) %>%
-  summarize(spend_mean = sum(spend_mean))
+  group_by(year_id, geo, location_name, location_id, fips, toc, acause, cause_name, age_group_years_start, age_name, sex_id, draw) %>%
+  summarize(spend = sum(spend))
 
 # Create "_subs" acause
 df_dex_sud_payer <- df_dex_payer %>%
@@ -151,16 +163,16 @@ df_dex_sud_toc <- df_dex_toc %>%
   filter(acause != "hiv")
 
 df_dex_sud_payer <- df_dex_sud_payer %>%
-  group_by(year_id, geo, location_name, location_id, fips, payer, age_group_years_start, age_name, sex_id) %>%
-  summarize(spend_mean = sum(spend_mean)) %>%
+  group_by(year_id, geo, location_name, location_id, fips, payer, age_group_years_start, age_name, sex_id, draw) %>%
+  summarize(spend = sum(spend)) %>%
   mutate(
     acause = "_subs",
     cause_name = "Substance use disorders"
     )
 
 df_dex_sud_toc <- df_dex_sud_toc %>%
-  group_by(year_id, geo, location_name, location_id, fips, toc, age_group_years_start, age_name, sex_id) %>%
-  summarize(spend_mean = sum(spend_mean)) %>%
+  group_by(year_id, geo, location_name, location_id, fips, toc, age_group_years_start, age_name, sex_id, draw) %>%
+  summarize(spend = sum(spend)) %>%
   mutate(
     acause = "_subs",
     cause_name = "Substance use disorders"
@@ -169,14 +181,14 @@ df_dex_sud_toc <- df_dex_sud_toc %>%
 # Filter on "hiv" acause" & retain "mental_alcohol" & "mental_drug_opioids" SUD subtype acauses
 df_dex_hiv_and_sud_subtypes_payer <- df_dex %>% 
   filter(acause != "mental_drug_agg") %>%
-  group_by(year_id, geo, location_name, location_id, fips, payer, acause, cause_name, age_group_years_start, age_name, sex_id) %>%
-  summarize(spend_mean = sum(spend_mean))
+  group_by(year_id, geo, location_name, location_id, fips, payer, acause, cause_name, age_group_years_start, age_name, sex_id, draw) %>%
+  summarize(spend = sum(spend))
 
 df_dex_hiv_and_sud_subtypes_toc <- df_dex %>% 
   filter(acause != "mental_drug_agg") %>%
   filter(!payer == "all") %>%
-  group_by(year_id, geo, location_name, location_id, fips, toc, acause, cause_name, age_group_years_start, age_name, sex_id) %>%
-  summarize(spend_mean = sum(spend_mean))
+  group_by(year_id, geo, location_name, location_id, fips, toc, acause, cause_name, age_group_years_start, age_name, sex_id, draw) %>%
+  summarize(spend = sum(spend))
 
 # Rbind back "_subs" & "hiv"
 df_dex_payer_all <- rbind(df_dex_hiv_and_sud_subtypes_payer, df_dex_sud_payer)
@@ -185,13 +197,13 @@ df_dex_toc_all <- rbind(df_dex_hiv_and_sud_subtypes_toc, df_dex_sud_toc)
 # Pivot wider to have columns for all different payer & toc types
 df_dex_payer_pivot <- df_dex_payer_all %>% pivot_wider(
   names_from  = payer,
-  values_from = spend_mean,
+  values_from = spend,
   names_prefix = "spend_"
 )
 
 df_dex_toc_pivot <- df_dex_toc_all %>% pivot_wider(
   names_from  = toc,
-  values_from = spend_mean,
+  values_from = spend,
   names_prefix = "spend_"
 )
 
@@ -202,26 +214,34 @@ df_dex_pivot <- left_join(
   y = df_dex_toc_pivot
 )
 
-# sanity check (yup the issue was needed to remove payer = all from the TOC calculation, otherwise we were doulbe counting)
-# df_dex_pivot_test <- copy(df_dex_pivot)
-# 
-# df_dex_pivot_test <- df_dex_pivot_test %>%
-#   mutate(toc_sum = spend_AM + spend_ED + spend_HH + spend_IP + spend_NF + spend_RX,
-#          payer_sum = spend_mdcd + spend_mdcr + spend_oop + spend_priv,
-#          toc_diff = (spend_all - toc_sum),
-#          pay_diff = (spend_all - payer_sum)
-#          )
-
 # Merge DEX & GBD data
+
+# Filter gbd data to just draw_0 ~ draw_50 (inclusive)
+draws_to_filter <- c("draw_0", "draw_1", "draw_2", "draw_3", "draw_4", "draw_5", "draw_6", "draw_7", "draw_8", "draw_9", "draw_10", "draw_11", "draw_12", "draw_13", "draw_14", "draw_15", "draw_16", "draw_17", "draw_18", "draw_19", "draw_20", "draw_21", "draw_22", "draw_23", "draw_24", "draw_25", "draw_26", "draw_27", "draw_28", "draw_29", "draw_30", "draw_31", "draw_32", "draw_33", "draw_34", "draw_35", "draw_36", "draw_37", "draw_38", "draw_39", "draw_40", "draw_41", "draw_42", "draw_43", "draw_44", "draw_45", "draw_46", "draw_47", "draw_48", "draw_49", "draw_50")
+
+df_gbd <- df_gbd %>%
+  filter(draw %in% draws_to_filter)
+
+# Filter to just the causes we're interested in 
 gbd_causes_to_include <- c("HIV/AIDS", 
                            "Alcohol use disorders",  
                            "Opioid use disorders",
                            "Substance use disorders")
 
+df_gbd <- df_gbd %>%
+  filter(cause_name %in% gbd_causes_to_include)
+
+# Strip the draw column's "draw_" values and retain just the draw # itself e.g. "draw_0" -> 0
+df_gbd <- df_gbd %>%
+  mutate(
+    draw = as.integer(sub("draw_", "", draw))
+  )
+
+# Join DEX and GBD data
 df_m <- left_join(
-  x = df_gbd %>% filter(cause_name %in% gbd_causes_to_include),
+  x = df_gbd,
   y = df_dex_pivot,
-  by = c("location_id", "sex_id", "year_id", "cause_name", "location_name", "age_name")
+  by = c("sex_id", "year_id", "cause_name", "location_name", "age_name", "draw")
 )
 
 # Filter out age groups under 15 years of age, all GBD data is 0, but should be NA. 
@@ -231,14 +251,31 @@ df_m <- df_m %>%
   filter(!(cause_name == "Opioid use disorders" &
              age_name %in% opioid_age_groups_to_filter))
 
+# Drop extra location_id column
+df_m <- df_m %>%
+  select(!c("location_id.y")) %>%
+  rename("location_id" = "location_id.x")
+
+# Read in population data and join to df_m
+df_gbd_pop <- read_parquet(fp_gbd_pop)
+df_gbd_nat_pop <- read_parquet(fp_gbd_pop_nat)
+
+df_gbd_pop <- rbind(df_gbd_pop, df_gbd_nat_pop)
+
+df_m_pop <- left_join(
+  x = df_m,
+  y = df_gbd_pop,
+  by = c("age_name" = "age_group_name", "year_id", "sex_id", "location_id")
+)
+
 # Write out age*sex*year*loc strata file, used for decomp analysis
-write.csv(x = df_m, row.names = FALSE, file = file.path(dir_output, "df_decomp.csv"))
+write_parquet(df_m_pop, file.path(dir_output, "df_decomp_draws.parquet"))
 
 ##----------------------------------------------------------------
 ## 2. Collapse on sex_id
 ##----------------------------------------------------------------
-df_m_collapse <- df_m %>%
-  group_by(cause_id, year_id, location_id, location_name, acause, cause_name, age_name, age_group_years_start) %>%
+df_m_collapse <- df_m_pop %>%
+  group_by(cause_id, year_id, geo, location_id, location_name, acause, cause_name, age_name, age_group_years_start, draw) %>%
   summarise(
     spend_all = sum(spend_all, na.rm = TRUE),
     spend_mdcd = sum(spend_mdcd, na.rm = TRUE),
@@ -277,6 +314,9 @@ df_m_collapse <- df_m_collapse %>%
 ##----------------------------------------------------------------
 ## 4. Apply age-standardization
 ##----------------------------------------------------------------
+# Read in age weights
+df_ushd_age_weights <- read.csv(fp_ushd_age_weights)
+
 # Rename "wt" column
 df_ushd_age_weights <- df_ushd_age_weights %>%
   setnames(old = c("age", "wt"), new = c("age_group_years_start", "age_group_weight_value"))
@@ -290,7 +330,7 @@ df_as <- left_join(
 
 # Create age-standardized ratios based on non-sexed GBD age weights (collapsing age groups here) 
 df_as <- df_as %>%
-  group_by(cause_id, year_id, location_id, location_name, acause, cause_name) %>%
+  group_by(cause_id, year_id, geo, location_id, location_name, acause, cause_name, draw) %>%
   summarise(
     as_spend_prev_ratio = sum(spend_prev_ratio * age_group_weight_value, na.rm = TRUE),
     as_mort_prev_ratio  = sum(mort_prev_ratio * age_group_weight_value, na.rm = TRUE),
@@ -319,14 +359,14 @@ df_as <- df_as %>%
   )
 
 ##----------------------------------------------------------------
-## 5. Add Rate columns
+## 5. Add Rate columns - UNUSED? I don't think we use rates for anything?
 ##----------------------------------------------------------------
-df_as$mortality_rates <- df_as$mortality_counts / df_as$population
-df_as$prevalence_rates <- df_as$prevalence_counts / df_as$population
-df_as$daly_rates <- df_as$daly_counts / df_as$population
-df_as$incidence_rates <- df_as$incidence_counts / df_as$population
-df_as$yll_rates <- df_as$yll_counts / df_as$population
-df_as$yld_rates <- df_as$yld_counts / df_as$population
+# df_as$mortality_rates <- df_as$mortality_counts / df_as$population
+# df_as$prevalence_rates <- df_as$prevalence_counts / df_as$population
+# df_as$daly_rates <- df_as$daly_counts / df_as$population
+# df_as$incidence_rates <- df_as$incidence_counts / df_as$population
+# df_as$yll_rates <- df_as$yll_counts / df_as$population
+# df_as$yld_rates <- df_as$yld_counts / df_as$population
 
 
 ##----------------------------------------------------------------
@@ -373,7 +413,8 @@ df_as <- df_as %>%
 df_as$variance <- (df_as$mortality_counts / (df_as$prevalence_counts^2))
 
 # Write out age-standardized data to today's dated folder in C_frontier_analysis
-write.csv(x = df_as, row.names = FALSE, file = file.path(dir_output, "df_as.csv"))
+write_parquet(df_as, file.path(dir_output, "df_as_draws.parquet"))
+write.csv(x = df_as, row.names = FALSE, file = file.path(dir_output, "df_as_draws.csv"))
 
 
 
@@ -382,7 +423,7 @@ write.csv(x = df_as, row.names = FALSE, file = file.path(dir_output, "df_as.csv"
 ##----------------------------------------------------------------
 # Collapse on year_id
 df_as_no_year <- df_as %>%
-  group_by(cause_id, location_id, location_name, acause, cause_name) %>%
+  group_by(cause_id, location_id, geo, location_name, acause, cause_name, draw) %>%
   summarise(
     spend_all = sum(spend_all, na.rm = TRUE),
     spend_mdcd = sum(spend_mdcd, na.rm = TRUE),
@@ -418,9 +459,7 @@ df_as_no_year$yll_rates <- df_as_no_year$yll_counts / df_as_no_year$population
 df_as_no_year$yld_rates <- df_as_no_year$yld_counts / df_as_no_year$population
 
 # Save
-write.csv(x = df_as_no_year, row.names = FALSE, file = file.path(dir_output, "df_as_no_year.csv"))
-
-# CDC Data Processing has been commented out below, depracated as of 3/15/26
+write.csv(x = df_as_no_year, row.names = FALSE, file = file.path(dir_output, "df_as_no_year_draws.csv"))
 
 ##----------------------------------------------------------------
 ## 8. Process CDC data
@@ -760,4 +799,21 @@ cat(sprintf("\nN state-years in CDC estimation sample: %d (of %d total in df_hiv
 ##----------------------------------------------------------------
 write.csv(cdc_gbd_corr_tbl, file.path(dir_output, "cdc_gbd_correlations.csv"), row.names = FALSE)
 write.csv(coef_robust_cdc,  file.path(dir_output, "regression_results_hiv_cdc_robustness.csv"), row.names = FALSE)
+
+
+
+##### SCRATCH SPACE
+# Example code for collapsing the draw values to get PI and UI
+
+# "prevalence_counts"
+# 
+# df_test <- head(df_m, 51) # This step basically filters to give us a single strata, with 51 draw values
+# 
+# df_test_2 <- df_test %>% #this step collapses on the 51 draw values, and takes the mean, and then quantiles to get the UI
+#   group_by(cause_id, location_id, sex_id, year_id, cause_name, location_name, age_name, geo, fips, acause, age_group_years_start) %>%
+#   summarise(
+#     prevalence_counts_pi = mean(prevalence_counts),
+#     prevalence_counts_lower = quantile(prevalence_counts, 0.025),
+#     prevalence_counts_upper = quantile(prevalence_counts, 0.975),
+#   )
 
