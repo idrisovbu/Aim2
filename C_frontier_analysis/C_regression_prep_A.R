@@ -310,7 +310,7 @@ df_m_collapse <- df_m_collapse %>%
     yld_prev_ratio = (yld_counts / prevalence_counts)
   )
 
-
+colnames(df_m_pop)
 ##----------------------------------------------------------------
 ## 4. Apply age-standardization
 ##----------------------------------------------------------------

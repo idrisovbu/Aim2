@@ -2890,7 +2890,7 @@ p_payer <- ggplot(df_oud_payer,
                      expand = expansion(mult = c(0, 0.01))) +
   labs(x = "", y = "") +
   base +
-  guides(fill = guide_legend(nrow = 1))
+  guides(fill = guide_legend(nrow = 1, reverse = TRUE))
 
 # --- TOC row ---
 p_toc <- ggplot(df_oud_toc,
@@ -2907,7 +2907,7 @@ p_toc <- ggplot(df_oud_toc,
   base +
   theme(strip.text = element_blank(),
         strip.background = element_blank()) +
-  guides(fill = guide_legend(nrow = 1))
+  guides(fill = guide_legend(nrow = 1, reverse = TRUE))
 
 # --- Combine ---
 f_oud_v3 <- p_payer / p_toc +

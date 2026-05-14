@@ -115,7 +115,6 @@ df_hiv <- df_as %>%
   dplyr::filter(acause == "hiv") %>%
   dplyr::filter(!is.na(as_mort_prev_ratio) & !is.na(rw_dex_hiv_prev_ratio))
 
-
 ##================================================================
 ## 2.  LOG-TRANSFORM OUTCOME & EXPOSURE
 ##================================================================
@@ -733,6 +732,19 @@ register_model(
   is_final = TRUE
 )
 
+# B1a. PRIMARY -- w/o incidence (main model).
+register_model(
+  family   = "between_yfe",
+  spec     = "primary_no_inc",
+  formula  = "as_mort_prev_ratio_log ~
+                rw_dex_hiv_prev_ratio_log + year_factor +
+                race_prop_BLCK +
+                race_prop_HISP +
+                log_prop_homeless",
+  data     = df_hiv,
+  is_final = TRUE
+)
+
 # B2. SECONDARY -- without homelessness.
 register_model(
   family   = "between_yfe",
@@ -752,6 +764,19 @@ register_model(
   formula  = "as_daly_prev_ratio_log ~
                 rw_dex_hiv_prev_ratio_log + year_factor +
                 race_prop_BLCK + log_incidence_rates +
+                race_prop_HISP +
+                log_prop_homeless",
+  data     = df_hiv,
+  is_final = TRUE
+)
+
+# B1a. PRIMARY -- w/o incidence (main model).
+register_model(
+  family   = "between_yfe",
+  spec     = "primary_daly_no_inc",
+  formula  = "as_daly_prev_ratio_log ~
+                rw_dex_hiv_prev_ratio_log + year_factor +
+                race_prop_BLCK +
                 race_prop_HISP +
                 log_prop_homeless",
   data     = df_hiv,

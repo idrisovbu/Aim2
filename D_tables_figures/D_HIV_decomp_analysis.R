@@ -684,6 +684,13 @@ compute_weaver_stats <- function(spend_draws, daly_averted_draws) {
   n_cat4_all <- sum(crossed$category == 4L, na.rm = TRUE)
   n_total_all <- nrow(crossed)
   
+  # Mean Cat-1 ratio across all crossed draws (for scatter vs. frontier efficiency)
+  mean_cat1_ratio <- if (n_cat1_all > 0) {
+    mean(crossed$ratio[crossed$category == 1L], na.rm = TRUE)
+  } else {
+    NA_real_
+  }
+  
   # Exclude Category 4 (per Weaver methodology)
   crossed <- crossed[!is.na(crossed$category) & crossed$category != 4L, ]
   
@@ -700,7 +707,8 @@ compute_weaver_stats <- function(spend_draws, daly_averted_draws) {
       pct_cat1 = 100 * n_cat1_all / n_total_all,
       pct_cat2 = 100 * n_cat2_all / n_total_all,
       pct_cat3 = 100 * n_cat3_all / n_total_all,
-      pct_cat4 = 100 * n_cat4_all / n_total_all
+      pct_cat4 = 100 * n_cat4_all / n_total_all,
+      mean_cat1_ratio = mean_cat1_ratio
     ))
   }
   
@@ -734,7 +742,8 @@ compute_weaver_stats <- function(spend_draws, daly_averted_draws) {
     pct_cat1 = 100 * n_cat1_all / n_total_all,
     pct_cat2 = 100 * n_cat2_all / n_total_all,
     pct_cat3 = 100 * n_cat3_all / n_total_all,
-    pct_cat4 = 100 * n_cat4_all / n_total_all
+    pct_cat4 = 100 * n_cat4_all / n_total_all,
+    mean_cat1_ratio = mean_cat1_ratio  
   )
 }
 
@@ -810,6 +819,8 @@ spend_eff_results <- lapply(locations, function(loc_id) {
     n_total = ws$n_total,
     pct_cat1 = ws$pct_cat1, pct_cat2 = ws$pct_cat2,
     pct_cat3 = ws$pct_cat3, pct_cat4 = ws$pct_cat4,
+    
+    mean_cat1_ratio = ws$mean_cat1_ratio, 
     
     category = category,
     interpretation = interpretation

@@ -59,7 +59,7 @@ first_existing_col <- function(df, candidates, required = TRUE) {
 ## 2. Paths
 ##----------------------------------------------------------------
 date_t1 <- "20260411"
-date_t3 <- "20260423" # last run per Marcia's feedbaack
+date_t3 <- "20260505" # last run per Marcia's feedbaack
 date_frontier <- "20260411"
 
 fp_t1 <- file.path(h, "/aim_outputs/Aim2/D_tables_figures/", date_t1, "/T1_HIV_2019_UI.csv")
@@ -435,8 +435,9 @@ write.csv(cat_summary,
 
 ##---- E.4 Scatter: frontier level vs. change, colored by category ----------
 # Use the pipeline palette if available; these are safe defaults.
-cat_pal <- c("1" = "#2166AC",
-             "2" = "#4DAF4A",
+#c("#8DA0CB", "#66C2A5"),
+cat_pal <- c("1" = "#8DA0CB",
+             "2" = "#66C2A5",
              "3" = "#F46D43",
              "4" = "#D73027")
 cat_lbl <- c("1" = "Cat 1: Increased spending, improved health",
@@ -467,6 +468,8 @@ p_scatter <- ggplot(plot_df,
   ) +
   theme_minimal(base_size = 11) +
   theme(
+    plot.background  = element_rect(fill = "white", color = NA),
+    panel.background = element_rect(fill = "white", color = NA),
     legend.position = "bottom",
     legend.direction = "vertical",
     plot.caption = element_text(hjust = 0)
@@ -510,6 +513,172 @@ write.csv(cross_tbl,
 cat("\nAll outputs written to:\n", dir_E, "\n", sep = "")
 
 ####checking
+
+
+##----------------------------------------------------------------
+## E.6 Cost per DALY averted vs. frontier efficiency (Joe's ask)
+##
+## Directly scatters $/DALY averted against frontier inefficiency.
+## Uses mean_cat1_ratio (mean of Cat-1 ratios across the 51x51 crossed
+## draws) so every state gets a numeric cost — including Cat 2
+## cost-saving states, which are NA on spend_effectiveness_median.
+## pct_cat1 = share of crossed draws in Cat 1 = reliability flag.
+##----------------------------------------------------------------
+
+t3_cost <- t3 %>%
+  transmute(
+    location_name   = .data[[col_location]],
+    category        = as.integer(.data[[col_se_med_cat]]),
+    mean_cat1_ratio = mean_cat1_ratio,
+    pct_cat1        = pct_cat1
+  )
+
+cost_vs_frontier <- t3_cost %>%
+  left_join(frontier_prepped, by = "location_name") %>%
+  left_join(frontier_abbrev,  by = "location_name") %>%
+  filter(
+    !is.na(state_abbrev),            # drop national row
+    !is.na(mean_cat1_ratio),
+    is.finite(mean_cat1_ratio),
+    mean_cat1_ratio > 0,             # log-axis safe
+    pct_cat1 >= 10                   # reliability floor; relax/raise as needed
+  )
+
+##---- E.6.1 Spearman correlations ------------------------------------------
+rho_level  <- with(cost_vs_frontier,
+                   cor.test(mean_cat1_ratio, ineff_mean,
+                            method = "spearman", exact = FALSE))
+rho_change <- with(cost_vs_frontier,
+                   cor.test(mean_cat1_ratio, ineff_change,
+                            method = "spearman", exact = FALSE))
+
+cat(sprintf("\nSpearman: cost vs. ineff_mean   rho = %.2f, p = %.3g, n = %d\n",
+            rho_level$estimate,  rho_level$p.value,  nrow(cost_vs_frontier)))
+cat(sprintf("Spearman: cost vs. ineff_change rho = %.2f, p = %.3g, n = %d\n",
+            rho_change$estimate, rho_change$p.value, nrow(cost_vs_frontier)))
+
+##---- E.6.2 Primary scatter: cost vs. inefficiency level -------------------
+cat_pal <- c("1" = "#8DA0CB", "2" = "#66C2A5", "3" = "#F46D43", "4" = "#D73027")
+cat_lbl <- c("1" = "Cat 1: +Spend, +Health",
+             "2" = "Cat 2: Cost-saving",
+             "3" = "Cat 3: Dominated",
+             "4" = "Cat 4: -Both")
+
+
+plot_df <- cost_vs_frontier %>%
+  mutate(cat_f = factor(category, levels = 1:4,
+                        labels = cat_lbl[as.character(1:4)]))
+
+p_cost_level <- ggplot(plot_df, aes(x = ineff_mean, y = mean_cat1_ratio)) +
+  geom_smooth(method = "lm", se = TRUE,
+              color = "grey40", fill = "grey85", linewidth = 0.6) +
+  geom_point(aes(color = cat_f, size = pct_cat1), alpha = 0.85) +
+  ggrepel::geom_text_repel(aes(label = state_abbrev),
+                           size = 3, max.overlaps = Inf,
+                           min.segment.length = 0,
+                           segment.color = "grey70") +
+  scale_y_log10(labels = scales::dollar) +
+  scale_color_manual(values = setNames(cat_pal, cat_lbl), drop = FALSE,
+                     name = "Category (point estimate)") +
+  scale_size_continuous(range = c(2, 6), name = "% Cat-1 draws") +
+  labs(
+    title    = "Spending effectiveness vs. frontier inefficiency, HIV (2010-2019)",
+    subtitle = sprintf("Spearman rho = %.2f (p = %.3g, n = %d)",
+                       rho_level$estimate, rho_level$p.value, nrow(plot_df)),
+    x        = "Mean inefficiency, 2010-2019 (frontier residual)",
+    y        = "Mean cost per DALY averted ($ / DALY, log scale)",
+    caption  = paste0(
+      "Cost = mean of Cat-1 ratios across 51x51 crossed draws (Weaver crossing).\n",
+      "Point size = % of crossed draws falling in Cat 1 (reliability)."
+    )
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    plot.background  = element_rect(fill = "white", color = NA),
+    panel.background = element_rect(fill = "white", color = NA),
+    legend.position  = "bottom",
+    legend.box       = "vertical",
+    plot.caption     = element_text(hjust = 0)
+  )
+
+ggsave(file.path(dir_E, "E6_cost_vs_inefficiency_level.png"),
+       p_cost_level, width = 9, height = 7.5, dpi = 300, bg = "white")
+
+##---- E.6.3 Companion scatter: cost vs. change in inefficiency -------------
+p_cost_change <- ggplot(plot_df, aes(x = ineff_change, y = mean_cat1_ratio)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey60") +
+  geom_smooth(method = "lm", se = TRUE,
+              color = "grey40", fill = "grey85", linewidth = 0.6) +
+  geom_point(aes(color = cat_f, size = pct_cat1), alpha = 0.85) +
+  ggrepel::geom_text_repel(aes(label = state_abbrev),
+                           size = 3, max.overlaps = Inf,
+                           min.segment.length = 0,
+                           segment.color = "grey70") +
+  scale_y_log10(labels = scales::dollar) +
+  scale_color_manual(values = setNames(cat_pal, cat_lbl), drop = FALSE,
+                     name = "Category (point estimate)") +
+  scale_size_continuous(range = c(2, 6), name = "% Cat-1 draws") +
+  labs(
+    title    = "Spending effectiveness vs. change in frontier inefficiency",
+    subtitle = sprintf("Spearman rho = %.2f (p = %.3g, n = %d)",
+                       rho_change$estimate, rho_change$p.value, nrow(plot_df)),
+    x        = "Change in inefficiency, 2019 vs. 2010 (negative = improved)",
+    y        = "Mean cost per DALY averted ($ / DALY, log scale)"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(legend.position = "bottom", legend.box = "vertical")
+
+ggsave(file.path(dir_E, "E6_cost_vs_inefficiency_change.png"),
+       p_cost_change, width = 9, height = 7.5, dpi = 300, bg = "white")
+
+
+##---- E.6.4 Two-by-two: median splits + Fisher's exact ---------------------
+cost_quad <- plot_df %>%
+  mutate(
+    cost_grp  = if_else(mean_cat1_ratio > median(mean_cat1_ratio, na.rm = TRUE),
+                        "High $/DALY averted", "Low $/DALY averted"),
+    ineff_grp = if_else(ineff_mean > median(ineff_mean, na.rm = TRUE),
+                        "High inefficiency", "Low inefficiency")
+  )
+
+quad_tbl <- cost_quad %>%
+  count(ineff_grp, cost_grp) %>%
+  pivot_wider(names_from = cost_grp, values_from = n, values_fill = 0)
+
+quad_fisher <- fisher.test(table(cost_quad$ineff_grp, cost_quad$cost_grp))
+
+cat("\n--- 2x2: cost x inefficiency (median splits) ---\n")
+print(quad_tbl, row.names = FALSE)
+cat(sprintf("Fisher's exact: OR = %.2f (95%% CI %.2f-%.2f), p = %.3g\n",
+            quad_fisher$estimate,
+            quad_fisher$conf.int[1], quad_fisher$conf.int[2],
+            quad_fisher$p.value))
+
+write.csv(quad_tbl,
+          file.path(dir_E, "E6_2x2_cost_x_inefficiency.csv"),
+          row.names = FALSE)
+
+##---- E.6.5 Off-diagonal states (the interesting cases) --------------------
+off_diag <- cost_quad %>%
+  filter((ineff_grp == "Low inefficiency"  & cost_grp == "High $/DALY averted") |
+           (ineff_grp == "High inefficiency" & cost_grp == "Low $/DALY averted")) %>%
+  arrange(ineff_grp, desc(mean_cat1_ratio)) %>%
+  select(state_abbrev, location_name, category,
+         ineff_mean, mean_cat1_ratio, pct_cat1)
+
+cat("\n--- Off-diagonal states ---\n")
+print(off_diag, row.names = FALSE)
+
+write.csv(off_diag,
+          file.path(dir_E, "E6_off_diagonal_states.csv"),
+          row.names = FALSE)
+
+##---- E.6.6 Save merged data for the section -------------------------------
+write.csv(cost_vs_frontier,
+          file.path(dir_E, "E6_cost_vs_frontier_data.csv"),
+          row.names = FALSE)
+
+cat("\nE.6 outputs written to:\n", dir_E, "\n", sep = "")
 
 ##----------------------------------------------------------------
 ## F_HIV_state_frontier_arrows.R

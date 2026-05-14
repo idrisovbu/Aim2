@@ -90,6 +90,58 @@ df_sud <- df_as %>%
 # df_sud <- df_as %>%
 #   dplyr::filter(acause == "mental_alcohol")
 
+
+# ==============================================================
+# CATEGORY 1/2 FILTERED MODELS (conservative threshold)
+#
+# Conservative filter: state must have at least `cat12_threshold`
+# percent of crossed posterior draws falling in Cat 1 (+spend, +health)
+# or Cat 2 (cost-saving) per the Weaver decomposition output (T3).
+# Drops states where Cat 3 or Cat 4 mass is non-trivial.
+#
+# Filter is state-level and propagates across all years for that
+# state (state-mean property, applied to YFE panel).
+# ==============================================================
+
+# ---- Configuration ----
+cat12_threshold <- 90     # require pct_cat1 + pct_cat2 >= this value (try 80, 90, 95)
+date_t3         <- "20260426"
+
+fp_t3 <- file.path(h, "aim_outputs/Aim2/D_tables_figures",
+                   date_t3, "T3_OUD_spending_effectiveness.csv")
+if (!file.exists(fp_t3)) stop("T3 file not found: ", fp_t3)
+
+df_t3 <- read.csv(fp_t3, stringsAsFactors = FALSE)
+
+# ---- State-level inclusion flag ----
+df_t3_keep <- df_t3 %>%
+  dplyr::filter(location_name != "United States",
+                (pct_cat1 + pct_cat2) >= cat12_threshold)
+
+keep_ids     <- df_t3_keep$location_id
+df_sud_cat12 <- df_sud %>% dplyr::filter(location_id %in% keep_ids)
+
+cat("\n---- Cat 1/2 filter (threshold = ", cat12_threshold, "%) ----\n", sep = "")
+cat("States kept:", length(keep_ids), "of", nrow(df_t3) - 1, "(excluding US)\n")
+cat("Panel obs:",   nrow(df_sud_cat12), "of", nrow(df_sud), "\n")
+
+cat("\nKept states (sorted by Cat 1/2 share):\n")
+print(df_t3_keep %>%
+        dplyr::mutate(pct_cat12 = round(pct_cat1 + pct_cat2, 1)) %>%
+        dplyr::select(location_name, pct_cat1, pct_cat2, pct_cat12,
+                      spend_effectiveness_median_category, dominant_category) %>%
+        dplyr::arrange(desc(pct_cat12)) %>%
+        as.data.frame())
+
+cat("\nDropped states:\n")
+print(df_t3 %>%
+        dplyr::filter(location_name != "United States",
+                      !location_id %in% keep_ids) %>%
+        dplyr::mutate(pct_cat12 = round(pct_cat1 + pct_cat2, 1)) %>%
+        dplyr::select(location_name, pct_cat12, pct_cat3, pct_cat4, dominant_category) %>%
+        dplyr::arrange(pct_cat12) %>%
+        as.data.frame())
+
 ##================================================================
 ## 2.  LOG-TRANSFORM OUTCOME & EXPOSURE
 ##================================================================
@@ -1120,6 +1172,43 @@ write.csv(model_registry,
           file.path(dir_output, "model_registry.csv"),
           row.names = FALSE)
 
+####Check below may delete if not needed Apr 29th
+# ---- Per-category spending slopes from interaction model ----
+build_cat_slopes <- function(model_id_prefix) {
+  rows <- coef_tbl %>%
+    dplyr::filter(model_id == paste0("sud__between_yfe__", model_id_prefix))
+  if (nrow(rows) == 0) return(NULL)
+  main <- rows %>% dplyr::filter(term == "as_spend_prev_ratio_log") %>%
+    dplyr::pull(estimate)
+  int_terms <- rows %>%
+    dplyr::filter(grepl("^as_spend_prev_ratio_log:dom_cat_f", term))
+  tibble::tibble(
+    source     = model_id_prefix,
+    category   = c("Cat1 (ref)",
+                   sub("^as_spend_prev_ratio_log:dom_cat_f", "",
+                       int_terms$term)),
+    slope      = c(main, main + int_terms$estimate),
+    se_main_or_diff = c(rows %>%
+                          dplyr::filter(term == "as_spend_prev_ratio_log") %>%
+                          dplyr::pull(std.error),
+                        int_terms$std.error),
+    p_diff_vs_cat1  = c(NA, int_terms$p.value)
+  )
+}
+
+cat_slopes <- dplyr::bind_rows(
+  build_cat_slopes("primary_catinteract_mort"),
+  build_cat_slopes("primary_catinteract_daly"),
+  build_cat_slopes("bivariate_catinteract_mort"),
+  build_cat_slopes("bivariate_catinteract_daly")
+)
+
+write.csv(cat_slopes,
+          file.path(dir_output, "spending_slopes_by_category.csv"),
+          row.names = FALSE)
+
+cat("\n=== SPENDING SLOPE BY CATEGORY (from interaction models) ===\n")
+print(as.data.frame(cat_slopes))
 
 ##================================================================
 ## END OF PIPELINE
