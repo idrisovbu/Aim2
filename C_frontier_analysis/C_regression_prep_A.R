@@ -50,7 +50,7 @@ ensure_dir_exists <- function(dir_path) {
 ## 0.1 Set directories for input data
 ##----------------------------------------------------------------
 # Set path for data
-date_dex <- "20260402"
+date_dex <- "20260514"
 fp_dex <- file.path(h, "/aim_outputs/Aim2/B_aggregation/", date_dex, "/compiled_dex_data_2010_2019_draws.parquet")
 
 date_gbd_state <- "20260401"
@@ -81,8 +81,8 @@ ds_des <- open_dataset(fp_dex)
 df_dex <- ds_des %>%
   filter(!geo == "cnty") %>%
   select(c("year_id", "geo", "location_name", "fips", "toc", "payer",
-           "acause", "cause_name", "age_group_years_start", "age_name", 
-           "sex_id", "spend", "draw")) %>%
+           "acause", "cause_name", "age_group_years_start", "age_name",
+           "sex_id", "spend", "pop", "draw")) %>%   # [POST-MAY-6-COMMITTEE: per-capita switch] pull pop from worker
   collect()
 
 # Add location_id to DEX data
@@ -145,6 +145,18 @@ df_gbd <- df_gbd %>%
 ##----------------------------------------------------------------
 ## 1. Collapse & Merge DEX & GBD data
 ##----------------------------------------------------------------
+# [POST-MAY-6-COMMITTEE: per-capita switch] -------------------------------------
+# Extract DEX population denominator BEFORE collapsing — pop does not vary by
+# draw, toc, or acause. One pop value per (year, geo, location, age, sex).
+# Using payer == "all" as the representative row.
+df_dex_pop_lookup <- df_dex %>%
+  #filter(payer == "all") %>%
+  filter(!is.na(pop)) %>%   # [POST-MAY-6-COMMITTEE: per-capita fix] "all" payer rows have NA pop; keep rows from mdcr/mdcd/oop/priv (same pop value)
+  group_by(year_id, geo, location_name, location_id, fips, age_group_years_start, age_name, sex_id) %>%
+  summarize(dex_pop = max(pop, na.rm = TRUE), .groups = "drop")
+# -------------------------------------------------------------------------------
+
+
 # Collapse on TOC & Payer respectively in DEX data
 df_dex_payer <- df_dex %>%
   group_by(year_id, geo, location_name, location_id, fips, payer, acause, cause_name, age_group_years_start, age_name, sex_id, draw) %>%
@@ -268,6 +280,15 @@ df_m_pop <- left_join(
   by = c("age_name" = "age_group_name", "year_id", "sex_id", "location_id")
 )
 
+# [POST-MAY-6-COMMITTEE: per-capita switch] -------------------------------------
+# Join DEX population denominator to df_m_pop so it propagates through collapses.
+df_m_pop <- left_join(
+  x = df_m_pop,
+  y = df_dex_pop_lookup,
+  by = c("year_id", "geo", "location_name", "location_id", "fips", "age_group_years_start", "age_name", "sex_id")
+)
+# -------------------------------------------------------------------------------
+
 # Write out age*sex*year*loc strata file, used for decomp analysis
 write_parquet(df_m_pop, file.path(dir_output, "df_decomp_draws.parquet"))
 
@@ -295,6 +316,7 @@ df_m_collapse <- df_m_pop %>%
     yll_counts = sum(yll_counts),
     yld_counts = sum(yld_counts),
     population = sum(population),
+    dex_pop = sum(dex_pop, na.rm = TRUE),  # [POST-MAY-6-COMMITTEE: per-capita switch] sum DEX pop across sexes
     .groups = "drop"
   )
 
@@ -303,11 +325,12 @@ df_m_collapse <- df_m_pop %>%
 ##----------------------------------------------------------------
 df_m_collapse <- df_m_collapse %>%
   mutate(
-    spend_prev_ratio = (spend_all / prevalence_counts),
-    mort_prev_ratio = (mortality_counts / prevalence_counts),
-    daly_prev_ratio = (daly_counts / prevalence_counts),
-    yll_prev_ratio = (yll_counts / prevalence_counts),
-    yld_prev_ratio = (yld_counts / prevalence_counts)
+    spend_prev_ratio  = (spend_all / prevalence_counts),
+    spend_per_capita  = (spend_all / dex_pop),       # [POST-MAY-6-COMMITTEE: per-capita switch] new exposure variable
+    mort_prev_ratio   = (mortality_counts / prevalence_counts),
+    daly_prev_ratio   = (daly_counts / prevalence_counts),
+    yll_prev_ratio    = (yll_counts / prevalence_counts),
+    yld_prev_ratio    = (yld_counts / prevalence_counts)
   )
 
 colnames(df_m_pop)
@@ -332,11 +355,12 @@ df_as <- left_join(
 df_as <- df_as %>%
   group_by(cause_id, year_id, geo, location_id, location_name, acause, cause_name, draw) %>%
   summarise(
-    as_spend_prev_ratio = sum(spend_prev_ratio * age_group_weight_value, na.rm = TRUE),
-    as_mort_prev_ratio  = sum(mort_prev_ratio * age_group_weight_value, na.rm = TRUE),
-    as_daly_prev_ratio  = sum(daly_prev_ratio * age_group_weight_value, na.rm = TRUE),
-    as_yll_prev_ratio  = sum(yll_prev_ratio * age_group_weight_value, na.rm = TRUE),
-    as_yld_prev_ratio  = sum(yld_prev_ratio * age_group_weight_value, na.rm = TRUE),
+    as_spend_prev_ratio  = sum(spend_prev_ratio  * age_group_weight_value, na.rm = TRUE),
+    as_spend_per_capita  = sum(spend_per_capita  * age_group_weight_value, na.rm = TRUE),  # [POST-MAY-6-COMMITTEE: per-capita switch] age-standardized per-capita exposure
+    as_mort_prev_ratio   = sum(mort_prev_ratio   * age_group_weight_value, na.rm = TRUE),
+    as_daly_prev_ratio   = sum(daly_prev_ratio   * age_group_weight_value, na.rm = TRUE),
+    as_yll_prev_ratio    = sum(yll_prev_ratio    * age_group_weight_value, na.rm = TRUE),
+    as_yld_prev_ratio    = sum(yld_prev_ratio    * age_group_weight_value, na.rm = TRUE),
     spend_all = sum(spend_all, na.rm = TRUE),
     spend_mdcd = sum(spend_mdcd, na.rm = TRUE),
     spend_mdcr = sum(spend_mdcr, na.rm = TRUE),
@@ -355,6 +379,7 @@ df_as <- df_as %>%
     yll_counts = sum(yll_counts),
     yld_counts = sum(yld_counts),
     population = sum(population),
+    dex_pop = sum(dex_pop, na.rm = TRUE),  # [POST-MAY-6-COMMITTEE: per-capita switch] retain DEX pop after age-standardization
     .groups = "drop"
   )
 
@@ -415,6 +440,23 @@ df_as$variance <- (df_as$mortality_counts / (df_as$prevalence_counts^2))
 # Write out age-standardized data to today's dated folder in C_frontier_analysis
 write_parquet(df_as, file.path(dir_output, "df_as_draws.parquet"))
 write.csv(x = df_as, row.names = FALSE, file = file.path(dir_output, "df_as_draws.csv"))
+
+##----------------------------------------------------------------
+## 6.1 Collapse draws -> point estimates (median across draws)
+##     [POST-MAY-6-COMMITTEE: draws-collapse fix]
+##     prep_B.R reads df_as.csv (no draws). When JAWS/draws were added,
+##     prep_A started writing df_as_draws.csv only, breaking prep_B.
+##     Collapse across draws here with median to restore compatibility.
+##     Keep df_as_draws.* for uncertainty quantification downstream.
+##----------------------------------------------------------------
+df_as_point <- df_as %>%
+  group_by(cause_id, year_id, geo, location_id, location_name, acause, cause_name) %>%
+  summarise(across(where(is.numeric), \(x) median(x, na.rm = TRUE)),
+            .groups = "drop") %>%
+  select(-any_of("draw"))   # drop the draw column (now meaningless after collapse)
+
+write_parquet(df_as_point, file.path(dir_output, "df_as.parquet"))
+write.csv(x = df_as_point, row.names = FALSE, file = file.path(dir_output, "df_as.csv"))
 
 
 
@@ -817,3 +859,50 @@ write.csv(coef_robust_cdc,  file.path(dir_output, "regression_results_hiv_cdc_ro
 #     prevalence_counts_upper = quantile(prevalence_counts, 0.975),
 #   )
 
+###Diagnostics below
+
+# summary(df_as$as_spend_per_capita)
+# 
+# 
+# 
+# # 1. Did pop come through from the parquet?
+# summary(df_dex$pop)
+# sum(is.na(df_dex$pop)) / nrow(df_dex)   # fraction NA
+# 
+# # 2. Did the lookup table build correctly?
+# summary(df_dex_pop_lookup$dex_pop)
+# head(df_dex_pop_lookup)
+# nrow(df_dex_pop_lookup)
+# 
+# # 3. Did the join populate dex_pop?
+# summary(df_m_pop$dex_pop)
+# sum(is.na(df_m_pop$dex_pop)) / nrow(df_m_pop)
+# 
+# # 4. After sex collapse?
+# summary(df_m_collapse$dex_pop)
+# summary(df_m_collapse$spend_per_capita)
+# 
+# # 5. Sanity: prev_ratio path should still work (acts as control)
+# summary(df_m_collapse$spend_prev_ratio)   # should be non-zero
+# summary(df_as$as_spend_prev_ratio)        # should be non-zero
+# 
+# 
+# 
+# df_as %>%
+#   group_by(cause_name) %>%
+#   summarize(
+#     median_pc = median(as_spend_per_capita, na.rm = TRUE),
+#     mean_pc   = mean(as_spend_per_capita,   na.rm = TRUE),
+#     p95_pc    = quantile(as_spend_per_capita, 0.95, na.rm = TRUE),
+#     .groups = "drop"
+#   )
+# 
+# 
+# df_as %>%
+#   filter(geo == "state",
+#          cause_name == "Opioid use disorders",
+#          year_id == 2017) %>%
+#   group_by(location_name) %>%
+#   summarize(median_pc = median(as_spend_per_capita)) %>%
+#   arrange(desc(median_pc)) %>%
+#   head(10)

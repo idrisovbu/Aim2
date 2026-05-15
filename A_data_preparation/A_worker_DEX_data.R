@@ -108,6 +108,25 @@ for(t in tocs){
 dt_loc_names <- merge(location_names, dt, by = "location", allow.cartesian=TRUE)
 dt_cause_names <- merge(dt_loc_names, causelist, by = "acause")
 
+##----------------------------------------------------------------
+## 3.1 Read DEX population denominator (total population, payer-consistent)
+##     [POST-MAY-6-COMMITTEE: per-capita switch]
+##     Pulls same denominator as DEX expenditure team's publication script.
+##     'pop' is total population (not payer-enrolled beneficiaries), consistent
+##     with how DEX internally computes spend_per_capita.
+##----------------------------------------------------------------
+benes <- open_dataset("/mnt/share/dex/us_county/03_post_model/pop_denom/18/denoms_true/data/") %>%
+  filter(year_id == param_template$y, toc == "all", type == "total", pri_payer == param_template$p) %>%
+  select(payer = pri_payer, year_id, pop, sex_id, age_group_years_start, geo, location) %>%
+  group_by(year_id, payer, age_group_years_start, sex_id, geo, location) %>%
+  summarize(pop = sum(pop)) %>%
+  collect() %>%
+  setDT()
+
+dt_cause_names <- merge(dt_cause_names, benes,
+                        by = c("year_id", "payer", "geo", "location", "age_group_years_start", "sex_id"),
+                        all.x = TRUE)  # [POST-MAY-6-COMMITTEE: per-capita switch]
+
 # Set age_name based off of age_group_years_start
 dt_final <- copy(dt_cause_names)
 
@@ -147,7 +166,8 @@ dt_final2 <- dt_final[,.(
   sex_id,
   sex_name,
   draw,
-  spend
+  spend,
+  pop  # [POST-MAY-6-COMMITTEE: per-capita switch] carry DEX pop through to downstream prep
 )]
 
 ##----------------------------------------------------------------

@@ -149,12 +149,13 @@ safe_log <- function(x) if_else(x > 0, log(x), NA_real_)
 
 df_sud <- df_sud %>%
   mutate(
-    as_mort_prev_ratio_log  = safe_log(as_mort_prev_ratio),
-    as_daly_prev_ratio_log  = safe_log(as_daly_prev_ratio),
-    as_yll_prev_ratio_log   = safe_log(as_yll_prev_ratio),
-    as_yld_prev_ratio_log   = safe_log(as_yld_prev_ratio),
-    as_spend_prev_ratio_log = safe_log(as_spend_prev_ratio),
-    spend_tx_prev_ratio_log = safe_log(spend_tx_prev_ratio)
+    as_mort_prev_ratio_log   = safe_log(as_mort_prev_ratio),
+    as_daly_prev_ratio_log   = safe_log(as_daly_prev_ratio),
+    as_yll_prev_ratio_log    = safe_log(as_yll_prev_ratio),
+    as_yld_prev_ratio_log    = safe_log(as_yld_prev_ratio),
+    as_spend_prev_ratio_log  = safe_log(as_spend_prev_ratio),
+    as_spend_per_capita_log  = safe_log(as_spend_per_capita),  # [POST-MAY-6-COMMITTEE: per-capita switch] new exposure log var
+    spend_tx_prev_ratio_log  = safe_log(spend_tx_prev_ratio)
   )
 
 

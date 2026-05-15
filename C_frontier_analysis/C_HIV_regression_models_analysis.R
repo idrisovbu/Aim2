@@ -98,7 +98,7 @@ tryCatch(
   error = function(e) invisible(NULL)
 )
 
-input_date  <- "20260216"
+input_date  <- "20260514"
 dir_input   <- file.path(h, "aim_outputs/Aim2/C_frontier_analysis", input_date)
 
 output_date <- format(Sys.time(), "%Y%m%d")
@@ -115,6 +115,7 @@ df_hiv <- df_as %>%
   dplyr::filter(acause == "hiv") %>%
   dplyr::filter(!is.na(as_mort_prev_ratio) & !is.na(rw_dex_hiv_prev_ratio))
 
+
 ##================================================================
 ## 2.  LOG-TRANSFORM OUTCOME & EXPOSURE
 ##================================================================
@@ -127,6 +128,7 @@ df_hiv <- df_hiv %>%
     as_yll_prev_ratio_log     = safe_log(as_yll_prev_ratio),
     as_yld_prev_ratio_log     = safe_log(as_yld_prev_ratio),
     as_spend_prev_ratio_log   = safe_log(as_spend_prev_ratio),
+    as_spend_per_capita_log   = safe_log(as_spend_per_capita),  # [POST-MAY-6-COMMITTEE: per-capita switch] new exposure log var
     rw_dex_hiv_prev_ratio_log = safe_log(rw_dex_hiv_prev_ratio),
     rw_hiv_prev_ratio_log     = safe_log(rw_hiv_prev_ratio)
   )
