@@ -1,5 +1,5 @@
 ##================================================================
-##  Title:     C_HIV_per_capita_cascade.R     (Lens 3 module)
+##  Title:     C_05_HIV_per_capita_cascade.R     (Lens 3 module)
 ##  Folder:    C_frontier_analysis/
 ##  Purpose:   POST-MAY-6-COMMITTEE Lens 3 — Cascade outcomes.
 ##
@@ -35,7 +35,7 @@
 ##    score, NOT a probability.
 ##
 ##  Inputs (must already exist):
-##    - df_hiv_per_capita_panel.csv  (from C_HIV_per_capita_models.R)
+##    - df_hiv_per_capita_panel.csv  (from C_04_HIV_per_capita_models.R)
 ##    - CDC_Cascade_Data.csv         (CDC Atlas export, 13+ aggregate)
 ##
 ##  Outputs (in dir_output):
@@ -106,7 +106,7 @@ if (!dir.exists(dir_output)) dir.create(dir_output, recursive = TRUE)
 ##================================================================
 if (!file.exists(fp_panel)) {
   stop("Existing panel not found at: ", fp_panel,
-       "\nRun C_HIV_per_capita_models.R first to produce df_hiv_per_capita_panel.csv,",
+       "\nRun C_04_HIV_per_capita_models.R first to produce df_hiv_per_capita_panel.csv,",
        "\nor update panel_date at top of this script.")
 }
 df_panel <- read.csv(fp_panel, stringsAsFactors = FALSE)
@@ -753,7 +753,7 @@ write.csv(mediation_results,
 ## 9.  APPEND TO EXISTING OUTPUTS
 ##================================================================
 ##  Append, don't overwrite. The Lens 1/2 outputs from
-##  C_HIV_per_capita_models.R already exist; we add cascade rows.
+##  C_04_HIV_per_capita_models.R already exist; we add cascade rows.
 ##================================================================
 
 cascade_spending_summary <- regression_results %>%

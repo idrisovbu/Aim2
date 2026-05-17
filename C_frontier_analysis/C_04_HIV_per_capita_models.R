@@ -1,5 +1,5 @@
 ##================================================================
-##  Title:     C_HIV_per_capita_models.R
+##  Title:     C_04_HIV_per_capita_models.R
 ##  Folder:    C_frontier_analysis/
 ##  Purpose:   HIV regression analysis — POST-MAY-6-COMMITTEE per-capita framework.
 ##
@@ -123,7 +123,7 @@ missing_cols <- setdiff(required_cols, names(df_as))
 if (length(missing_cols) > 0) {
   stop("Missing required columns in df_as_processed_rw_gbd.csv: ",
        paste(missing_cols, collapse = ", "),
-       "\nRe-run C_regression_prep_A.R + prep_B.R with the per-capita patches first.")
+       "\nRe-run C_00_prep_A_panel_foundation.R + prep_B.R with the per-capita patches first.")
 }
 
 toc_cols <- c("spend_AM", "spend_ED", "spend_HH", "spend_IP", "spend_NF", "spend_RX")

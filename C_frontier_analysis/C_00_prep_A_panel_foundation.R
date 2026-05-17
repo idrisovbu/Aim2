@@ -1,5 +1,5 @@
 ##----------------------------------------------------------------
-##' Title: C_regression_prep_A.R
+##' Title: C_00_prep_A_panel_foundation.R
 ##'
 ##' Purpose: TBD
 ##' 
@@ -502,6 +502,33 @@ df_as_no_year$yld_rates <- df_as_no_year$yld_counts / df_as_no_year$population
 
 # Save
 write.csv(x = df_as_no_year, row.names = FALSE, file = file.path(dir_output, "df_as_no_year_draws.csv"))
+
+##----------------------------------------------------------------
+## 7.5 Load CDC raw mortality + prevalence file
+##     [POST-MAY-6-COMMITTEE: missing df_cdc load fix]
+##     Section 8 below uses df_cdc but never loads it. Without this
+##     block, prep_A silently fails before producing df_as_cdc.csv.
+##----------------------------------------------------------------
+fp_cdc_raw <- file.path(h, "aim_outputs/Aim2/R_resources/CDC_data",
+                        "hiv_mort_prev_data.csv")
+
+# Detect header row dynamically — file has metadata rows at the top
+raw_lines  <- readLines(fp_cdc_raw, n = 50, encoding = "latin1")
+header_row <- which(grepl("^Indicator,Year,Geography", raw_lines))
+if (length(header_row) == 0) {
+  stop("Could not locate header row in CDC raw file: ", fp_cdc_raw)
+}
+
+# fread preserves spaces in column names (which section 8 expects)
+df_cdc <- fread(fp_cdc_raw, skip = header_row - 1,
+                na.strings = c("", "NA", "Data not available"))
+
+# Strip commas from Cases (CDC formats as "10,392") and coerce types
+df_cdc[, Cases := suppressWarnings(as.numeric(gsub(",", "", as.character(Cases))))]
+df_cdc[, Year  := as.integer(Year)]
+df_cdc <- df_cdc[!is.na(Cases)]
+
+cat("CDC raw rows loaded: ", nrow(df_cdc), "\n", sep = "")
 
 ##----------------------------------------------------------------
 ## 8. Process CDC data

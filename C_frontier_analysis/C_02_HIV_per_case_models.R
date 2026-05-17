@@ -1,5 +1,5 @@
 ##----------------------------------------------------------------
-##' Title: C_regression_models_analysis.R
+##' Title: C_02_HIV_per_case_models.R
 ##'
 ##' Purpose: HIV Spending-Outcomes Regression Analysis for Aim 2B
 ##'          Committee-ready pipeline — theory-driven model set.

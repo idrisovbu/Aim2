@@ -1,5 +1,5 @@
 ##----------------------------------------------------------------
-##' Title: C_regression_models_analysis.R
+##' Title: C_03_SUD_per_case_models.R
 ##'
 ##' Purpose: SUD Spending-Outcomes Regression Analysis for Aim 2B
 ##'          Committee-ready pipeline — theory-driven model set.
