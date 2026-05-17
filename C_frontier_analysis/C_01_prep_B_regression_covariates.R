@@ -43,7 +43,7 @@ source(file.path(h, "/repo/Aim1/aim1_scripts/Z_utilities/deflate.R"))
 ##                   rw (T), cdc (T), cdc_gbd_mix (T)
 ##----------------------------------------------------------------
 rw <- T # Set TRUE if desire RW + DEX / prevalence counts to be the predictor variable (see "Specify Models" section), FALSE if just spend / prev count ratio as predictor
-cdc <- F # Set TRUE if you want to use CDC HIV prevalence and mortality in the models instead of GBD prev deaths, FALSE if wanting to use GBD data
+cdc <- F #  USE GBD AS BASE. Section 9.5 below ALSO merges CDC counts (under semantic names) so both GBD and CDC in oneSet TRUE if you want to use CDC HIV prevalence and mortality in the models instead of GBD prev deaths, FALSE if wanting to use GBD data
 cdc_gbd_mix <- F # Set T if want to set the outcome ratio to be GBD mort / CDC prev, F if just regular settings
 
 ##----------------------------------------------------------------
@@ -61,7 +61,7 @@ ensure_dir_exists <- function(dir_path) {
 ## 1. Set directories
 ##----------------------------------------------------------------
 # Set fp for age-standardized data
-as_date <- "20260514"
+as_date <- "20260516"
 fp_as <- file.path(h, '/aim_outputs/Aim2/C_frontier_analysis/', as_date, "df_as.csv")
 
 # Set output directories
@@ -507,6 +507,235 @@ cat(paste(vars_to_log, collapse = "\n"))
 cat("\n")
 
 ##----------------------------------------------------------------
+## 9.5 Per-capita variables, logs, lags, Mundlak — POST-MAY-6-COMMITTEE
+##     Adds regression-ready columns used by the per-capita scripts
+##     (C_04_HIV_per_capita_models.R, C_05_HIV_per_capita_cascade.R).
+##     Old per-case scripts (C_02, C_03) ignore these new columns.
+##
+##     CAVEAT on Mundlak: _B / _W are computed over the FULL panel
+##     (all states, all years 2010-2019). If a future model fits on
+##     a sub-sample (e.g., filtered years), recompute on the subset.
+##----------------------------------------------------------------
+
+safe_log <- function(x) if_else(x > 0, log(x), NA_real_)
+
+## --- 9.5.1 Merge CDC HIV mortality + prevalence counts (if available) ---
+fp_cdc_proc <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", as_date, "df_as_cdc.csv")
+if (file.exists(fp_cdc_proc)) {
+  df_as_cdc_raw <- read.csv(fp_cdc_proc, stringsAsFactors = FALSE)
+  df_cdc_point  <- df_as_cdc_raw %>%
+    dplyr::filter(acause == "hiv") %>%
+    dplyr::group_by(location_id, year_id) %>%
+    dplyr::summarise(
+      cdc_hiv_mortality_counts  = median(cdc_hiv_mortality_counts,  na.rm = TRUE),
+      cdc_hiv_prevalence_counts = median(cdc_hiv_prevalence_counts, na.rm = TRUE),
+      .groups = "drop"
+    )
+  df_as <- df_as %>% dplyr::left_join(df_cdc_point, by = c("location_id", "year_id"))
+  cat("CDC counts merged into df_as: ",
+      sum(!is.na(df_as$cdc_hiv_mortality_counts)),
+      " rows with cdc_hiv_mortality_counts\n", sep = "")
+} else {
+  message("df_as_cdc.csv not found at: ", fp_cdc_proc,
+          " — cdc_hiv_mortality_counts / cdc_hiv_prevalence_counts will be NA.")
+  df_as$cdc_hiv_mortality_counts  <- NA_real_
+  df_as$cdc_hiv_prevalence_counts <- NA_real_
+}
+
+## --- 9.5.2 Per-capita / per-100k variables ---
+df_as <- df_as %>%
+  mutate(
+    spending_per_capita       = (ryan_white_funding_final + spend_all) / dex_pop,
+    daly_per_capita           = daly_counts      / dex_pop,
+    mortality_per_capita      = mortality_counts / dex_pop,
+    cdc_mortality_per_capita  = cdc_hiv_mortality_counts  / dex_pop,
+    incidence_per_100k        = (incidence_counts  / dex_pop) * 1e5,
+    prevalence_per_100k       = (prevalence_counts / dex_pop) * 1e5,
+    cdc_prevalence_per_100k   = (cdc_hiv_prevalence_counts / dex_pop) * 1e5
+  )
+
+## --- 9.5.3 Logs of per-capita + a couple of covariates ---
+df_as <- df_as %>%
+  mutate(
+    log_spending_per_capita       = safe_log(spending_per_capita),
+    log_daly_per_capita           = safe_log(daly_per_capita),
+    log_mortality_per_capita      = safe_log(mortality_per_capita),
+    log_cdc_mortality_per_capita  = safe_log(cdc_mortality_per_capita),
+    log_incidence_per_100k        = safe_log(incidence_per_100k),
+    log_prevalence_per_100k       = safe_log(prevalence_per_100k),
+    log_cdc_prevalence_per_100k   = safe_log(cdc_prevalence_per_100k),
+    log_prop_homeless             = safe_log(prop_homeless),
+    log_ldi_pc                    = safe_log(ldi_pc),
+    year_factor                   = factor(year_id)
+  )
+
+## --- 9.5.4 TOC-level per-capita spending (if TOC columns are present) ---
+toc_cols <- c("spend_AM","spend_ED","spend_HH","spend_IP","spend_NF","spend_RX")
+if (all(toc_cols %in% names(df_as))) {
+  df_as <- df_as %>%
+    mutate(
+      spend_pharma_pc      = spend_RX / dex_pop,
+      spend_ambulatory_pc  = spend_AM / dex_pop,
+      spend_inpatient_pc   = spend_IP / dex_pop,
+      spend_nf_pc          = spend_NF / dex_pop,
+      spend_ed_pc          = spend_ED / dex_pop,
+      spend_hh_pc          = spend_HH / dex_pop,
+      log_spend_pharma_pc      = safe_log(spend_pharma_pc),
+      log_spend_ambulatory_pc  = safe_log(spend_ambulatory_pc),
+      log_spend_inpatient_pc   = safe_log(spend_inpatient_pc),
+      log_spend_nf_pc          = safe_log(spend_nf_pc),
+      log_spend_ed_pc          = safe_log(spend_ed_pc),
+      log_spend_hh_pc          = safe_log(spend_hh_pc)
+    )
+} else {
+  message("TOC columns not all present — per-TOC per-capita variables skipped.")
+}
+
+## --- 9.5.5 Lag variables (sorted by state, year) ---
+##     Covers per-capita lags (consumed by C_04) and per-case lags
+##     (rw_dex_hiv_prev_ratio_log_l1/_l2, consumed by C_02 lag specs).
+df_as <- df_as %>%
+  arrange(location_id, year_id) %>%
+  group_by(location_id) %>%
+  mutate(
+    # Per-capita (C_04)
+    log_spending_per_capita_l1 = dplyr::lag(log_spending_per_capita, 1),
+    log_spending_per_capita_l2 = dplyr::lag(log_spending_per_capita, 2),
+    log_prevalence_per_100k_l1 = dplyr::lag(log_prevalence_per_100k, 1),
+    log_prevalence_per_100k_l2 = dplyr::lag(log_prevalence_per_100k, 2),
+    log_incidence_per_100k_l1  = dplyr::lag(log_incidence_per_100k,  1),
+    # Per-case (C_02)
+    rw_dex_hiv_prev_ratio_log_l1 = dplyr::lag(rw_dex_hiv_prev_ratio_log, 1),
+    rw_dex_hiv_prev_ratio_log_l2 = dplyr::lag(rw_dex_hiv_prev_ratio_log, 2)
+  ) %>%
+  ungroup()
+
+## --- 9.5.6 Mundlak B/W decomposition over the full panel ---
+##     Standard convention: _B = mean(X), _W = X - mean(X). When X is
+##     already log-transformed (e.g. log_spending_per_capita), _B is
+##     mean-of-log; this is the convention C_04 uses.
+##
+##     Caveat: _B / _W computed over the FULL panel. If a future model
+##     fits on a sub-sample, recompute on the subset.
+mundlak_vars <- c(
+  # Per-capita exposures (C_04)
+  "log_spending_per_capita", "log_incidence_per_100k", "log_prevalence_per_100k",
+  # Per-case exposure (C_02)
+  "rw_dex_hiv_prev_ratio_log",
+  # Shared raw covariates
+  "race_prop_BLCK", "race_prop_HISP",
+  "incidence_rates", "bmi", "obesity", "prev_diabetes",
+  "aca_implemented_status", "edu_yrs",
+  "mortality_rates", "prevalence_rates",
+  "prop_homeless", "ldi_pc", "unemployment_rate"
+)
+mundlak_vars <- intersect(mundlak_vars, names(df_as))
+for (v in mundlak_vars) {
+  df_as <- df_as %>%
+    group_by(location_id) %>%
+    mutate(
+      !!paste0(v, "_B") := mean(.data[[v]], na.rm = TRUE),
+      !!paste0(v, "_W") := .data[[v]] - mean(.data[[v]], na.rm = TRUE)
+    ) %>%
+    ungroup()
+}
+
+## --- 9.5.7 C_02 log-of-state-mean derived variables ---
+##     For variables that C_02 logs AFTER taking the state mean, compute
+##     the log-of-mean version under the SAME names C_02 uses today
+##     (log_X_B, log_X_W). Matches C_02's existing convention so its
+##     formulas don't need updating.
+##
+##     log_X_B = log(X_B) = log(mean(X))
+##     log_X_W = log(X) - log_X_B
+##
+##     For log_prop_homeless specifically: both conventions are needed.
+##     This block produces the log-of-mean version (consumed by C_02).
+##     The mean-of-log version (consumed by C_04) is produced in 9.5.8.
+c02_log_vars <- intersect(
+  c("incidence_rates", "bmi", "prev_diabetes", "prop_homeless", "ldi_pc"),
+  mundlak_vars
+)
+for (v in c02_log_vars) {
+  log_var <- paste0("log_", v)
+  log_B   <- paste0("log_", v, "_B")
+  log_W   <- paste0("log_", v, "_W")
+  # log_X (time-varying) may already exist from section 9.5.3
+  if (!log_var %in% names(df_as)) {
+    df_as[[log_var]] <- safe_log(df_as[[v]])
+  }
+  df_as[[log_B]] <- safe_log(df_as[[paste0(v, "_B")]])
+  df_as[[log_W]] <- df_as[[log_var]] - df_as[[log_B]]
+}
+
+## --- 9.5.8 Mean-of-log Mundlak variants (_MLB / _MLW) for C_04 ---
+##     For variables where C_02 claimed the _B / _W slot with log-of-mean
+##     (above in 9.5.7), provide the mean-of-log variant under _MLB / _MLW
+##     so C_04's per-capita Mundlak specs can use it.
+##
+##     Currently only log_prop_homeless requires this dual treatment;
+##     the per-capita exposures (log_spending_per_capita, etc.) are not
+##     used by C_02 and keep their default _B / _W as mean-of-log.
+ml_log_vars <- intersect(c("log_prop_homeless"), names(df_as))
+for (v in ml_log_vars) {
+  df_as <- df_as %>%
+    group_by(location_id) %>%
+    mutate(
+      !!paste0(v, "_MLB") := mean(.data[[v]], na.rm = TRUE),
+      !!paste0(v, "_MLW") := .data[[v]] - mean(.data[[v]], na.rm = TRUE)
+    ) %>%
+    ungroup()
+}
+
+## --- 9.5.9 Indicators (high_incidence_q4_B, high_hiv_prev_B[_f]) ---
+##     Consumed by C_02's interaction specs and high-incidence quartile
+##     interactions. State-level binaries derived from state means.
+if ("incidence_rates_B" %in% names(df_as)) {
+  q75_inc <- quantile(df_as$incidence_rates_B, 0.75, na.rm = TRUE)
+  df_as$high_incidence_q4_B <- as.integer(df_as$incidence_rates_B >= q75_inc)
+}
+if ("prevalence_rates_B" %in% names(df_as)) {
+  med_prev_B <- quantile(df_as$prevalence_rates_B, 0.50, na.rm = TRUE)
+  df_as$high_hiv_prev_B <- as.integer(df_as$prevalence_rates_B >= med_prev_B)
+} else if ("prevalence_counts" %in% names(df_as)) {
+  # Fallback: median split of state-mean HIV prevalence counts
+  state_prev_hiv <- df_as %>%
+    dplyr::filter(acause == "hiv") %>%
+    dplyr::group_by(location_id) %>%
+    dplyr::summarise(prev_count_mean = mean(prevalence_counts, na.rm = TRUE),
+                     .groups = "drop")
+  prev_median <- median(state_prev_hiv$prev_count_mean, na.rm = TRUE)
+  state_prev_hiv <- state_prev_hiv %>%
+    mutate(high_hiv_prev_B = as.integer(prev_count_mean >= prev_median)) %>%
+    select(location_id, high_hiv_prev_B)
+  df_as <- df_as %>% dplyr::left_join(state_prev_hiv, by = "location_id")
+}
+if ("high_hiv_prev_B" %in% names(df_as)) {
+  df_as$high_hiv_prev_B_f <- factor(
+    df_as$high_hiv_prev_B,
+    levels = c(0, 1),
+    labels = c("Lower prevalence", "Higher prevalence")
+  )
+}
+
+## --- 9.5.10 Dose-response variables (per-case spending) ---
+##     Consumed by C_02's dose family (quadratic, threshold specs).
+if ("rw_dex_hiv_prev_ratio_log" %in% names(df_as)) {
+  knot_p75 <- quantile(df_as$rw_dex_hiv_prev_ratio_log, 0.75, na.rm = TRUE)
+  df_as <- df_as %>%
+    mutate(
+      rw_dex_hiv_prev_ratio_log_sq = rw_dex_hiv_prev_ratio_log^2,
+      over_p75                     = pmax(0, rw_dex_hiv_prev_ratio_log - knot_p75)
+    )
+}
+
+## --- 9.5.11 Time variables ---
+##     year_factor already created in 9.5.3. Add year_centered (midpoint).
+df_as <- df_as %>% mutate(year_centered = year_id - 2014.5)
+
+cat("Section 9.5 staging complete. df_as columns: ", ncol(df_as), "\n", sep = "")
+
+##----------------------------------------------------------------
 ## 10. Data validation checks before saving
 ##----------------------------------------------------------------
 cat("\n=== DATA VALIDATION CHECKS ===\n")
@@ -609,7 +838,7 @@ str(df_as %>% select(
 ))
 
 cat("\n=== DATA PROCESSING COMPLETE ===\n")
-cat("Next step: Run C_regression_models_analysis.R for modeling\n")
+cat("Next step: Run C_regression...scripts for modeling\n")
 
 
 

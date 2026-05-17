@@ -135,106 +135,35 @@ if (!toc_available) {
 
 
 ##================================================================
-## 2.  COMPUTE PER-CAPITA / PER-100K VARIABLES
+## 2.  FILTER TO HIV
 ##================================================================
-safe_log <- function(x) if_else(x > 0, log(x), NA_real_)
+## All per-capita variables, log transforms, lag variables, and
+## Mundlak _B/_W are now built in C_01_prep_B_regression_covariates.R
+## (section 9.5). This script just filters to the HIV slice and
+## drops rows missing the key analytic variables.
 
 df_hiv <- df_as %>%
-  dplyr::filter(acause == "hiv") %>%
-  mutate(
-    spending_per_capita   = (ryan_white_funding_final + spend_all) / dex_pop,
-    daly_per_capita       = daly_counts      / dex_pop,
-    mortality_per_capita  = mortality_counts / dex_pop,
-    incidence_per_100k    = (incidence_counts  / dex_pop) * 1e5,
-    prevalence_per_100k   = (prevalence_counts / dex_pop) * 1e5,
-    log_spending_per_capita   = safe_log(spending_per_capita),
-    log_daly_per_capita       = safe_log(daly_per_capita),
-    log_mortality_per_capita  = safe_log(mortality_per_capita),
-    log_incidence_per_100k    = safe_log(incidence_per_100k),
-    log_prevalence_per_100k   = safe_log(prevalence_per_100k)
-  )
-
-# TOC-level per-capita spending
-if (toc_available) {
-  df_hiv <- df_hiv %>%
-    mutate(
-      # Note: TOC spending is DEX-only (Ryan White isn't TOC-attributed).
-      # Aggregate Lens 1A/1B/2 primary models use RW+DEX; by-TOC is DEX-only.
-      spend_pharma_pc      = spend_RX / dex_pop,
-      spend_ambulatory_pc  = spend_AM / dex_pop,
-      spend_inpatient_pc   = spend_IP / dex_pop,
-      spend_nf_pc          = spend_NF / dex_pop,
-      spend_ed_pc          = spend_ED / dex_pop,
-      spend_hh_pc          = spend_HH / dex_pop,
-      log_spend_pharma_pc      = safe_log(spend_pharma_pc),
-      log_spend_ambulatory_pc  = safe_log(spend_ambulatory_pc),
-      log_spend_inpatient_pc   = safe_log(spend_inpatient_pc),
-      log_spend_nf_pc          = safe_log(spend_nf_pc),
-      log_spend_ed_pc          = safe_log(spend_ed_pc),
-      log_spend_hh_pc          = safe_log(spend_hh_pc)
-    )
-}
-
-df_hiv <- df_hiv %>%
-  dplyr::filter(!is.na(log_daly_per_capita),
+  dplyr::filter(acause == "hiv",
+                !is.na(log_daly_per_capita),
                 !is.na(log_mortality_per_capita),
                 !is.na(log_spending_per_capita),
                 !is.na(dex_pop), dex_pop > 0)
 
-cat("\n---- Per-capita variable summaries ----\n")
+# Refresh TOC-availability flag against the HIV slice
+toc_pc_cols <- c("spend_pharma_pc", "spend_ambulatory_pc",
+                 "spend_inpatient_pc", "spend_nf_pc")
+toc_available <- all(toc_pc_cols %in% names(df_hiv))
+if (!toc_available) {
+  message("NOTE: TOC per-capita columns not in df_as. ",
+          "primary_by_toc models will be skipped.")
+}
+
+cat("\n---- Per-capita variable summaries (HIV slice) ----\n")
 print(summary(df_hiv$spending_per_capita))
 print(summary(df_hiv$daly_per_capita))
 print(summary(df_hiv$mortality_per_capita))
 print(summary(df_hiv$incidence_per_100k))
 print(summary(df_hiv$prevalence_per_100k))
-
-
-##================================================================
-## 3.  COVARIATE LOGS, LAGS, YEAR FACTOR
-##================================================================
-
-df_hiv <- df_hiv %>%
-  mutate(
-    log_prop_homeless = safe_log(prop_homeless),
-    log_ldi_pc        = safe_log(ldi_pc),
-    year_factor       = factor(year_id)
-  )
-
-df_hiv <- df_hiv %>%
-  arrange(location_id, year_id) %>%
-  group_by(location_id) %>%
-  mutate(
-    log_spending_per_capita_l1 = dplyr::lag(log_spending_per_capita, 1),
-    log_spending_per_capita_l2 = dplyr::lag(log_spending_per_capita, 2),
-    log_prevalence_per_100k_l1 = dplyr::lag(log_prevalence_per_100k, 1),
-    log_prevalence_per_100k_l2 = dplyr::lag(log_prevalence_per_100k, 2),
-    log_incidence_per_100k_l1  = dplyr::lag(log_incidence_per_100k,  1)
-  ) %>%
-  ungroup()
-
-
-##================================================================
-## 4.  MUNDLAK B/W DECOMPOSITION
-##================================================================
-
-mundlak_vars <- c(
-  "log_spending_per_capita",
-  "log_incidence_per_100k",
-  "log_prevalence_per_100k",
-  "race_prop_BLCK", "race_prop_HISP",
-  "log_prop_homeless", "unemployment_rate"
-)
-mundlak_vars <- intersect(mundlak_vars, names(df_hiv))
-
-for (v in mundlak_vars) {
-  df_hiv <- df_hiv %>%
-    group_by(location_id) %>%
-    mutate(
-      !!paste0(v, "_B") := mean(.data[[v]], na.rm = TRUE),
-      !!paste0(v, "_W") := .data[[v]] - mean(.data[[v]], na.rm = TRUE)
-    ) %>%
-    ungroup()
-}
 
 
 ##================================================================
@@ -546,7 +475,7 @@ register_model(lens = "burden", spec = "mundlak",
               log_incidence_per_100k_B  + log_incidence_per_100k_W +
               race_prop_BLCK_B + race_prop_BLCK_W +
               race_prop_HISP_B + race_prop_HISP_W +
-              log_prop_homeless_B + log_prop_homeless_W +
+              log_prop_homeless_MLB + log_prop_homeless_MLW +   # [Commit B: mean-of-log Mundlak; prep_B exposes both conventions]
               year_factor",
                data = df_hiv, is_final = TRUE)
 
@@ -641,7 +570,7 @@ register_model(lens = "burden_mort", spec = "mundlak",
               log_incidence_per_100k_B  + log_incidence_per_100k_W +
               race_prop_BLCK_B + race_prop_BLCK_W +
               race_prop_HISP_B + race_prop_HISP_W +
-              log_prop_homeless_B + log_prop_homeless_W +
+              log_prop_homeless_MLB + log_prop_homeless_MLW +   # [Commit B: mean-of-log Mundlak; prep_B exposes both conventions]
               year_factor",
                data = df_hiv, is_final = TRUE)
 
@@ -705,7 +634,7 @@ register_model(lens = "prevention", spec = "mundlak_inc",
               log_prevalence_per_100k_B + log_prevalence_per_100k_W +
               race_prop_BLCK_B + race_prop_BLCK_W +
               race_prop_HISP_B + race_prop_HISP_W +
-              log_prop_homeless_B + log_prop_homeless_W +
+              log_prop_homeless_MLB + log_prop_homeless_MLW +   # [Commit B: mean-of-log Mundlak; prep_B exposes both conventions]
               year_factor",
                data = df_hiv, is_final = TRUE)
 

@@ -98,7 +98,7 @@ tryCatch(
   error = function(e) invisible(NULL)
 )
 
-input_date  <- "20260514"
+input_date  <- "20260516"
 dir_input   <- file.path(h, "aim_outputs/Aim2/C_frontier_analysis", input_date)
 
 output_date <- format(Sys.time(), "%Y%m%d")
@@ -135,131 +135,19 @@ df_hiv <- df_hiv %>%
 
 
 ##================================================================
-## 3.  CREATE ALL ANALYSIS VARIABLES
+## 3.  ANALYSIS VARIABLES NOW BUILT IN prep_B (section 9.5)
 ##================================================================
-
-# ---- 3a. Mundlak Between / Within decomposition ----
-
-make_mundlak_vars <- function(df, vars, group_var = "location_id",
-                              midpoint = 2014) {
-  state_means <- df %>%
-    group_by(across(all_of(group_var))) %>%
-    summarise(
-      across(all_of(vars), \(x) mean(x, na.rm = TRUE), .names = "{.col}_B"),
-      .groups = "drop"
-    )
-  df <- left_join(df, state_means, by = group_var)
-  for (v in vars) {
-    df[[paste0(v, "_W")]] <- df[[v]] - df[[paste0(v, "_B")]]
-  }
-  df$year_centered <- df$year_id - midpoint
-  df
-}
-
-# Variables needing B/W decomposition -- covers all model families.
-# Only include columns that actually exist in df_hiv.
-mundlak_vars_requested <- c(
-  "rw_dex_hiv_prev_ratio_log",
-  "race_prop_BLCK",
-  "race_prop_HISP",
-  "incidence_rates",
-  "bmi",
-  "obesity",
-  "prev_diabetes",
-  "aca_implemented_status",
-  "edu_yrs",
-  "mortality_rates",
-  "prevalence_rates",
-  "prop_homeless",
-  "ldi_pc",
-  "unemployment_rate"
-)
-mundlak_vars <- intersect(mundlak_vars_requested, names(df_hiv))
-
-df_hiv <- make_mundlak_vars(df_hiv, mundlak_vars, "location_id", midpoint = 2014)
-
-
-# ---- 3b. Log transforms of key covariates ----
-# Guard every log against non-positive values.
-
-df_hiv <- df_hiv %>%
-  mutate(
-    log_incidence_rates      = safe_log(incidence_rates),
-    log_incidence_rates_B    = safe_log(incidence_rates_B),
-    log_bmi_B                = safe_log(bmi_B),
-    log_prev_diabetes_B      = safe_log(prev_diabetes_B),
-    log_prop_homeless        = safe_log(prop_homeless),
-    log_prop_homeless_B      = safe_log(prop_homeless_B),
-    log_ldi_pc               = safe_log(ldi_pc),
-    log_ldi_pc_B             = safe_log(ldi_pc_B),
-    # Within deviations of logged covariates (for Mundlak on log scale)
-    log_prop_homeless_W      = log_prop_homeless - log_prop_homeless_B,
-    log_incidence_rates_W    = log_incidence_rates - log_incidence_rates_B
-  )
-
-
-# ---- 3c. Indicators ----
-
-# High-incidence binary: top quartile of state-mean incidence.
-state_inc_q75 <- quantile(df_hiv$incidence_rates_B, 0.75, na.rm = TRUE)
-df_hiv <- df_hiv %>%
-  mutate(high_incidence_q4_B = as.integer(incidence_rates_B >= state_inc_q75))
-
-# High-prevalence binary: median split of state-mean prevalence.
-# Used ONLY in the interaction model (*__interact_highprev).
-if (!"high_hiv_prev_B" %in% names(df_hiv)) {
-  if ("prevalence_rates_B" %in% names(df_hiv)) {
-    prev_median_B <- quantile(df_hiv$prevalence_rates_B, 0.50, na.rm = TRUE)
-    df_hiv <- df_hiv %>%
-      mutate(high_hiv_prev_B = as.integer(prevalence_rates_B >= prev_median_B))
-  } else {
-    # Fallback: use state-mean prevalence counts
-    state_prev <- df_hiv %>%
-      group_by(location_id) %>%
-      summarise(prev_count_mean = mean(prevalence_counts, na.rm = TRUE),
-                .groups = "drop")
-    prev_median <- median(state_prev$prev_count_mean, na.rm = TRUE)
-    df_hiv <- df_hiv %>%
-      left_join(state_prev, by = "location_id") %>%
-      mutate(high_hiv_prev_B = as.integer(prev_count_mean >= prev_median)) %>%
-      select(-prev_count_mean)
-  }
-}
-
-# Factor version for readable interaction labels
-df_hiv <- df_hiv %>%
-  mutate(
-    high_hiv_prev_B_f = factor(
-      high_hiv_prev_B,
-      levels = c(0, 1),
-      labels = c("Lower prevalence", "Higher prevalence")
-    )
-  )
-
-
-# ---- 3d. Lag variables ----
-df_hiv <- df_hiv %>%
-  arrange(location_id, year_id) %>%
-  group_by(location_id) %>%
-  mutate(
-    rw_dex_hiv_prev_ratio_log_l1 = dplyr::lag(rw_dex_hiv_prev_ratio_log, 1),
-    rw_dex_hiv_prev_ratio_log_l2 = dplyr::lag(rw_dex_hiv_prev_ratio_log, 2)
-  ) %>%
-  ungroup()
-
-
-# ---- 3e. Dose-response variables ----
-knot_p75 <- quantile(df_hiv$rw_dex_hiv_prev_ratio_log, 0.75, na.rm = TRUE)
-df_hiv <- df_hiv %>%
-  mutate(
-    rw_dex_hiv_prev_ratio_log_sq = rw_dex_hiv_prev_ratio_log^2,
-    over_p75 = pmax(0, rw_dex_hiv_prev_ratio_log - knot_p75)
-  )
-
-
-# ---- 3f. Year as factor (for between_yfe family) ----
-df_hiv <- df_hiv %>%
-  mutate(year_factor = factor(year_id))
+##  Mundlak B/W, log transforms of state means, indicators
+##  (high_incidence_q4_B, high_hiv_prev_B[_f]), lag variables
+##  (rw_dex_hiv_prev_ratio_log_l1/l2), dose-response variables
+##  (rw_dex_hiv_prev_ratio_log_sq, over_p75), year_factor, and
+##  year_centered are all produced upstream in
+##  C_01_prep_B_regression_covariates.R section 9.5 and consumed here.
+##
+##  The formulas below reference variables under their historical names
+##  (e.g., log_prop_homeless_B = log of state mean — log-of-mean
+##  convention). C_04 uses the parallel mean-of-log variant under
+##  _MLB / _MLW suffixes; both conventions coexist in df_as.
 
 
 ##================================================================
