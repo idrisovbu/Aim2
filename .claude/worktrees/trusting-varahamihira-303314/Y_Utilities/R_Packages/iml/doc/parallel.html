@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+
+<html>
+
+<head>
+
+<meta charset="utf-8" />
+<meta name="generator" content="pandoc" />
+<meta http-equiv="X-UA-Compatible" content="IE=EDGE" />
+
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+
+
+
+<title>Parallel computation of interpretation methods</title>
+
+<script>// Pandoc 2.9 adds attributes on both header and div. We remove the former (to
+// be compatible with the behavior of Pandoc < 2.8).
+document.addEventListener('DOMContentLoaded', function(e) {
+  var hs = document.querySelectorAll("div.section[class*='level'] > :first-child");
+  var i, h, a;
+  for (i = 0; i < hs.length; i++) {
+    h = hs[i];
+    if (!/^h[1-6]$/i.test(h.tagName)) continue;  // it should be a header h1-h6
+    a = h.attributes;
+    while (a.length > 0) h.removeAttribute(a[0].name);
+  }
+});
+</script>
+
+<style type="text/css">
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+span.underline{text-decoration: underline;}
+div.column{display: inline-block; vertical-align: top; width: 50%;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+</style>
+
+
+
+<style type="text/css">
+code {
+white-space: pre;
+}
+.sourceCode {
+overflow: visible;
+}
+</style>
+<style type="text/css" data-origin="pandoc">
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { display: inline-block; text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+{ counter-reset: source-line 0; }
+pre.numberSource code > span
+{ position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+{ content: counter(source-line);
+position: relative; left: -1em; text-align: right; vertical-align: baseline;
+border: none; display: inline-block;
+-webkit-touch-callout: none; -webkit-user-select: none;
+-khtml-user-select: none; -moz-user-select: none;
+-ms-user-select: none; user-select: none;
+padding: 0 4px; width: 4em;
+color: #aaaaaa;
+}
+pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa; padding-left: 4px; }
+div.sourceCode
+{ }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+code span.al { color: #ff0000; font-weight: bold; } 
+code span.an { color: #60a0b0; font-weight: bold; font-style: italic; } 
+code span.at { color: #7d9029; } 
+code span.bn { color: #40a070; } 
+code span.bu { color: #008000; } 
+code span.cf { color: #007020; font-weight: bold; } 
+code span.ch { color: #4070a0; } 
+code span.cn { color: #880000; } 
+code span.co { color: #60a0b0; font-style: italic; } 
+code span.cv { color: #60a0b0; font-weight: bold; font-style: italic; } 
+code span.do { color: #ba2121; font-style: italic; } 
+code span.dt { color: #902000; } 
+code span.dv { color: #40a070; } 
+code span.er { color: #ff0000; font-weight: bold; } 
+code span.ex { } 
+code span.fl { color: #40a070; } 
+code span.fu { color: #06287e; } 
+code span.im { color: #008000; font-weight: bold; } 
+code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } 
+code span.kw { color: #007020; font-weight: bold; } 
+code span.op { color: #666666; } 
+code span.ot { color: #007020; } 
+code span.pp { color: #bc7a00; } 
+code span.sc { color: #4070a0; } 
+code span.ss { color: #bb6688; } 
+code span.st { color: #4070a0; } 
+code span.va { color: #19177c; } 
+code span.vs { color: #4070a0; } 
+code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } 
+</style>
+<script>
+// apply pandoc div.sourceCode style to pre.sourceCode instead
+(function() {
+  var sheets = document.styleSheets;
+  for (var i = 0; i < sheets.length; i++) {
+    if (sheets[i].ownerNode.dataset["origin"] !== "pandoc") continue;
+    try { var rules = sheets[i].cssRules; } catch (e) { continue; }
+    var j = 0;
+    while (j < rules.length) {
+      var rule = rules[j];
+      // check if there is a div.sourceCode rule
+      if (rule.type !== rule.STYLE_RULE || rule.selectorText !== "div.sourceCode") {
+        j++;
+        continue;
+      }
+      var style = rule.style.cssText;
+      // check if color or background-color is set
+      if (rule.style.color === '' && rule.style.backgroundColor === '') {
+        j++;
+        continue;
+      }
+      // replace div.sourceCode by a pre.sourceCode rule
+      sheets[i].deleteRule(j);
+      sheets[i].insertRule('pre.sourceCode{' + style + '}', j);
+    }
+  }
+})();
+</script>
+
+
+
+
+<style type="text/css">body {
+background-color: #fff;
+margin: 1em auto;
+max-width: 700px;
+overflow: visible;
+padding-left: 2em;
+padding-right: 2em;
+font-family: "Open Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+font-size: 14px;
+line-height: 1.35;
+}
+#TOC {
+clear: both;
+margin: 0 0 10px 10px;
+padding: 4px;
+width: 400px;
+border: 1px solid #CCCCCC;
+border-radius: 5px;
+background-color: #f6f6f6;
+font-size: 13px;
+line-height: 1.3;
+}
+#TOC .toctitle {
+font-weight: bold;
+font-size: 15px;
+margin-left: 5px;
+}
+#TOC ul {
+padding-left: 40px;
+margin-left: -1.5em;
+margin-top: 5px;
+margin-bottom: 5px;
+}
+#TOC ul ul {
+margin-left: -2em;
+}
+#TOC li {
+line-height: 16px;
+}
+table {
+margin: 1em auto;
+border-width: 1px;
+border-color: #DDDDDD;
+border-style: outset;
+border-collapse: collapse;
+}
+table th {
+border-width: 2px;
+padding: 5px;
+border-style: inset;
+}
+table td {
+border-width: 1px;
+border-style: inset;
+line-height: 18px;
+padding: 5px 5px;
+}
+table, table th, table td {
+border-left-style: none;
+border-right-style: none;
+}
+table thead, table tr.even {
+background-color: #f7f7f7;
+}
+p {
+margin: 0.5em 0;
+}
+blockquote {
+background-color: #f6f6f6;
+padding: 0.25em 0.75em;
+}
+hr {
+border-style: solid;
+border: none;
+border-top: 1px solid #777;
+margin: 28px 0;
+}
+dl {
+margin-left: 0;
+}
+dl dd {
+margin-bottom: 13px;
+margin-left: 13px;
+}
+dl dt {
+font-weight: bold;
+}
+ul {
+margin-top: 0;
+}
+ul li {
+list-style: circle outside;
+}
+ul ul {
+margin-bottom: 0;
+}
+pre, code {
+background-color: #f7f7f7;
+border-radius: 3px;
+color: #333;
+white-space: pre-wrap; 
+}
+pre {
+border-radius: 3px;
+margin: 5px 0px 10px 0px;
+padding: 10px;
+}
+pre:not([class]) {
+background-color: #f7f7f7;
+}
+code {
+font-family: Consolas, Monaco, 'Courier New', monospace;
+font-size: 85%;
+}
+p > code, li > code {
+padding: 2px 0px;
+}
+div.figure {
+text-align: center;
+}
+img {
+background-color: #FFFFFF;
+padding: 2px;
+border: 1px solid #DDDDDD;
+border-radius: 3px;
+border: 1px solid #CCCCCC;
+margin: 0 5px;
+}
+h1 {
+margin-top: 0;
+font-size: 35px;
+line-height: 40px;
+}
+h2 {
+border-bottom: 4px solid #f7f7f7;
+padding-top: 10px;
+padding-bottom: 2px;
+font-size: 145%;
+}
+h3 {
+border-bottom: 2px solid #f7f7f7;
+padding-top: 10px;
+font-size: 120%;
+}
+h4 {
+border-bottom: 1px solid #f7f7f7;
+margin-left: 8px;
+font-size: 105%;
+}
+h5, h6 {
+border-bottom: 1px solid #ccc;
+font-size: 105%;
+}
+a {
+color: #0033dd;
+text-decoration: none;
+}
+a:hover {
+color: #6666ff; }
+a:visited {
+color: #800080; }
+a:visited:hover {
+color: #BB00BB; }
+a[href^="http:"] {
+text-decoration: underline; }
+a[href^="https:"] {
+text-decoration: underline; }
+
+code > span.kw { color: #555; font-weight: bold; } 
+code > span.dt { color: #902000; } 
+code > span.dv { color: #40a070; } 
+code > span.bn { color: #d14; } 
+code > span.fl { color: #d14; } 
+code > span.ch { color: #d14; } 
+code > span.st { color: #d14; } 
+code > span.co { color: #888888; font-style: italic; } 
+code > span.ot { color: #007020; } 
+code > span.al { color: #ff0000; font-weight: bold; } 
+code > span.fu { color: #900; font-weight: bold; } 
+code > span.er { color: #a61717; background-color: #e3d2d2; } 
+</style>
+
+
+
+
+</head>
+
+<body>
+
+
+
+
+<h1 class="title toc-ignore">Parallel computation of interpretation
+methods</h1>
+
+
+
+<p>The <code>iml</code> package can now handle bigger datasets. Earlier
+problems with exploding memory have been fixed for
+<code>FeatureEffect</code>, <code>FeatureImp</code> and
+<code>Interaction</code>. It’s also possible now to compute
+<code>FeatureImp</code> and <code>Interaction</code> in parallel. This
+document describes how.</p>
+<p>First we load some data, fit a random forest and create a Predictor
+object.</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">42</span>)</span>
+<span id="cb1-2"><a href="#cb1-2" tabindex="-1"></a><span class="fu">library</span>(<span class="st">&quot;iml&quot;</span>)</span>
+<span id="cb1-3"><a href="#cb1-3" tabindex="-1"></a><span class="fu">library</span>(<span class="st">&quot;randomForest&quot;</span>)</span>
+<span id="cb1-4"><a href="#cb1-4" tabindex="-1"></a><span class="fu">data</span>(<span class="st">&quot;Boston&quot;</span>, <span class="at">package =</span> <span class="st">&quot;MASS&quot;</span>)</span>
+<span id="cb1-5"><a href="#cb1-5" tabindex="-1"></a>rf <span class="ot">&lt;-</span> <span class="fu">randomForest</span>(medv <span class="sc">~</span> ., <span class="at">data =</span> Boston, <span class="at">n.trees =</span> <span class="dv">10</span>)</span>
+<span id="cb1-6"><a href="#cb1-6" tabindex="-1"></a>X <span class="ot">&lt;-</span> Boston[<span class="fu">which</span>(<span class="fu">names</span>(Boston) <span class="sc">!=</span> <span class="st">&quot;medv&quot;</span>)]</span>
+<span id="cb1-7"><a href="#cb1-7" tabindex="-1"></a>predictor <span class="ot">&lt;-</span> Predictor<span class="sc">$</span><span class="fu">new</span>(rf, <span class="at">data =</span> X, <span class="at">y =</span> Boston<span class="sc">$</span>medv)</span></code></pre></div>
+<div id="going-parallel" class="section level2">
+<h2>Going parallel</h2>
+<p>Parallelization is supported via the {future} package. All you need
+to do is to choose a parallel backend via
+<code>future::plan()</code>.</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" tabindex="-1"></a><span class="fu">library</span>(<span class="st">&quot;future&quot;</span>)</span>
+<span id="cb2-2"><a href="#cb2-2" tabindex="-1"></a><span class="fu">library</span>(<span class="st">&quot;future.callr&quot;</span>)</span>
+<span id="cb2-3"><a href="#cb2-3" tabindex="-1"></a><span class="co"># Creates a PSOCK cluster with 2 cores</span></span>
+<span id="cb2-4"><a href="#cb2-4" tabindex="-1"></a><span class="fu">plan</span>(<span class="st">&quot;callr&quot;</span>, <span class="at">workers =</span> <span class="dv">2</span>)</span></code></pre></div>
+<p>Now we can easily compute feature importance in parallel. This means
+that the computation per feature is distributed among the 2 cores I
+specified earlier.</p>
+<div class="sourceCode" id="cb3"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" tabindex="-1"></a>imp <span class="ot">&lt;-</span> FeatureImp<span class="sc">$</span><span class="fu">new</span>(predictor, <span class="at">loss =</span> <span class="st">&quot;mae&quot;</span>)</span>
+<span id="cb3-2"><a href="#cb3-2" tabindex="-1"></a><span class="fu">library</span>(<span class="st">&quot;ggplot2&quot;</span>)</span>
+<span id="cb3-3"><a href="#cb3-3" tabindex="-1"></a><span class="fu">plot</span>(imp)</span></code></pre></div>
+<p><img role="img" src="data:image/png;base64,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" style="display: block; margin: auto;" /></p>
+<p>That wasn’t very impressive, let’s actually see how much speed up we
+get by parallelization.</p>
+<div class="sourceCode" id="cb4"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" tabindex="-1"></a>bench<span class="sc">::</span><span class="fu">system_time</span>({</span>
+<span id="cb4-2"><a href="#cb4-2" tabindex="-1"></a>  <span class="fu">plan</span>(sequential)</span>
+<span id="cb4-3"><a href="#cb4-3" tabindex="-1"></a>  FeatureImp<span class="sc">$</span><span class="fu">new</span>(predictor, <span class="at">loss =</span> <span class="st">&quot;mae&quot;</span>)</span>
+<span id="cb4-4"><a href="#cb4-4" tabindex="-1"></a>})</span>
+<span id="cb4-5"><a href="#cb4-5" tabindex="-1"></a><span class="co">#&gt; process    real </span></span>
+<span id="cb4-6"><a href="#cb4-6" tabindex="-1"></a><span class="co">#&gt;   4.53s    5.1s</span></span>
+<span id="cb4-7"><a href="#cb4-7" tabindex="-1"></a>bench<span class="sc">::</span><span class="fu">system_time</span>({</span>
+<span id="cb4-8"><a href="#cb4-8" tabindex="-1"></a>  <span class="fu">plan</span>(<span class="st">&quot;callr&quot;</span>, <span class="at">workers =</span> <span class="dv">2</span>)</span>
+<span id="cb4-9"><a href="#cb4-9" tabindex="-1"></a>  FeatureImp<span class="sc">$</span><span class="fu">new</span>(predictor, <span class="at">loss =</span> <span class="st">&quot;mae&quot;</span>)</span>
+<span id="cb4-10"><a href="#cb4-10" tabindex="-1"></a>})</span>
+<span id="cb4-11"><a href="#cb4-11" tabindex="-1"></a><span class="co">#&gt; process    real </span></span>
+<span id="cb4-12"><a href="#cb4-12" tabindex="-1"></a><span class="co">#&gt; 812.5ms   7.06s</span></span></code></pre></div>
+<p>A little bit of improvement, but not too impressive. Parallelization
+is more useful in the case where the model uses a lot of features or
+where the feature importance computation is repeated more often to get
+more stable results.</p>
+<div class="sourceCode" id="cb5"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" tabindex="-1"></a>bench<span class="sc">::</span><span class="fu">system_time</span>({</span>
+<span id="cb5-2"><a href="#cb5-2" tabindex="-1"></a>  <span class="fu">plan</span>(sequential)</span>
+<span id="cb5-3"><a href="#cb5-3" tabindex="-1"></a>  FeatureImp<span class="sc">$</span><span class="fu">new</span>(predictor, <span class="at">loss =</span> <span class="st">&quot;mae&quot;</span>, <span class="at">n.repetitions =</span> <span class="dv">10</span>)</span>
+<span id="cb5-4"><a href="#cb5-4" tabindex="-1"></a>})</span>
+<span id="cb5-5"><a href="#cb5-5" tabindex="-1"></a><span class="co">#&gt; process    real </span></span>
+<span id="cb5-6"><a href="#cb5-6" tabindex="-1"></a><span class="co">#&gt;   4.33s   4.33s</span></span>
+<span id="cb5-7"><a href="#cb5-7" tabindex="-1"></a></span>
+<span id="cb5-8"><a href="#cb5-8" tabindex="-1"></a>bench<span class="sc">::</span><span class="fu">system_time</span>({</span>
+<span id="cb5-9"><a href="#cb5-9" tabindex="-1"></a>  <span class="fu">plan</span>(<span class="st">&quot;callr&quot;</span>, <span class="at">workers =</span> <span class="dv">2</span>)</span>
+<span id="cb5-10"><a href="#cb5-10" tabindex="-1"></a>  FeatureImp<span class="sc">$</span><span class="fu">new</span>(predictor, <span class="at">loss =</span> <span class="st">&quot;mae&quot;</span>, <span class="at">n.repetitions =</span> <span class="dv">10</span>)</span>
+<span id="cb5-11"><a href="#cb5-11" tabindex="-1"></a>})</span>
+<span id="cb5-12"><a href="#cb5-12" tabindex="-1"></a><span class="co">#&gt; process    real </span></span>
+<span id="cb5-13"><a href="#cb5-13" tabindex="-1"></a><span class="co">#&gt; 312.5ms   6.36s</span></span></code></pre></div>
+<div id="interaction" class="section level3">
+<h3>Interaction</h3>
+<p>Here the parallel computation is twice as fast as the sequential
+computation of the feature importance.</p>
+<p>The parallelization also speeds up the computation of the interaction
+statistics:</p>
+<div class="sourceCode" id="cb6"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" tabindex="-1"></a>bench<span class="sc">::</span><span class="fu">system_time</span>({</span>
+<span id="cb6-2"><a href="#cb6-2" tabindex="-1"></a>  <span class="fu">plan</span>(sequential)</span>
+<span id="cb6-3"><a href="#cb6-3" tabindex="-1"></a>  Interaction<span class="sc">$</span><span class="fu">new</span>(predictor, <span class="at">grid.size =</span> <span class="dv">15</span>)</span>
+<span id="cb6-4"><a href="#cb6-4" tabindex="-1"></a>})</span>
+<span id="cb6-5"><a href="#cb6-5" tabindex="-1"></a><span class="co">#&gt; process    real </span></span>
+<span id="cb6-6"><a href="#cb6-6" tabindex="-1"></a><span class="co">#&gt;   6.72s   6.74s</span></span>
+<span id="cb6-7"><a href="#cb6-7" tabindex="-1"></a>bench<span class="sc">::</span><span class="fu">system_time</span>({</span>
+<span id="cb6-8"><a href="#cb6-8" tabindex="-1"></a>  <span class="fu">plan</span>(<span class="st">&quot;callr&quot;</span>, <span class="at">workers =</span> <span class="dv">2</span>)</span>
+<span id="cb6-9"><a href="#cb6-9" tabindex="-1"></a>  Interaction<span class="sc">$</span><span class="fu">new</span>(predictor, <span class="at">grid.size =</span> <span class="dv">15</span>)</span>
+<span id="cb6-10"><a href="#cb6-10" tabindex="-1"></a>})</span>
+<span id="cb6-11"><a href="#cb6-11" tabindex="-1"></a><span class="co">#&gt;  process     real </span></span>
+<span id="cb6-12"><a href="#cb6-12" tabindex="-1"></a><span class="co">#&gt; 328.12ms    8.17s</span></span></code></pre></div>
+</div>
+<div id="feature-effects" class="section level3">
+<h3>Feature Effects</h3>
+<p>Same for <code>FeatureEffects</code>:</p>
+<div class="sourceCode" id="cb7"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" tabindex="-1"></a>bench<span class="sc">::</span><span class="fu">system_time</span>({</span>
+<span id="cb7-2"><a href="#cb7-2" tabindex="-1"></a>  <span class="fu">plan</span>(sequential)</span>
+<span id="cb7-3"><a href="#cb7-3" tabindex="-1"></a>  FeatureEffects<span class="sc">$</span><span class="fu">new</span>(predictor)</span>
+<span id="cb7-4"><a href="#cb7-4" tabindex="-1"></a>})</span>
+<span id="cb7-5"><a href="#cb7-5" tabindex="-1"></a><span class="co">#&gt; process    real </span></span>
+<span id="cb7-6"><a href="#cb7-6" tabindex="-1"></a><span class="co">#&gt;   1.33s   1.32s</span></span>
+<span id="cb7-7"><a href="#cb7-7" tabindex="-1"></a>bench<span class="sc">::</span><span class="fu">system_time</span>({</span>
+<span id="cb7-8"><a href="#cb7-8" tabindex="-1"></a>  <span class="fu">plan</span>(<span class="st">&quot;callr&quot;</span>, <span class="at">workers =</span> <span class="dv">2</span>)</span>
+<span id="cb7-9"><a href="#cb7-9" tabindex="-1"></a>  FeatureEffects<span class="sc">$</span><span class="fu">new</span>(predictor)</span>
+<span id="cb7-10"><a href="#cb7-10" tabindex="-1"></a>})</span>
+<span id="cb7-11"><a href="#cb7-11" tabindex="-1"></a><span class="co">#&gt; process    real </span></span>
+<span id="cb7-12"><a href="#cb7-12" tabindex="-1"></a><span class="co">#&gt;   1.23s   8.91s</span></span></code></pre></div>
+</div>
+</div>
+
+
+
+<!-- code folding -->
+
+
+<!-- dynamically load mathjax for compatibility with self-contained -->
+<script>
+  (function () {
+    var script = document.createElement("script");
+    script.type = "text/javascript";
+    script.src  = "https://mathjax.rstudio.com/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML";
+    document.getElementsByTagName("head")[0].appendChild(script);
+  })();
+</script>
+
+</body>
+</html>

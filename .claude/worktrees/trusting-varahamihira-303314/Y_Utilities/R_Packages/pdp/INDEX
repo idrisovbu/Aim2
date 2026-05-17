@@ -1,0 +1,8 @@
+autoplot.partial        Plotting Partial Dependence Functions
+boston                  Boston Housing Data
+exemplar                Exemplar observation
+partial                 Partial Dependence Functions
+pima                    Pima Indians Diabetes Data
+plotPartial             Plotting Partial Dependence Functions
+topPredictors           Extract Most "Important" Predictors
+                        (Experimental)

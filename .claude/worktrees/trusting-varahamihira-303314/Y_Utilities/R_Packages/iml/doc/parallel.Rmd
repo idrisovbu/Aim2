@@ -1,0 +1,110 @@
+---
+title: "Parallel computation of interpretation methods"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Parallel computation of interpretation methods}
+  %\VignetteEngine{knitr::rmarkdown}
+  \usepackage[utf8]{inputenc}
+---
+  
+```{r, echo = FALSE, message = FALSE}
+knitr::opts_chunk$set(collapse = T, comment = "#>", fig.width = 7, fig.height = 7, fig.align = "center")
+options(tibble.print_min = 4L, tibble.print_max = 4L)
+```
+
+The `iml` package can now handle bigger datasets. 
+Earlier problems with exploding memory have been fixed for `FeatureEffect`, `FeatureImp` and `Interaction`.
+It's also possible now to compute `FeatureImp` and `Interaction` in parallel.
+This document describes how.
+
+First we load some data, fit a random forest and create a Predictor object.
+
+```{r}
+set.seed(42)
+library("iml")
+library("randomForest")
+data("Boston", package = "MASS")
+rf <- randomForest(medv ~ ., data = Boston, n.trees = 10)
+X <- Boston[which(names(Boston) != "medv")]
+predictor <- Predictor$new(rf, data = X, y = Boston$medv)
+```
+
+## Going parallel
+
+Parallelization is supported via the {future} package.
+All you need to do is to choose a parallel backend via `future::plan()`.
+
+```{r}
+library("future")
+library("future.callr")
+# Creates a PSOCK cluster with 2 cores
+plan("callr", workers = 2)
+```
+
+Now we can easily compute feature importance in parallel. This means that the computation per feature is distributed among the 2 cores I specified earlier.
+
+```{r}
+imp <- FeatureImp$new(predictor, loss = "mae")
+library("ggplot2")
+plot(imp)
+```
+
+That wasn't very impressive, let's actually see how much speed up we get by parallelization.
+
+```{r}
+bench::system_time({
+  plan(sequential)
+  FeatureImp$new(predictor, loss = "mae")
+})
+bench::system_time({
+  plan("callr", workers = 2)
+  FeatureImp$new(predictor, loss = "mae")
+})
+```
+
+A little bit of improvement, but not too impressive.
+Parallelization is more useful in the case where the model uses a lot of features or where the feature importance computation is repeated more often to get more stable results.
+
+```{r}
+bench::system_time({
+  plan(sequential)
+  FeatureImp$new(predictor, loss = "mae", n.repetitions = 10)
+})
+
+bench::system_time({
+  plan("callr", workers = 2)
+  FeatureImp$new(predictor, loss = "mae", n.repetitions = 10)
+})
+```
+
+### Interaction
+
+Here the parallel computation is twice as fast as the sequential computation of the feature importance.
+
+The parallelization also speeds up the computation of the interaction statistics:
+
+```{r}
+bench::system_time({
+  plan(sequential)
+  Interaction$new(predictor, grid.size = 15)
+})
+bench::system_time({
+  plan("callr", workers = 2)
+  Interaction$new(predictor, grid.size = 15)
+})
+```
+
+### Feature Effects
+
+Same for `FeatureEffects`:
+
+```{r}
+bench::system_time({
+  plan(sequential)
+  FeatureEffects$new(predictor)
+})
+bench::system_time({
+  plan("callr", workers = 2)
+  FeatureEffects$new(predictor)
+})
+```

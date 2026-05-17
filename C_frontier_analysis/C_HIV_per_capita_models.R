@@ -3,50 +3,62 @@
 ##  Folder:    C_frontier_analysis/
 ##  Purpose:   HIV regression analysis — POST-MAY-6-COMMITTEE per-capita framework.
 ##
-##             Replaces the per-prevalent-case framework used in
-##             C_HIV_regression_models_analysis.R. Implements two lenses:
+##  Three lenses, all with HIV spending per capita as exposure:
 ##
-##               Lens 1 — BURDEN
-##                 Exposure: log(spending_per_capita)
-##                 Outcome:  log(daly_per_capita)
-##                 Rationale: same population denominator on both sides —
-##                            removes the prevalence-endogeneity issue raised
-##                            by Marcia Weaver, Joe Dieleman, Emily Williams.
+##    Lens 1A — BURDEN (DALYs)
+##      Outcome:  log(daly_per_capita)
+##      Primary burden control: log(incidence_per_100k)
 ##
-##               Lens 2 — PREVENTION
-##                 Exposure: log(spending_per_capita)
-##                 Outcome:  log(incidence_per_100k)
-##                 Rationale: captures the prevention pathway (transmission
-##                            averted) that the per-prevalent-case framework
-##                            could not address. Incidence is the outcome
-##                            here, not a control — using it as a covariate
-##                            in Lens 1 would over-adjust the prevention path.
+##    Lens 1B — BURDEN (Mortality)  [NEW]
+##      Outcome:  log(mortality_per_capita)
+##      Same covariate structure as Lens 1A.
+##      Mortality is the more interpretable outcome for clinical audiences
+##      (no disability-weight subjectivity) and serves as a robustness check.
+##
+##    Lens 2 — PREVENTION
+##      Outcome:  log(incidence_per_100k)
+##      Primary burden control: log(prevalence_per_100k)_L1
+##
+##  SIGN INTERPRETATION NOTE
+##    A POSITIVE coefficient on log_spending_per_capita in a burden lens
+##    indicates MORE spending associated with MORE burden — this is the
+##    needs-based-allocation / reverse-causation pattern, NOT a causal
+##    spending->burden effect. The Mundlak decomposition (model 1.11 /
+##    1B.11) separates this:
+##      _B coefficient = cross-sectional allocation (typically large +)
+##      _W coefficient = within-state year-to-year (closer to causal)
+##    The _W coefficient is the cleanest available identification without
+##    instrumental variables and is the manuscript-ready answer to the
+##    "spending tracks burden because of allocation" critique.
+##
+##  Why incidence (not prevalence) is the primary burden control in Lens 1:
+##    Prevalence is endogenous to the health system (ART → suppression →
+##    affects transmission → affects prevalence). Marcia's denominator-
+##    endogeneity argument applies on the RHS too. Incidence is the cleaner
+##    proxy — new infection pressure, upstream of the spending decision.
+##
+##  Why lagged (not contemporaneous) prevalence in Lens 2:
+##    Current prevalence in year t includes incident cases from t, t-1, t-2,
+##    etc., so it's mechanically downstream of current incidence — bad
+##    control. Lagged prevalence is the stock of infection that could
+##    transmit and is exogenous to current incidence.
+##
+##  Mundlak B/W split is the primary identification strategy. Directly
+##  responds to Joe Dieleman's May 11 critique that fixed effects average
+##  out the cross-sectional signal — Mundlak preserves both.
 ##
 ##  Standard errors:
 ##    Panel models      -> clubSandwich::vcovCR + Satterthwaite (CR2)
 ##    Cross-sectional   -> sandwich::vcovHC type "HC2"
 ##
-##  Inputs:
-##    df_as_processed_rw_gbd.csv  (from C_regression_prep_B.R)
-##      Must contain:
-##        - as_spend_per_capita  (created post-committee in prep_A.R)
-##        - dex_pop              (created post-committee in prep_A.R)
-##        - spend_all, ryan_white_funding_final
-##        - daly_counts, incidence_counts, prevalence_counts
-##        - location_id, location_name, year_id, acause
-##        - race_prop_BLCK, race_prop_HISP, prop_homeless,
-##          ldi_pc, unemployment_rate, edu_yrs, aca_implemented_status
-##
-##  Outputs (in dir_output):
-##    df_hiv_per_capita_panel.csv
-##    df_hiv_per_capita_between.csv
-##    summary_table1_per_capita.csv
-##    confounder_screen_burden_PANEL.csv  / _STATE.csv
-##    confounder_screen_prevention_PANEL.csv / _STATE.csv
-##    variance_decomposition_per_capita.csv
-##    regression_results_hiv_per_capita_combined.csv
-##    spending_coefficients_summary_per_capita.csv
-##    model_registry_per_capita.csv
+##  Inputs (df_as_processed_rw_gbd.csv must contain):
+##    - as_spend_per_capita, dex_pop   (post-committee additions)
+##    - spend_all, ryan_white_funding_final
+##    - spend_AM, spend_ED, spend_HH, spend_IP, spend_NF, spend_RX  (optional)
+##    - daly_counts, mortality_counts, incidence_counts, prevalence_counts
+##    - location_id, location_name, year_id, acause
+##    - race_prop_BLCK, race_prop_HISP, prop_homeless,
+##      ldi_pc, unemployment_rate
 ##================================================================
 
 
@@ -81,7 +93,6 @@ pacman::p_load(
   Hmisc
 )
 
-# Resolve filter conflicts
 if ("plotly" %in% loadedNamespaces()) filter <- dplyr::filter
 tryCatch(
   conflicted::conflicts_prefer(dplyr::filter, .quiet = TRUE),
@@ -102,10 +113,11 @@ df_as <- read.csv(
   stringsAsFactors = FALSE
 )
 
-# ---------- guardrails on required columns ----------
+# ---------- guardrails ----------
 required_cols <- c("as_spend_per_capita", "dex_pop",
                    "spend_all", "ryan_white_funding_final",
-                   "daly_counts", "incidence_counts", "prevalence_counts",
+                   "daly_counts", "mortality_counts",
+                   "incidence_counts", "prevalence_counts",
                    "location_id", "location_name", "year_id", "acause")
 missing_cols <- setdiff(required_cols, names(df_as))
 if (length(missing_cols) > 0) {
@@ -114,77 +126,125 @@ if (length(missing_cols) > 0) {
        "\nRe-run C_regression_prep_A.R + prep_B.R with the per-capita patches first.")
 }
 
+toc_cols <- c("spend_AM", "spend_ED", "spend_HH", "spend_IP", "spend_NF", "spend_RX")
+toc_available <- all(toc_cols %in% names(df_as))
+if (!toc_available) {
+  message("NOTE: not all TOC columns present. By-TOC decomposition will be skipped.")
+  message("      Missing: ", paste(setdiff(toc_cols, names(df_as)), collapse = ", "))
+}
+
 
 ##================================================================
 ## 2.  COMPUTE PER-CAPITA / PER-100K VARIABLES
-##================================================================
-##  - spending_per_capita = (RW + DEX spend) / dex_pop
-##  - daly_per_capita     = daly_counts / dex_pop
-##  - incidence_per_100k  = incidence_counts / dex_pop * 1e5
-##  - prevalence_per_100k = prevalence_counts / dex_pop * 1e5
-##
-##  All denominators are dex_pop (DEX population — consistent with
-##  how DEX itself computes per-capita).
 ##================================================================
 safe_log <- function(x) if_else(x > 0, log(x), NA_real_)
 
 df_hiv <- df_as %>%
   dplyr::filter(acause == "hiv") %>%
   mutate(
-    spending_per_capita  = (ryan_white_funding_final + spend_all) / dex_pop,
-    daly_per_capita      = daly_counts      / dex_pop,
-    incidence_per_100k   = (incidence_counts  / dex_pop) * 1e5,
-    prevalence_per_100k  = (prevalence_counts / dex_pop) * 1e5,
-    # Logs
-    log_spending_per_capita = safe_log(spending_per_capita),
-    log_daly_per_capita     = safe_log(daly_per_capita),
-    log_incidence_per_100k  = safe_log(incidence_per_100k),
-    log_prevalence_per_100k = safe_log(prevalence_per_100k)
-  ) %>%
+    spending_per_capita   = (ryan_white_funding_final + spend_all) / dex_pop,
+    daly_per_capita       = daly_counts      / dex_pop,
+    mortality_per_capita  = mortality_counts / dex_pop,
+    incidence_per_100k    = (incidence_counts  / dex_pop) * 1e5,
+    prevalence_per_100k   = (prevalence_counts / dex_pop) * 1e5,
+    log_spending_per_capita   = safe_log(spending_per_capita),
+    log_daly_per_capita       = safe_log(daly_per_capita),
+    log_mortality_per_capita  = safe_log(mortality_per_capita),
+    log_incidence_per_100k    = safe_log(incidence_per_100k),
+    log_prevalence_per_100k   = safe_log(prevalence_per_100k)
+  )
+
+# TOC-level per-capita spending
+if (toc_available) {
+  df_hiv <- df_hiv %>%
+    mutate(
+      # Note: TOC spending is DEX-only (Ryan White isn't TOC-attributed).
+      # Aggregate Lens 1A/1B/2 primary models use RW+DEX; by-TOC is DEX-only.
+      spend_pharma_pc      = spend_RX / dex_pop,
+      spend_ambulatory_pc  = spend_AM / dex_pop,
+      spend_inpatient_pc   = spend_IP / dex_pop,
+      spend_nf_pc          = spend_NF / dex_pop,
+      spend_ed_pc          = spend_ED / dex_pop,
+      spend_hh_pc          = spend_HH / dex_pop,
+      log_spend_pharma_pc      = safe_log(spend_pharma_pc),
+      log_spend_ambulatory_pc  = safe_log(spend_ambulatory_pc),
+      log_spend_inpatient_pc   = safe_log(spend_inpatient_pc),
+      log_spend_nf_pc          = safe_log(spend_nf_pc),
+      log_spend_ed_pc          = safe_log(spend_ed_pc),
+      log_spend_hh_pc          = safe_log(spend_hh_pc)
+    )
+}
+
+df_hiv <- df_hiv %>%
   dplyr::filter(!is.na(log_daly_per_capita),
+                !is.na(log_mortality_per_capita),
                 !is.na(log_spending_per_capita),
                 !is.na(dex_pop), dex_pop > 0)
 
 cat("\n---- Per-capita variable summaries ----\n")
 print(summary(df_hiv$spending_per_capita))
 print(summary(df_hiv$daly_per_capita))
+print(summary(df_hiv$mortality_per_capita))
 print(summary(df_hiv$incidence_per_100k))
 print(summary(df_hiv$prevalence_per_100k))
 
 
 ##================================================================
-## 3.  COVARIATE LOGS, LAGS, AND YEAR FACTOR
+## 3.  COVARIATE LOGS, LAGS, YEAR FACTOR
 ##================================================================
 
 df_hiv <- df_hiv %>%
   mutate(
-    log_prop_homeless        = safe_log(prop_homeless),
-    log_ldi_pc               = safe_log(ldi_pc),
-    year_factor              = factor(year_id)
+    log_prop_homeless = safe_log(prop_homeless),
+    log_ldi_pc        = safe_log(ldi_pc),
+    year_factor       = factor(year_id)
   )
 
-# Lags (sorted by state, year)
 df_hiv <- df_hiv %>%
   arrange(location_id, year_id) %>%
   group_by(location_id) %>%
   mutate(
     log_spending_per_capita_l1 = dplyr::lag(log_spending_per_capita, 1),
     log_spending_per_capita_l2 = dplyr::lag(log_spending_per_capita, 2),
-    log_prevalence_per_100k_l1 = dplyr::lag(log_prevalence_per_100k, 1)
+    log_prevalence_per_100k_l1 = dplyr::lag(log_prevalence_per_100k, 1),
+    log_prevalence_per_100k_l2 = dplyr::lag(log_prevalence_per_100k, 2),
+    log_incidence_per_100k_l1  = dplyr::lag(log_incidence_per_100k,  1)
   ) %>%
   ungroup()
 
 
 ##================================================================
-## 4.  SAVE PANEL + COLLAPSED STATE-MEAN DATASETS
+## 4.  MUNDLAK B/W DECOMPOSITION
 ##================================================================
 
-# ---- 4a. Panel ----
+mundlak_vars <- c(
+  "log_spending_per_capita",
+  "log_incidence_per_100k",
+  "log_prevalence_per_100k",
+  "race_prop_BLCK", "race_prop_HISP",
+  "log_prop_homeless", "unemployment_rate"
+)
+mundlak_vars <- intersect(mundlak_vars, names(df_hiv))
+
+for (v in mundlak_vars) {
+  df_hiv <- df_hiv %>%
+    group_by(location_id) %>%
+    mutate(
+      !!paste0(v, "_B") := mean(.data[[v]], na.rm = TRUE),
+      !!paste0(v, "_W") := .data[[v]] - mean(.data[[v]], na.rm = TRUE)
+    ) %>%
+    ungroup()
+}
+
+
+##================================================================
+## 5.  SAVE PANEL + COLLAPSED STATE-MEAN DATASETS
+##================================================================
+
 write.csv(df_hiv,
           file.path(dir_output, "df_hiv_per_capita_panel.csv"),
           row.names = FALSE)
 
-# ---- 4b. Collapsed (one row per state, for cross-sectional between) ----
 id_cols <- c("location_id", "location_name", "year_id", "cause_id")
 numeric_cols  <- df_hiv %>% select(where(is.numeric)) %>% names()
 collapse_cols <- setdiff(numeric_cols, id_cols)
@@ -206,12 +266,13 @@ cat("\nPanel rows:    ", nrow(df_hiv), "\n",
 
 
 ##================================================================
-## 5.  SUMMARY TABLE 1 (per-capita variables + covariates)
+## 6.  SUMMARY TABLE 1
 ##================================================================
 
 summary_vars <- c(
   "spending_per_capita",  "log_spending_per_capita",
   "daly_per_capita",      "log_daly_per_capita",
+  "mortality_per_capita", "log_mortality_per_capita",
   "incidence_per_100k",   "log_incidence_per_100k",
   "prevalence_per_100k",  "log_prevalence_per_100k",
   "dex_pop",
@@ -219,8 +280,9 @@ summary_vars <- c(
   "prop_homeless",  "log_prop_homeless",
   "ldi_pc",         "log_ldi_pc",
   "unemployment_rate", "edu_yrs",
-  "aca_implemented_status",
-  "spend_all", "ryan_white_funding_final"
+  "spend_all", "ryan_white_funding_final",
+  "spend_pharma_pc", "spend_ambulatory_pc",
+  "spend_inpatient_pc", "spend_nf_pc"
 )
 summary_vars <- intersect(summary_vars, names(df_hiv))
 
@@ -246,10 +308,9 @@ write.csv(summary_tbl,
 
 
 ##================================================================
-## 6.  DIAGNOSTICS — confounder screening + variance decomposition
+## 7.  DIAGNOSTICS — confounder screening + variance decomposition
 ##================================================================
 
-# ---- 6a. Confounder screening function (re-used) ----
 screen_confounders <- function(df, exposure, outcome,
                                exclude_vars = character(),
                                r_thresh = 0.20,
@@ -294,90 +355,72 @@ screen_confounders <- function(df, exposure, outcome,
   list(all = res, shortlist = shortlisted)
 }
 
-# Mechanical exclusions — drop variables that are denominators / numerators
-# of the analysis variables (would be tautological)
 exclude_base <- c("cause_id", "year_id", "location_id")
-exclude_mechanical <- c(
-  # All forms of spending
+exclude_mechanical_burden <- c(
   "spending_per_capita", "log_spending_per_capita",
   "spend_all", "spend_mdcd", "spend_mdcr", "spend_oop", "spend_priv",
+  "spend_AM", "spend_ED", "spend_HH", "spend_IP", "spend_NF", "spend_RX",
+  "spend_pharma_pc", "spend_ambulatory_pc", "spend_inpatient_pc",
+  "spend_nf_pc", "spend_ed_pc", "spend_hh_pc",
+  "log_spend_pharma_pc", "log_spend_ambulatory_pc",
+  "log_spend_inpatient_pc", "log_spend_nf_pc",
   "ryan_white_funding_final",
   "as_spend_per_capita", "as_spend_prev_ratio", "as_spend_prev_ratio_log",
   "rw_dex_hiv_prev_ratio", "rw_dex_hiv_prev_ratio_log",
   "rw_hiv_prev_ratio", "rw_hiv_prev_ratio_log",
-  # All forms of DALYs / outcomes that are downstream of spending or share denom
-  "daly_per_capita", "log_daly_per_capita",
-  "daly_counts", "yll_counts", "yld_counts",
+  "daly_per_capita", "log_daly_per_capita", "daly_counts",
+  "mortality_per_capita", "log_mortality_per_capita", "mortality_counts",
   "as_daly_prev_ratio", "as_daly_prev_ratio_log",
-  "as_yll_prev_ratio", "as_yld_prev_ratio",
-  "mortality_rates", "mortality_counts",
+  "yll_counts", "yld_counts", "as_yll_prev_ratio", "as_yld_prev_ratio",
+  "mortality_rates",
   "as_mort_prev_ratio", "as_mort_prev_ratio_log",
-  # Incidence (Lens 2 outcome — don't put it on the screen of Lens 1)
-  "incidence_per_100k", "log_incidence_per_100k", "incidence_counts",
-  "incidence_rates",
-  # Prevalence (used differently in each lens — exclude from auto-screen)
-  "prevalence_per_100k", "log_prevalence_per_100k", "prevalence_counts",
-  "prevalence_rates",
-  # Population denominators
   "dex_pop", "population"
 )
 
-# Burden lens — screen on panel
-screen_confounders(
-  df           = df_hiv,
-  exposure     = "log_spending_per_capita",
-  outcome      = "log_daly_per_capita",
-  exclude_vars = c(exclude_base, exclude_mechanical),
-  r_thresh     = 0.20,
-  dir_output   = dir_output,
-  file_stub    = "confounder_screen_burden_PANEL"
+exclude_mechanical_prev <- c(
+  exclude_mechanical_burden,
+  "incidence_per_100k", "log_incidence_per_100k", "incidence_counts",
+  "incidence_rates", "log_incidence_per_100k_l1"
 )
 
-# Burden lens — state-means screen
-df_state_means <- df_hiv %>%
-  group_by(location_id, location_name) %>%
-  summarise(across(where(is.numeric), \(x) mean(x, na.rm = TRUE)),
-            .groups = "drop")
-
 screen_confounders(
-  df           = df_state_means,
-  exposure     = "log_spending_per_capita",
-  outcome      = "log_daly_per_capita",
-  exclude_vars = c(exclude_base, exclude_mechanical),
-  r_thresh     = 0.20,
-  dir_output   = dir_output,
-  file_stub    = "confounder_screen_burden_STATE"
+  df = df_hiv, exposure = "log_spending_per_capita",
+  outcome = "log_daly_per_capita",
+  exclude_vars = c(exclude_base, exclude_mechanical_burden),
+  r_thresh = 0.20, dir_output = dir_output,
+  file_stub = "confounder_screen_burden_PANEL"
 )
-
-# Prevention lens — screen on panel.
-# For this lens, prevalence is allowed back into the candidate pool;
-# we keep incidence excluded because it's the outcome.
-exclude_mechanical_prev <- setdiff(exclude_mechanical,
-                                   c("prevalence_per_100k",
-                                     "log_prevalence_per_100k"))
-
 screen_confounders(
-  df           = df_hiv,
-  exposure     = "log_spending_per_capita",
-  outcome      = "log_incidence_per_100k",
+  df = df_between, exposure = "log_spending_per_capita",
+  outcome = "log_daly_per_capita",
+  exclude_vars = c(exclude_base, exclude_mechanical_burden),
+  r_thresh = 0.20, dir_output = dir_output,
+  file_stub = "confounder_screen_burden_STATE"
+)
+screen_confounders(
+  df = df_hiv, exposure = "log_spending_per_capita",
+  outcome = "log_mortality_per_capita",
+  exclude_vars = c(exclude_base, exclude_mechanical_burden),
+  r_thresh = 0.20, dir_output = dir_output,
+  file_stub = "confounder_screen_burden_mort_PANEL"
+)
+screen_confounders(
+  df = df_hiv, exposure = "log_spending_per_capita",
+  outcome = "log_incidence_per_100k",
   exclude_vars = c(exclude_base, exclude_mechanical_prev),
-  r_thresh     = 0.20,
-  dir_output   = dir_output,
-  file_stub    = "confounder_screen_prevention_PANEL"
+  r_thresh = 0.20, dir_output = dir_output,
+  file_stub = "confounder_screen_prevention_PANEL"
 )
-
 screen_confounders(
-  df           = df_state_means,
-  exposure     = "log_spending_per_capita",
-  outcome      = "log_incidence_per_100k",
+  df = df_between, exposure = "log_spending_per_capita",
+  outcome = "log_incidence_per_100k",
   exclude_vars = c(exclude_base, exclude_mechanical_prev),
-  r_thresh     = 0.20,
-  dir_output   = dir_output,
-  file_stub    = "confounder_screen_prevention_STATE"
+  r_thresh = 0.20, dir_output = dir_output,
+  file_stub = "confounder_screen_prevention_STATE"
 )
 
 
-# ---- 6b. Variance decomposition ----
+# ---- 7b. Variance decomposition ----
 calc_variance_decomp <- function(df_panel, var_name, group_var = "location_id") {
   x <- df_panel[[var_name]]
   total_var <- var(x, na.rm = TRUE)
@@ -399,6 +442,7 @@ calc_variance_decomp <- function(df_panel, var_name, group_var = "location_id") 
 variance_decomp <- bind_rows(
   calc_variance_decomp(df_hiv, "log_spending_per_capita"),
   calc_variance_decomp(df_hiv, "log_daly_per_capita"),
+  calc_variance_decomp(df_hiv, "log_mortality_per_capita"),
   calc_variance_decomp(df_hiv, "log_incidence_per_100k"),
   calc_variance_decomp(df_hiv, "log_prevalence_per_100k"),
   calc_variance_decomp(df_hiv, "race_prop_BLCK"),
@@ -407,14 +451,13 @@ variance_decomp <- bind_rows(
   calc_variance_decomp(df_hiv, "log_ldi_pc"),
   calc_variance_decomp(df_hiv, "unemployment_rate")
 )
-
 write.csv(variance_decomp,
           file.path(dir_output, "variance_decomposition_per_capita.csv"),
           row.names = FALSE)
 
 
 ##================================================================
-## 7.  FIT REGRESSION MODELS
+## 8.  FIT REGRESSION MODELS
 ##================================================================
 
 list_models    <- list()
@@ -436,146 +479,255 @@ register_model <- function(lens, spec, formula, data, is_final = FALSE) {
 
 
 # ==============================================================
-# LENS 1 — BURDEN (panel with year FE)
-#   Outcome:  log(daly_per_capita)
-#   Exposure: log(spending_per_capita)
-#   Design:   Full panel, year fixed effects, state-clustered SEs (CR2)
+# LENS 1A — BURDEN (DALYs)
 # ==============================================================
 
-# 1.1 Bivariate (spending + year FE only)
-register_model(
-  lens = "burden", spec = "bivariate",
-  formula = "log_daly_per_capita ~ log_spending_per_capita + year_factor",
-  data = df_hiv, is_final = TRUE
-)
+register_model(lens = "burden", spec = "bivariate",
+               formula = "log_daly_per_capita ~ log_spending_per_capita + year_factor",
+               data = df_hiv, is_final = TRUE)
 
-# 1.2 Primary (committee-recommended adjusted model)
-register_model(
-  lens = "burden", spec = "primary",
-  formula = "log_daly_per_capita ~ log_spending_per_capita + year_factor +
+register_model(lens = "burden", spec = "primary",
+               formula = "log_daly_per_capita ~ log_spending_per_capita + year_factor +
+              race_prop_BLCK + race_prop_HISP +
+              log_prop_homeless + log_incidence_per_100k",
+               data = df_hiv, is_final = TRUE)
+
+register_model(lens = "burden", spec = "no_burden_control",
+               formula = "log_daly_per_capita ~ log_spending_per_capita + year_factor +
+              race_prop_BLCK + race_prop_HISP + log_prop_homeless",
+               data = df_hiv, is_final = TRUE)
+
+register_model(lens = "burden", spec = "sens_prev_control",
+               formula = "log_daly_per_capita ~ log_spending_per_capita + year_factor +
               race_prop_BLCK + race_prop_HISP +
               log_prop_homeless + log_prevalence_per_100k",
-  data = df_hiv, is_final = TRUE
-)
+               data = df_hiv, is_final = TRUE)
 
-# 1.3 No prevalence (drop prevalence covariate — sensitivity)
-register_model(
-  lens = "burden", spec = "no_prev",
-  formula = "log_daly_per_capita ~ log_spending_per_capita + year_factor +
-              race_prop_BLCK + race_prop_HISP +
-              log_prop_homeless",
-  data = df_hiv, is_final = TRUE
-)
-
-# 1.4 Lagged prevalence (prevalence at t-1 instead of contemporaneous)
-register_model(
-  lens = "burden", spec = "lag_prev",
-  formula = "log_daly_per_capita ~ log_spending_per_capita + year_factor +
+register_model(lens = "burden", spec = "sens_lag_prev",
+               formula = "log_daly_per_capita ~ log_spending_per_capita + year_factor +
               race_prop_BLCK + race_prop_HISP +
               log_prop_homeless + log_prevalence_per_100k_l1",
-  data = df_hiv, is_final = TRUE
-)
+               data = df_hiv, is_final = TRUE)
 
-# 1.5 Lagged spending (1 year)
-register_model(
-  lens = "burden", spec = "lag_spending_l1",
-  formula = "log_daly_per_capita ~ log_spending_per_capita_l1 + year_factor +
+register_model(lens = "burden", spec = "sens_lag_incidence",
+               formula = "log_daly_per_capita ~ log_spending_per_capita + year_factor +
               race_prop_BLCK + race_prop_HISP +
-              log_prop_homeless + log_prevalence_per_100k",
-  data = df_hiv, is_final = FALSE
-)
+              log_prop_homeless + log_incidence_per_100k_l1",
+               data = df_hiv, is_final = TRUE)
 
-# 1.6 Lagged spending (2 years)
-register_model(
-  lens = "burden", spec = "lag_spending_l2",
-  formula = "log_daly_per_capita ~ log_spending_per_capita_l2 + year_factor +
+register_model(lens = "burden", spec = "lag_spending_l1",
+               formula = "log_daly_per_capita ~ log_spending_per_capita_l1 + year_factor +
               race_prop_BLCK + race_prop_HISP +
-              log_prop_homeless + log_prevalence_per_100k",
-  data = df_hiv, is_final = FALSE
-)
+              log_prop_homeless + log_incidence_per_100k",
+               data = df_hiv, is_final = FALSE)
 
-# 1.7 Robustness: + log(LDI per capita)
-register_model(
-  lens = "burden", spec = "robustness_ldi",
-  formula = "log_daly_per_capita ~ log_spending_per_capita + year_factor +
+register_model(lens = "burden", spec = "lag_spending_l2",
+               formula = "log_daly_per_capita ~ log_spending_per_capita_l2 + year_factor +
               race_prop_BLCK + race_prop_HISP +
-              log_prop_homeless + log_prevalence_per_100k +
-              log_ldi_pc",
-  data = df_hiv, is_final = FALSE
-)
+              log_prop_homeless + log_incidence_per_100k",
+               data = df_hiv, is_final = FALSE)
 
-# 1.8 Robustness: + unemployment rate
-register_model(
-  lens = "burden", spec = "robustness_unemployment",
-  formula = "log_daly_per_capita ~ log_spending_per_capita + year_factor +
+register_model(lens = "burden", spec = "robustness_ldi",
+               formula = "log_daly_per_capita ~ log_spending_per_capita + year_factor +
               race_prop_BLCK + race_prop_HISP +
-              log_prop_homeless + log_prevalence_per_100k +
+              log_prop_homeless + log_incidence_per_100k + log_ldi_pc",
+               data = df_hiv, is_final = FALSE)
+
+register_model(lens = "burden", spec = "robustness_unemployment",
+               formula = "log_daly_per_capita ~ log_spending_per_capita + year_factor +
+              race_prop_BLCK + race_prop_HISP +
+              log_prop_homeless + log_incidence_per_100k +
               unemployment_rate",
-  data = df_hiv, is_final = FALSE
-)
+               data = df_hiv, is_final = FALSE)
 
-# 1.9 Between (cross-sectional state means, HC2 SEs)
-register_model(
-  lens = "burden", spec = "between_true",
-  formula = "log_daly_per_capita ~ log_spending_per_capita +
+register_model(lens = "burden", spec = "mundlak",
+               formula = "log_daly_per_capita ~
+              log_spending_per_capita_B + log_spending_per_capita_W +
+              log_incidence_per_100k_B  + log_incidence_per_100k_W +
+              race_prop_BLCK_B + race_prop_BLCK_W +
+              race_prop_HISP_B + race_prop_HISP_W +
+              log_prop_homeless_B + log_prop_homeless_W +
+              year_factor",
+               data = df_hiv, is_final = TRUE)
+
+register_model(lens = "burden", spec = "between_true",
+               formula = "log_daly_per_capita ~ log_spending_per_capita +
+              race_prop_BLCK + race_prop_HISP +
+              log_prop_homeless + log_incidence_per_100k",
+               data = df_between, is_final = TRUE)
+
+if (toc_available) {
+  register_model(lens = "burden", spec = "primary_by_toc",
+                 formula = "log_daly_per_capita ~
+                log_spend_pharma_pc + log_spend_ambulatory_pc +
+                log_spend_inpatient_pc + log_spend_nf_pc +
+                year_factor + race_prop_BLCK + race_prop_HISP +
+                log_prop_homeless + log_incidence_per_100k",
+                 data = df_hiv, is_final = FALSE)
+}
+
+
+# ==============================================================
+# LENS 1B — BURDEN (Mortality)   [NEW]
+#   Outcome:  log(mortality_per_capita)
+#   Parallel to Lens 1A. Mortality is more interpretable for clinical
+#   audiences (no disability weights) and serves as a robustness check.
+#   Sign interpretation is the same: a POSITIVE coefficient on
+#   log_spending_per_capita = allocation pattern, not effectiveness.
+#   The Mundlak _W coefficient is the cleanest causal read.
+# ==============================================================
+
+register_model(lens = "burden_mort", spec = "bivariate",
+               formula = "log_mortality_per_capita ~ log_spending_per_capita + year_factor",
+               data = df_hiv, is_final = TRUE)
+
+register_model(lens = "burden_mort", spec = "primary",
+               formula = "log_mortality_per_capita ~ log_spending_per_capita + year_factor +
+              race_prop_BLCK + race_prop_HISP +
+              log_prop_homeless + log_incidence_per_100k",
+               data = df_hiv, is_final = TRUE)
+
+register_model(lens = "burden_mort", spec = "no_burden_control",
+               formula = "log_mortality_per_capita ~ log_spending_per_capita + year_factor +
+              race_prop_BLCK + race_prop_HISP + log_prop_homeless",
+               data = df_hiv, is_final = TRUE)
+
+register_model(lens = "burden_mort", spec = "sens_prev_control",
+               formula = "log_mortality_per_capita ~ log_spending_per_capita + year_factor +
               race_prop_BLCK + race_prop_HISP +
               log_prop_homeless + log_prevalence_per_100k",
-  data = df_between, is_final = TRUE
-)
+               data = df_hiv, is_final = TRUE)
+
+register_model(lens = "burden_mort", spec = "sens_lag_prev",
+               formula = "log_mortality_per_capita ~ log_spending_per_capita + year_factor +
+              race_prop_BLCK + race_prop_HISP +
+              log_prop_homeless + log_prevalence_per_100k_l1",
+               data = df_hiv, is_final = TRUE)
+
+register_model(lens = "burden_mort", spec = "sens_lag_incidence",
+               formula = "log_mortality_per_capita ~ log_spending_per_capita + year_factor +
+              race_prop_BLCK + race_prop_HISP +
+              log_prop_homeless + log_incidence_per_100k_l1",
+               data = df_hiv, is_final = TRUE)
+
+register_model(lens = "burden_mort", spec = "lag_spending_l1",
+               formula = "log_mortality_per_capita ~ log_spending_per_capita_l1 + year_factor +
+              race_prop_BLCK + race_prop_HISP +
+              log_prop_homeless + log_incidence_per_100k",
+               data = df_hiv, is_final = FALSE)
+
+register_model(lens = "burden_mort", spec = "lag_spending_l2",
+               formula = "log_mortality_per_capita ~ log_spending_per_capita_l2 + year_factor +
+              race_prop_BLCK + race_prop_HISP +
+              log_prop_homeless + log_incidence_per_100k",
+               data = df_hiv, is_final = FALSE)
+
+register_model(lens = "burden_mort", spec = "robustness_ldi",
+               formula = "log_mortality_per_capita ~ log_spending_per_capita + year_factor +
+              race_prop_BLCK + race_prop_HISP +
+              log_prop_homeless + log_incidence_per_100k + log_ldi_pc",
+               data = df_hiv, is_final = FALSE)
+
+register_model(lens = "burden_mort", spec = "robustness_unemployment",
+               formula = "log_mortality_per_capita ~ log_spending_per_capita + year_factor +
+              race_prop_BLCK + race_prop_HISP +
+              log_prop_homeless + log_incidence_per_100k +
+              unemployment_rate",
+               data = df_hiv, is_final = FALSE)
+
+register_model(lens = "burden_mort", spec = "mundlak",
+               formula = "log_mortality_per_capita ~
+              log_spending_per_capita_B + log_spending_per_capita_W +
+              log_incidence_per_100k_B  + log_incidence_per_100k_W +
+              race_prop_BLCK_B + race_prop_BLCK_W +
+              race_prop_HISP_B + race_prop_HISP_W +
+              log_prop_homeless_B + log_prop_homeless_W +
+              year_factor",
+               data = df_hiv, is_final = TRUE)
+
+register_model(lens = "burden_mort", spec = "between_true",
+               formula = "log_mortality_per_capita ~ log_spending_per_capita +
+              race_prop_BLCK + race_prop_HISP +
+              log_prop_homeless + log_incidence_per_100k",
+               data = df_between, is_final = TRUE)
+
+if (toc_available) {
+  register_model(lens = "burden_mort", spec = "primary_by_toc",
+                 formula = "log_mortality_per_capita ~
+                log_spend_pharma_pc + log_spend_ambulatory_pc +
+                log_spend_inpatient_pc + log_spend_nf_pc +
+                year_factor + race_prop_BLCK + race_prop_HISP +
+                log_prop_homeless + log_incidence_per_100k",
+                 data = df_hiv, is_final = FALSE)
+}
 
 
 # ==============================================================
-# LENS 2 — PREVENTION (panel with year FE)
-#   Outcome:  log(incidence_per_100k)
-#   Exposure: log(spending_per_capita)
+# LENS 2 — PREVENTION
 # ==============================================================
 
-# 2.1 Bivariate
-register_model(
-  lens = "prevention", spec = "bivariate_inc",
-  formula = "log_incidence_per_100k ~ log_spending_per_capita + year_factor",
-  data = df_hiv, is_final = TRUE
-)
+register_model(lens = "prevention", spec = "bivariate_inc",
+               formula = "log_incidence_per_100k ~ log_spending_per_capita + year_factor",
+               data = df_hiv, is_final = TRUE)
 
-# 2.2 Primary
-register_model(
-  lens = "prevention", spec = "primary_inc",
-  formula = "log_incidence_per_100k ~ log_spending_per_capita + year_factor +
+register_model(lens = "prevention", spec = "primary_inc",
+               formula = "log_incidence_per_100k ~ log_spending_per_capita + year_factor +
               race_prop_BLCK + race_prop_HISP +
-              log_prop_homeless",
-  data = df_hiv, is_final = TRUE
-)
+              log_prop_homeless + log_prevalence_per_100k_l1",
+               data = df_hiv, is_final = TRUE)
 
-# 2.3 Lagged spending (1 year)
-register_model(
-  lens = "prevention", spec = "lag_spending_l1_inc",
-  formula = "log_incidence_per_100k ~ log_spending_per_capita_l1 + year_factor +
-              race_prop_BLCK + race_prop_HISP +
-              log_prop_homeless",
-  data = df_hiv, is_final = FALSE
-)
+register_model(lens = "prevention", spec = "primary_inc_no_burden",
+               formula = "log_incidence_per_100k ~ log_spending_per_capita + year_factor +
+              race_prop_BLCK + race_prop_HISP + log_prop_homeless",
+               data = df_hiv, is_final = TRUE)
 
-# 2.4 Lagged spending (2 years)
-register_model(
-  lens = "prevention", spec = "lag_spending_l2_inc",
-  formula = "log_incidence_per_100k ~ log_spending_per_capita_l2 + year_factor +
+register_model(lens = "prevention", spec = "primary_inc_lag2prev",
+               formula = "log_incidence_per_100k ~ log_spending_per_capita + year_factor +
               race_prop_BLCK + race_prop_HISP +
-              log_prop_homeless",
-  data = df_hiv, is_final = FALSE
-)
+              log_prop_homeless + log_prevalence_per_100k_l2",
+               data = df_hiv, is_final = TRUE)
+
+register_model(lens = "prevention", spec = "lag_spending_l1_inc",
+               formula = "log_incidence_per_100k ~ log_spending_per_capita_l1 + year_factor +
+              race_prop_BLCK + race_prop_HISP +
+              log_prop_homeless + log_prevalence_per_100k_l1",
+               data = df_hiv, is_final = FALSE)
+
+register_model(lens = "prevention", spec = "lag_spending_l2_inc",
+               formula = "log_incidence_per_100k ~ log_spending_per_capita_l2 + year_factor +
+              race_prop_BLCK + race_prop_HISP +
+              log_prop_homeless + log_prevalence_per_100k_l1",
+               data = df_hiv, is_final = FALSE)
+
+register_model(lens = "prevention", spec = "mundlak_inc",
+               formula = "log_incidence_per_100k ~
+              log_spending_per_capita_B + log_spending_per_capita_W +
+              log_prevalence_per_100k_B + log_prevalence_per_100k_W +
+              race_prop_BLCK_B + race_prop_BLCK_W +
+              race_prop_HISP_B + race_prop_HISP_W +
+              log_prop_homeless_B + log_prop_homeless_W +
+              year_factor",
+               data = df_hiv, is_final = TRUE)
+
+if (toc_available) {
+  register_model(lens = "prevention", spec = "primary_by_toc",
+                 formula = "log_incidence_per_100k ~
+                log_spend_pharma_pc + log_spend_ambulatory_pc +
+                log_spend_inpatient_pc + log_spend_nf_pc +
+                year_factor + race_prop_BLCK + race_prop_HISP +
+                log_prop_homeless + log_prevalence_per_100k_l1",
+                 data = df_hiv, is_final = FALSE)
+}
 
 
 ##================================================================
-## 8.  EXTRACT RESULTS WITH ROBUST STANDARD ERRORS
+## 9.  EXTRACT RESULTS WITH ROBUST STANDARD ERRORS
 ##================================================================
-##  - Cross-sectional between models -> HC2
-##  - Panel models                   -> CR2 + Satterthwaite
 
 extract_clustered <- function(model, model_id, model_data_df) {
   is_between <- grepl("between_true", model_id)
   
   if (is_between) {
-    # HC2 heteroskedasticity-robust SEs
     tryCatch({
       vcov_hc <- vcovHC(model, type = "HC2")
       ct      <- coeftest(model, vcov. = vcov_hc)
@@ -589,7 +741,6 @@ extract_clustered <- function(model, model_id, model_data_df) {
       )
     }, error = function(e) broom::tidy(model) %>% mutate(model_id = model_id))
   } else {
-    # CR2 cluster-robust on location_id + Satterthwaite df
     tryCatch({
       cluster_var <- model_data_df$location_id
       vcov_cr <- vcovCR(model, cluster = cluster_var, type = "CR2")
@@ -611,24 +762,22 @@ coef_tbl <- map_dfr(names(list_models), function(nm) {
 })
 
 coef_tbl <- coef_tbl %>%
+  left_join(model_registry %>% select(model_id, lens, spec),
+            by = "model_id") %>%
   mutate(
+    acause = "hiv",
     signif_stars = case_when(
       p.value < 0.001 ~ "***",
       p.value < 0.01  ~ "**",
       p.value < 0.05  ~ "*",
-      p.value < 0.1   ~ ".",
       TRUE            ~ ""
     ),
     signif_label = case_when(
       p.value < 0.001 ~ "p < 0.001",
       p.value < 0.01  ~ "p < 0.01",
       p.value < 0.05  ~ "p < 0.05",
-      p.value < 0.1   ~ "p < 0.1",
       TRUE            ~ "not significant"
-    ),
-    acause = "hiv",
-    lens   = str_match(model_id, "^hiv__([^_]+)__")[, 2],
-    spec   = str_replace(model_id, "^hiv__[^_]+__", "")
+    )
   )
 
 metrics_tbl <- imap_dfr(list_models, function(model, model_id) {
@@ -649,10 +798,9 @@ write.csv(regression_results,
           file.path(dir_output, "regression_results_hiv_per_capita_combined.csv"),
           row.names = FALSE)
 
-
-# ---- Spending coefficient quick-reference summary ----
 spending_summary <- regression_results %>%
-  dplyr::filter(grepl("log_spending_per_capita", term)) %>%
+  dplyr::filter(grepl("log_spending_per_capita|log_spend_pharma_pc|log_spend_ambulatory_pc|log_spend_inpatient_pc|log_spend_nf_pc",
+                      term)) %>%
   select(model_id, lens, spec, term, estimate, std.error,
          p.value, signif_label, n, adj_r2) %>%
   mutate(
@@ -665,8 +813,6 @@ write.csv(spending_summary,
           file.path(dir_output, "spending_coefficients_summary_per_capita.csv"),
           row.names = FALSE)
 
-
-# ---- Model registry ----
 write.csv(model_registry,
           file.path(dir_output, "model_registry_per_capita.csv"),
           row.names = FALSE)
@@ -674,8 +820,10 @@ write.csv(model_registry,
 
 cat("\n================ DONE ================\n")
 cat("Outputs written to:", dir_output, "\n")
-cat("Burden lens models:    ", sum(model_registry$lens == "burden"), "\n")
-cat("Prevention lens models:", sum(model_registry$lens == "prevention"), "\n\n")
+cat("Burden (DALY) models:      ", sum(model_registry$lens == "burden"), "\n")
+cat("Burden (Mortality) models: ", sum(model_registry$lens == "burden_mort"), "\n")
+cat("Prevention models:         ", sum(model_registry$lens == "prevention"), "\n")
+cat("By-TOC included:           ", toc_available, "\n\n")
 
 ##================================================================
 ## END OF PIPELINE

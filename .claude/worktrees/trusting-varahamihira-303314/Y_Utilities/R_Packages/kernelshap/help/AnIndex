@@ -1,0 +1,10 @@
+additive_shap	additive_shap
+is.kernelshap	is.kernelshap
+kernelshap	kernelshap
+kernelshap.default	kernelshap
+kernelshap.ranger	kernelshap
+permshap	permshap
+permshap.default	permshap
+permshap.ranger	permshap
+print.kernelshap	print.kernelshap
+summary.kernelshap	summary.kernelshap

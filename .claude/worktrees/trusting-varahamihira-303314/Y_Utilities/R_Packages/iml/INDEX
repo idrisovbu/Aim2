@@ -1,0 +1,27 @@
+FeatureEffect           Effect of a feature on predictions
+FeatureEffects          Effect of a feature on predictions
+FeatureImp              Feature importance
+Interaction             Feature interactions
+InterpretationMethod    Interpretation Method
+LocalModel              LocalModel
+Partial                 Effect of one or two feature(s) on the model
+                        predictions (deprecated)
+Predictor               Predictor object
+Shapley                 Prediction explanations with game theory
+TreeSurrogate           Decision tree surrogate model
+extract.glmnet.effects
+                        Extract glmnet effects
+has.predict             returns TRUE if object has predict function
+iml-package             Make machine learning models and predictions
+                        interpretable
+order_levels            Order levels of a categorical features
+plot.FeatureEffect      Plot FeatureEffect
+plot.FeatureEffects     Plot FeatureEffect
+plot.FeatureImp         Plot Feature Importance
+plot.Interaction        Plot Interaction
+plot.LocalModel         Plot Local Model
+plot.Shapley            Plot Shapley
+plot.TreeSurrogate      Plot Tree Surrogate
+predict.LocalModel      Predict LocalModel
+predict.TreeSurrogate   Predict Tree Surrogate
+probs.to.labels         Turn class probabilities into class labels

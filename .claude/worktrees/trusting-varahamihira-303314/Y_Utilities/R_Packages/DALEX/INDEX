@@ -1,0 +1,56 @@
+HR                      Human Resources Data
+apartments              Apartments Data
+colors_discrete_drwhy   DrWhy color palettes for ggplot objects
+covid                   Data for early COVID mortality
+dragons                 Dragon Data
+explain.default         Create Model Explainer
+fifa                    FIFA 20 preprocessed data
+get_loss_yardstick      Wrapper for Loss Functions from the yardstick
+                        Package
+happiness               World Happiness Report data
+install_dependencies    Install all dependencies for the DALEX package
+loss_cross_entropy      Calculate Loss Functions
+model_diagnostics       Dataset Level Model Diagnostics
+model_info              Exract info from model
+model_parts             Dataset Level Variable Importance as Change in
+                        Loss Function after Variable Permutations
+model_performance       Dataset Level Model Performance Measures
+model_profile           Dataset Level Variable Profile as Partial
+                        Dependence or Accumulated Local Dependence
+                        Explanations
+plot.list               Plot List of Explanations
+plot.model_diagnostics
+                        Plot Dataset Level Model Diagnostics
+plot.model_parts        Plot Variable Importance Explanations
+plot.model_performance
+                        Plot Dataset Level Model Performance
+                        Explanations
+plot.model_profile      Plot Dataset Level Model Profile Explanations
+plot.predict_diagnostics
+                        Plot Instance Level Residual Diagnostics
+plot.predict_parts      Plot Variable Attribution Explanations
+plot.predict_profile    Plot Variable Profile Explanations
+plot.shap_aggregated    Plot Generic for Break Down Objects
+predict.explainer       Predictions for the Explainer
+predict_diagnostics     Instance Level Residual Diagnostics
+predict_parts           Instance Level Parts of the Model Predictions
+predict_profile         Instance Level Profile as Ceteris Paribus
+print.description       Print Natural Language Descriptions
+print.explainer         Print Explainer Summary
+print.model_diagnostics
+                        Print Dataset Level Model Diagnostics
+print.model_info        Print model_info
+print.model_performance
+                        Print Dataset Level Model Performance Summary
+print.model_profile     Print Dataset Level Model Profile
+print.predict_diagnostics
+                        Print Instance Level Residual Diagnostics
+set_theme_dalex         Default Theme for DALEX plots
+shap_aggregated         SHAP aggregated values
+theme_drwhy             DrWhy Theme for ggplot objects
+titanic                 Passengers and Crew on the RMS Titanic Data
+update_data             Update data of an explainer object
+update_label            Update label of explainer object
+variable_effect         Dataset Level Variable Effect as Partial
+                        Dependency Profile or Accumulated Local Effects
+yhat                    Wrap Various Predict Functions

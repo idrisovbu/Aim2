@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -n \"as_spend_prev_ratio_log\\\\|spend_tx_prev_ratio_log\\\\|safe_log\" /Volumes/homes/idrisov/repo/Aim2/C_frontier_analysis/C_SUD_regression_models_analysis.R | head -15)",
+      "Bash(grep -n \"as_spend_prev_ratio_log\\\\|rw_hiv_prev_ratio_log\\\\|safe_log\" /Volumes/homes/idrisov/repo/Aim2/C_frontier_analysis/C_HIV_regression_models_analysis.R | head -15)",
+      "Bash(mkdir -p /tmp/aim2_per_capita_patches)",
+      "Read(//tmp/**)",
+      "Read(//private/tmp/**)",
+      "Bash(diff -u /Volumes/homes/idrisov/repo/Aim2/C_frontier_analysis/C_regression_prep_A.R /tmp/aim2_local_modified/C_regression_prep_A.R)",
+      "Bash(sed -i '' '1s|.*|--- a/C_frontier_analysis/C_regression_prep_A.R|' /tmp/aim2_per_capita_patches/05_C_regression_prep_A_draws_collapse.patch)",
+      "Bash(sed -i '' '2s|.*|+++ b/C_frontier_analysis/C_regression_prep_A.R|' /tmp/aim2_per_capita_patches/05_C_regression_prep_A_draws_collapse.patch)",
+      "Bash(grep -rn -l \"cdc\\\\|CDC\" /Volumes/homes/idrisov/repo/Aim2 --include=\"*.R\" 2>/dev/null | grep -v Z_Archive | grep -v R_Packages | head -20)",
+      "Bash(find /ihme/homes/idrisov/aim_outputs/Aim2 -name \"*cdc*\" -o -name \"*CDC*\" 2>/dev/null | head -10; echo \"---\"; find /Volumes/homes/idrisov -name \"AtlasPlus*\" -o -name \"*atlas*\" 2>/dev/null | head -10)",
+      "Bash(awk 'NR>=3 && NR<=4' /Volumes/homes/idrisov/aim_outputs/Aim2/R_resources/CDC_data/CDC_Cascade_Data.csv)",
+      "Bash(awk 'NR>=5 && NR<=8' /Volumes/homes/idrisov/aim_outputs/Aim2/R_resources/CDC_data/CDC_Cascade_Data.csv)",
+      "Bash(awk 'NR>=8 && NR<=20' /Volumes/homes/idrisov/aim_outputs/Aim2/R_resources/CDC_data/CDC_Cascade_Data.csv)",
+      "Bash(cp /tmp/aim2_per_capita_patches/C_HIV_per_capita_models.R \\\\ *)"
+    ]
+  }
+}

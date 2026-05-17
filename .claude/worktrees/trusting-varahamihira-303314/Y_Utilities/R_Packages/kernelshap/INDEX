@@ -1,0 +1,6 @@
+additive_shap           Additive SHAP
+is.kernelshap           Check for kernelshap
+kernelshap              Kernel SHAP
+permshap                Permutation SHAP
+print.kernelshap        Prints "kernelshap" Object
+summary.kernelshap      Summarizes "kernelshap" Object
