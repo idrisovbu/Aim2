@@ -98,7 +98,7 @@ tryCatch(
   error = function(e) invisible(NULL)
 )
 
-input_date  <- "20260516"
+input_date  <- "20260517"
 dir_input   <- file.path(h, "aim_outputs/Aim2/C_frontier_analysis", input_date)
 
 output_date <- format(Sys.time(), "%Y%m%d")
@@ -417,9 +417,20 @@ screen_confounders(
 #   within_var  = var of (x_it - x_bar_i) on the panel.
 #   total_var   = var(x_it) on the panel.
 
-calc_variance_decomp <- function(df_panel, var_name, group_var = "location_id") {
-  x <- df_panel[[var_name]]
-  total_var <- var(x, na.rm = TRUE)
+
+# candidates <- c("rw_dex_hiv_prev_ratio_log", "race_prop_BLCK", "race_prop_HISP",
+#                 "incidence_rates", "obesity", "bmi", "prev_diabetes",
+#                 "edu_yrs", "prop_homeless", "ldi_pc", "unemployment_rate",
+#                 "aca_implemented_status")
+# setdiff(candidates, names(df_hiv))    # the ones that aren't there
+
+  calc_variance_decomp <- function(df_panel, var_name, group_var = "location_id") {
+    if (!var_name %in% names(df_panel)) {
+      message("Skipping variance_decomp for '", var_name, "' — not in df_panel.")
+      return(NULL)
+    }
+    x <- df_panel[[var_name]]
+    total_var <- var(x, na.rm = TRUE)
   
   # State means (one per state)
   state_means <- df_panel %>%

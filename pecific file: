@@ -1,0 +1,996 @@
+[1mdiff --git a/C_frontier_analysis/C_01_prep_B_regression_covariates.R b/C_frontier_analysis/C_01_prep_B_regression_covariates.R[m
+[1mindex c1b1cb7..af0d155 100644[m
+[1m--- a/C_frontier_analysis/C_01_prep_B_regression_covariates.R[m
+[1m+++ b/C_frontier_analysis/C_01_prep_B_regression_covariates.R[m
+[36m@@ -1,8 +1,10 @@[m
+ ##----------------------------------------------------------------[m
+ ##' Title: C_01_prep_B_regression_covariates.R[m
+ ##'[m
+[31m-##' Purpose: TBD[m
+[31m-##'          [m
+[32m+[m[32m##' Purpose: Merge covariates (Ryan White, ACA, race, demographics)[m
+[32m+[m[32m##'          onto age-standardized DEX+GBD data; build per-capita and[m
+[32m+[m[32m##'          per-case staging variables for downstream regression scripts.[m
+[32m+[m[32m##'[m
+ ##' Outputs:[m
+ ##' df_as_processed_rw_gbd.csv[m
+ ##----------------------------------------------------------------[m
+[36m@@ -11,19 +13,20 @@[m
+ ## Clear environment and set library paths[m
+ ##----------------------------------------------------------------[m
+ rm(list = ls())[m
+[31m-pacman::p_load(data.table, arrow, tidyverse, glue, broom, purrr, readr, lubridate, readxl, e1071)[m
+[32m+[m[32mpacman::p_load(data.table, arrow, tidyverse, glue, broom, purrr, readr,[m
+[32m+[m[32m               lubridate, readxl, e1071)[m
+ conflicts_prefer(data.table::year)[m
+ conflicts_prefer(dplyr::summarize)[m
+ conflicts_prefer(dplyr::filter)[m
+ [m
+ # Set drive paths[m
+[31m-if (Sys.info()["sysname"] == 'Linux'){[m
+[32m+[m[32mif (Sys.info()["sysname"] == 'Linux') {[m
+   j <- "/home/j/"[m
+[31m-  h <- paste0("/ihme/homes/",Sys.info()[7],"/")[m
+[32m+[m[32m  h <- paste0("/ihme/homes/", Sys.info()[7], "/")[m
+   l <- '/ihme/limited_use/'[m
+[31m-} else if (Sys.info()["sysname"] == 'Darwin'){[m
+[32m+[m[32m} else if (Sys.info()["sysname"] == 'Darwin') {[m
+   j <- "/Volumes/snfs"[m
+[31m-  h <- paste0("/Volumes/",Sys.info()[7],"/")[m
+[32m+[m[32m  h <- paste0("/Volumes/", Sys.info()[7], "/")[m
+   l <- '/Volumes/limited_use'[m
+ } else {[m
+   j <- "J:/"[m
+[36m@@ -35,16 +38,17 @@[m [msource(file.path(h, "/repo/Aim1/aim1_scripts/Z_utilities/deflate.R"))[m
+ [m
+ ##----------------------------------------------------------------[m
+ ## 0. Set Boolean variables[m
+[31m-## [m
+[31m-## Notes: "rw" variable is always set to T as of 1/26[m
+ ##[m
+[31m-## 3 unique combos,  rw (T), cdc (F), cdc_gbd_mix (F)[m
+[31m-##                   rw (T), cdc (T), cdc_gbd_mix (F)[m
+[31m-##                   rw (T), cdc (T), cdc_gbd_mix (T)[m
+[32m+[m[32m## Notes: "rw" is always TRUE as of 1/26.[m
+[32m+[m[32m##        cdc=F is the recommended default — section 9.5 below merges[m
+[32m+[m[32m##        CDC counts under semantic names (cdc_hiv_mortality_counts etc.)[m
+[32m+[m[32m##        so both GBD and CDC live in one output. The legacy cdc=T branch[m
+[32m+[m[32m##        replaces df_as with df_as_cdc (HIV-only) and is kept for[m
+[32m+[m[32m##        backwards compatibility.[m
+ ##----------------------------------------------------------------[m
+[31m-rw <- T # Set TRUE if desire RW + DEX / prevalence counts to be the predictor variable (see "Specify Models" section), FALSE if just spend / prev count ratio as predictor[m
+[31m-cdc <- F #  USE GBD AS BASE. Section 9.5 below ALSO merges CDC counts (under semantic names) so both GBD and CDC in oneSet TRUE if you want to use CDC HIV prevalence and mortality in the models instead of GBD prev deaths, FALSE if wanting to use GBD data[m
+[31m-cdc_gbd_mix <- F # Set T if want to set the outcome ratio to be GBD mort / CDC prev, F if just regular settings[m
+[32m+[m[32mrw          <- T   # always T[m
+[32m+[m[32mcdc         <- F   # USE GBD AS BASE; section 9.5 merges CDC counts cleanly[m
+[32m+[m[32mcdc_gbd_mix <- F   # T = use GBD mort / CDC prev as outcome ratio[m
+ [m
+ ##----------------------------------------------------------------[m
+ ## 0.1 Functions[m
+[36m@@ -60,41 +64,40 @@[m [mensure_dir_exists <- function(dir_path) {[m
+ ##----------------------------------------------------------------[m
+ ## 1. Set directories[m
+ ##----------------------------------------------------------------[m
+[31m-# Set fp for age-standardized data[m
+[31m-as_date <- "20260516"[m
+[31m-fp_as <- file.path(h, '/aim_outputs/Aim2/C_frontier_analysis/', as_date, "df_as.csv")[m
+[32m+[m[32m# <-- EDIT: date of prep_A run that produced df_as.csv and df_as_cdc.csv[m
+[32m+[m[32mas_date <- "20260517"[m
+[32m+[m[32mfp_as   <- file.path(h, '/aim_outputs/Aim2/C_frontier_analysis/', as_date, "df_as.csv")[m
+ [m
+[31m-# Set output directories[m
+ date_today <- format(Sys.time(), "%Y%m%d")[m
+ dir_output <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", date_today)[m
+ ensure_dir_exists(dir_output)[m
+ [m
+[31m-# Covariates data[m
+[31m-fp_df_cov <- "/ihme/resource_tracking/us_value/data/sfa_covars2021_shea.csv" # H's[m
+[31m-fp_df_race_cov <- "/ihme/resource_tracking/us_value/data/sfa_covars_w_race_fractions.csv" # H's[m
+[31m-fp_aca_expansion <- file.path(h, "/aim_outputs/Aim2/R_resources/aca_expansion_formatted.csv") # ACA - from online[m
+[31m-fp_rw_t1 <- file.path(h, "/aim_outputs/Aim2/R_resources/ryan_white_data/rw_title1.xls") # Marcus[m
+[31m-fp_rw_t2 <- file.path(h, "/aim_outputs/Aim2/R_resources/ryan_white_data/rw_title2.xls") # Marcus[m
+[31m-fp_rw_2016_2019 <- file.path(h, "aim_outputs/Aim2/R_resources/ryan_white_data/ryan_white_data_2016-2019.csv") # Official RW site[m
+[32m+[m[32m# Covariates[m
+[32m+[m[32mfp_df_cov         <- "/ihme/resource_tracking/us_value/data/sfa_covars2021_shea.csv"[m
+[32m+[m[32mfp_df_race_cov    <- "/ihme/resource_tracking/us_value/data/sfa_covars_w_race_fractions.csv"[m
+[32m+[m[32mfp_aca_expansion  <- file.path(h, "/aim_outputs/Aim2/R_resources/aca_expansion_formatted.csv")[m
+[32m+[m[32mfp_rw_t1          <- file.path(h, "/aim_outputs/Aim2/R_resources/ryan_white_data/rw_title1.xls")[m
+[32m+[m[32mfp_rw_t2          <- file.path(h, "/aim_outputs/Aim2/R_resources/ryan_white_data/rw_title2.xls")[m
+[32m+[m[32mfp_rw_2016_2019   <- file.path(h, "aim_outputs/Aim2/R_resources/ryan_white_data/ryan_white_data_2016-2019.csv")[m
+ [m
+[31m-# FIPS table[m
+[31m-fp_fips <- file.path(h, "/aim_outputs/Aim2/R_resources/state_county_city_fips.csv")[m
+[32m+[m[32m# FIPS[m
+[32m+[m[32mfp_fips     <- file.path(h, "/aim_outputs/Aim2/R_resources/state_county_city_fips.csv")[m
+ fp_cityfips <- file.path(h, "/aim_outputs/Aim2/R_resources/ryan_white_data/t1years.xlsx")[m
+ [m
+ ##----------------------------------------------------------------[m
+ ## 2. Read in data[m
+ ##----------------------------------------------------------------[m
+[31m-df_as <- read.csv(fp_as)[m
+[31m-df_cov <- read.csv(fp_df_cov)[m
+[31m-df_race_cov <- read.csv(fp_df_race_cov)[m
+[31m-df_aca_expansion <- read.csv(fp_aca_expansion)[m
+[32m+[m[32mdf_as              <- read.csv(fp_as)[m
+[32m+[m[32mdf_cov             <- read.csv(fp_df_cov)[m
+[32m+[m[32mdf_race_cov        <- read.csv(fp_df_race_cov)[m
+[32m+[m[32mdf_aca_expansion   <- read.csv(fp_aca_expansion)[m
+ [m
+[31m-df_rw_t1 <- read_excel(fp_rw_t1)[m
+[31m-df_rw_t2 <- read_excel(fp_rw_t2)[m
+[31m-df_rw_cityfips <- read_excel(fp_cityfips)[m
+[31m-df_rw_2016_2019 <- read.csv(fp_rw_2016_2019)[m
+[32m+[m[32mdf_rw_t1           <- read_excel(fp_rw_t1)[m
+[32m+[m[32mdf_rw_t2           <- read_excel(fp_rw_t2)[m
+[32m+[m[32mdf_rw_cityfips     <- read_excel(fp_cityfips)[m
+[32m+[m[32mdf_rw_2016_2019    <- read.csv(fp_rw_2016_2019)[m
+ [m
+[31m-df_fips <- read.csv(fp_fips)[m
+[32m+[m[32mdf_fips            <- read.csv(fp_fips)[m
+ [m
+ ##----------------------------------------------------------------[m
+ ## 3. Format ACA Expansion data[m
+[36m@@ -131,10 +134,8 @@[m [mdf_aca_expansion_f <- df_aca_expansion_f %>%[m
+   mutate(year_id = as.integer(year_id))[m
+ [m
+ df_aca_expansion_f <- df_aca_expansion_f %>%[m
+[31m-  setnames([m
+[31m-    old = c("Location", "imp"),[m
+[31m-    new = c("location_name", "aca_implemented_status")[m
+[31m-  )[m
+[32m+[m[32m  setnames(old = c("Location", "imp"),[m
+[32m+[m[32m           new = c("location_name", "aca_implemented_status"))[m
+ [m
+ df_aca_expansion_f <- df_aca_expansion_f %>%[m
+   select(c("location_name", "year_id", "aca_implemented_status"))[m
+[36m@@ -142,139 +143,87 @@[m [mdf_aca_expansion_f <- df_aca_expansion_f %>%[m
+ ##----------------------------------------------------------------[m
+ ## 4. Format Ryan White data[m
+ ##----------------------------------------------------------------[m
+[31m-# Title1 City level Ryan White Data #[m
+[31m-# Add padded 0 to cityfip column[m
+[32m+[m[32m# Title1 City level Ryan White Data[m
+ df_rw_t1$cityfip <- sprintf("%04d", df_rw_t1$cityfip)[m
+[31m-[m
+[31m-# Cityfip codes[m
+[31m-# Remove padded spaces from cityfip[m
+ df_rw_cityfips$cityfip <- str_trim(df_rw_cityfips$cityfip)[m
+ [m
+[31m-# Merge w/ Ryan White title1 (city)[m
+[31m-df_rw_t1_m <- left_join([m
+[31m-  x = df_rw_t1,[m
+[31m-  y = df_rw_cityfips,[m
+[31m-  by = "cityfip"[m
+[31m-)[m
+[32m+[m[32mdf_rw_t1_m <- left_join(df_rw_t1, df_rw_cityfips, by = "cityfip")[m
+ [m
+[31m-# Extract state name[m
+[31m-df_rw_t1_m$state_abbr <- substr(df_rw_t1_m$city, nchar(df_rw_t1_m$city) - 1, nchar(df_rw_t1_m$city))[m
+[32m+[m[32mdf_rw_t1_m$state_abbr <- substr(df_rw_t1_m$city,[m
+[32m+[m[32m                                nchar(df_rw_t1_m$city) - 1,[m
+[32m+[m[32m                                nchar(df_rw_t1_m$city))[m
+ [m
+[31m-# Create full state names[m
+ state_lookup <- setNames(state.name, state.abb)[m
+ df_rw_t1_m$state_name <- state_lookup[df_rw_t1_m$state_abbr][m
+[31m-df_rw_t1_m$state_name <- if_else(df_rw_t1_m$state_abbr == "DC", "District of Columbia", df_rw_t1_m$state_name)[m
+[32m+[m[32mdf_rw_t1_m$state_name <- if_else(df_rw_t1_m$state_abbr == "DC",[m
+[32m+[m[32m                                 "District of Columbia",[m
+[32m+[m[32m                                 df_rw_t1_m$state_name)[m
+ [m
+[31m-# Group by summary for whole state[m
+ df_rw_t1_m <- df_rw_t1_m %>%[m
+   group_by(year, state_name) %>%[m
+[31m-  summarise([m
+[31m-    rw_title1_funding = sum(title1_funding, na.rm = TRUE)[m
+[31m-  )[m
+[32m+[m[32m  summarise(rw_title1_funding = sum(title1_funding, na.rm = TRUE))[m
+ [m
+[31m-# Filter on 2010 ~ 2019[m
+ df_rw_t1_m <- df_rw_t1_m %>%[m
+[31m-  filter(year %in% (2010:2019))[m
+[32m+[m[32m  filter(year %in% (2010:2019)) %>%[m
+[32m+[m[32m  setnames(old = c("year", "state_name"),[m
+[32m+[m[32m           new = c("year_id", "location_name"))[m
+ [m
+[31m-df_rw_t1_m <- df_rw_t1_m %>%[m
+[31m-  setnames([m
+[31m-    old = c("year", "state_name"),[m
+[31m-    new = c("year_id", "location_name")[m
+[31m-  )[m
+[31m-[m
+[31m-[m
+[31m-# Title2 State level Ryan White Data #[m
+[31m-# Format FIPS data[m
+[32m+[m[32m# Title2 State level Ryan White Data[m
+ df_fips$State.Name <- str_to_title(tolower(df_fips$State.Name))[m
+ df_fips_state <- df_fips %>% select(c("State.Name", "State.Code", "State.FIPS.Code")) %>% unique()[m
+ [m
+[31m-df_rw_t2_m <- left_join([m
+[31m-  x = df_rw_t2,[m
+[31m-  y = df_fips_state,[m
+[31m-  by = c("statefip" = "State.FIPS.Code")[m
+[31m-)[m
+[32m+[m[32mdf_rw_t2_m <- left_join(df_rw_t2, df_fips_state,[m
+[32m+[m[32m                        by = c("statefip" = "State.FIPS.Code"))[m
+ [m
+ df_rw_t2_m <- df_rw_t2_m %>%[m
+   select(c(year, State.Name, title2_funding_annual)) %>%[m
+[31m-  filter(year %in% c(2010:2019))[m
+[32m+[m[32m  filter(year %in% c(2010:2019)) %>%[m
+[32m+[m[32m  setnames(old = c("year", "State.Name", "title2_funding_annual"),[m
+[32m+[m[32m           new = c("year_id", "location_name", "rw_title2_funding"))[m
+ [m
+[31m-df_rw_t2_m <- df_rw_t2_m %>%[m
+[31m-  setnames([m
+[31m-    old = c("year", "State.Name", "title2_funding_annual"),[m
+[31m-    new = c("year_id", "location_name", "rw_title2_funding")[m
+[31m-  )[m
+[31m-[m
+[31m-[m
+[31m-# Merge Title1 and Title2 data #[m
+ df_rw_t1_m <- df_rw_t1_m %>%[m
+   ungroup() %>%[m
+[31m-  mutate([m
+[31m-    year_id = as.integer(year_id),[m
+[31m-    location_name = unname(as.character(location_name)),[m
+[31m-    location_name = trimws(location_name)[m
+[31m-  )[m
+[32m+[m[32m  mutate(year_id = as.integer(year_id),[m
+[32m+[m[32m         location_name = unname(as.character(location_name)),[m
+[32m+[m[32m         location_name = trimws(location_name))[m
+ [m
+ df_rw_t2_m <- df_rw_t2_m %>%[m
+[31m-  mutate([m
+[31m-    year_id = as.integer(year_id),[m
+[31m-    location_name = as.character(location_name),[m
+[31m-    location_name = trimws(location_name)[m
+[31m-  )[m
+[32m+[m[32m  mutate(year_id = as.integer(year_id),[m
+[32m+[m[32m         location_name = as.character(location_name),[m
+[32m+[m[32m         location_name = trimws(location_name))[m
+ [m
+[31m-# Fix naming issue[m
+[31m-df_rw_t2_m$location_name <- if_else(df_rw_t2_m$location_name == "District Of Columbia", "District of Columbia", df_rw_t2_m$location_name)[m
+[32m+[m[32mdf_rw_t2_m$location_name <- if_else(df_rw_t2_m$location_name == "District Of Columbia",[m
+[32m+[m[32m                                    "District of Columbia",[m
+[32m+[m[32m                                    df_rw_t2_m$location_name)[m
+ [m
+[31m-# Join[m
+[31m-df_rw_m <- full_join([m
+[31m-  x = df_rw_t1_m,[m
+[31m-  y = df_rw_t2_m,[m
+[31m-  by = c("year_id", "location_name")[m
+[31m-)[m
+[32m+[m[32mdf_rw_m <- full_join(df_rw_t1_m, df_rw_t2_m, by = c("year_id", "location_name"))[m
+ [m
+[31m-# Combine title1 and title2 grant sums[m
+ df_rw_m <- df_rw_m %>%[m
+[31m-  mutate([m
+[31m-    rw_funding = rowSums(cbind(rw_title1_funding, rw_title2_funding), na.rm = TRUE)[m
+[31m-  )[m
+[31m-[m
+[32m+[m[32m  mutate(rw_funding = rowSums(cbind(rw_title1_funding, rw_title2_funding), na.rm = TRUE))[m
+ [m
+ # 2016 - 2019 Ryan White data[m
+ df_rw_2016_2019_f <- df_rw_2016_2019 %>%[m
+[31m-  filter(HRSA.Program.Area.Name == "HIV/AIDS") %>%[m
+[31m-  filter(Grant.Program.Name %in% c("Ryan White Part A HIV Emergency Relief Grant Program (H89)",[m
+[32m+[m[32m  filter(HRSA.Program.Area.Name == "HIV/AIDS",[m
+[32m+[m[32m         Grant.Program.Name %in% c("Ryan White Part A HIV Emergency Relief Grant Program (H89)",[m
+                                    "Ryan White Part B HIV Care Grant Program (X07)",[m
+                                    "Ryan White Part B Supplemental (X08)",[m
+[31m-                                   "ADAP Shortfall Relief (X09)"[m
+[31m-                                )) %>%[m
+[32m+[m[32m                                   "ADAP Shortfall Relief (X09)")) %>%[m
+   group_by(Award.Year, State.Name) %>%[m
+[31m-  summarise([m
+[31m-    `Financial.Assistance` = sum(Financial.Assistance)[m
+[31m-  )[m
+[32m+[m[32m  summarise(`Financial.Assistance` = sum(Financial.Assistance)) %>%[m
+[32m+[m[32m  filter(Award.Year %in% c(2016:2019)) %>%[m
+[32m+[m[32m  setnames(old = c("Award.Year", "State.Name", "Financial.Assistance"),[m
+[32m+[m[32m           new = c("year_id", "location_name", "ryan_white_grant"))[m
+ [m
+[31m-df_rw_2016_2019_f <- df_rw_2016_2019_f %>%[m
+[31m-  filter(Award.Year %in% c(2016:2019))[m
+[31m-[m
+[31m-df_rw_2016_2019_f <- df_rw_2016_2019_f %>%[m
+[31m-  setnames([m
+[31m-    old = c("Award.Year", "State.Name", "Financial.Assistance"),[m
+[31m-    new = c("year_id", "location_name", "ryan_white_grant")[m
+[31m-  )[m
+[31m-[m
+[31m-# Join to title1 and title2 summed data[m
+[31m-df_rw_total <- full_join([m
+[31m-  x = df_rw_m,[m
+[31m-  y = df_rw_2016_2019_f,[m
+[31m-  by = c("year_id", "location_name")[m
+[31m-)[m
+[32m+[m[32mdf_rw_total <- full_join(df_rw_m, df_rw_2016_2019_f, by = c("year_id", "location_name"))[m
+ [m
+ df_rw_total$delta <- (df_rw_total$rw_funding - df_rw_total$ryan_white_grant)[m
+ [m
+[31m-# View(df_rw_total %>% filter(year_id %in% c(2016:2019))) # Checking deltas, it seems some are matching perfectly against Marcus's data, whereas we are off in some rows but unknow why we are off[m
+[31m-[m
+[31m-# Using <=2018 data from Marcus's dataset, 2019 data will come from the official Ryan White grant data[m
+[31m-df_rw_total$ryan_white_funding_final <- if_else(df_rw_total$year_id <= 2018, df_rw_total$rw_funding, df_rw_total$ryan_white_grant)[m
+[32m+[m[32m# Pre-2018 from Marcus's data, 2019 from official RW grant data[m
+[32m+[m[32mdf_rw_total$ryan_white_funding_final <- if_else(df_rw_total$year_id <= 2018,[m
+[32m+[m[32m                                                df_rw_total$rw_funding,[m
+[32m+[m[32m                                                df_rw_total$ryan_white_grant)[m
+ [m
+[31m-# Inflation adjust RW data before creating (RW Spend + DEX spend_all) / prevalence → RWspend ratio[m
+[32m+[m[32m# Inflation-adjust to 2019 USD[m
+ df_rw_total <- deflate([m
+   data = df_rw_total,[m
+   val_columns = "ryan_white_funding_final",[m
+[36m@@ -285,25 +234,11 @@[m [mdf_rw_total <- deflate([m
+ ##----------------------------------------------------------------[m
+ ## 5. Filter & Merge data[m
+ ##----------------------------------------------------------------[m
+[31m-# Covariate Data[m
+[31m-df_cov <- df_cov %>%[m
+[31m-  filter(year_id %in% c(2010:2019))[m
+[32m+[m[32mdf_cov      <- df_cov      %>% filter(year_id %in% c(2010:2019))[m
+[32m+[m[32mdf_race_cov <- df_race_cov %>% filter(year_id %in% c(2010:2019))[m
+ [m
+[31m-df_race_cov <- df_race_cov %>%[m
+[31m-  filter(year_id %in% c(2010:2019))[m
+[31m-[m
+[31m-# Merge covariate data[m
+[31m-df_cov <- left_join([m
+[31m-  x = df_cov,[m
+[31m-  y = df_race_cov[m
+[31m-)[m
+[31m-[m
+[31m-df_cov <- left_join([m
+[31m-  x = df_cov,[m
+[31m-  y = df_aca_expansion_f[m
+[31m-)[m
+[31m-[m
+[31m-# Adds in Ryan White Data[m
+[32m+[m[32mdf_cov <- left_join(df_cov, df_race_cov)[m
+[32m+[m[32mdf_cov <- left_join(df_cov, df_aca_expansion_f)[m
+ df_cov <- left_join([m
+   x = df_cov,[m
+   y = df_rw_total %>% select(c("year_id", "location_name", "ryan_white_funding_final")),[m
+[36m@@ -311,216 +246,128 @@[m [mdf_cov <- left_join([m
+ )[m
+ [m
+ if (cdc) {[m
+[31m-  # Merge covariate data w/ age-standardized data[m
+[31m-  df_as <- left_join([m
+[31m-    x = df_as_cdc,[m
+[31m-    y = df_cov,[m
+[31m-    by = c("year_id", "location_id", "location_name")[m
+[31m-  )[m
+[32m+[m[32m  # Legacy CDC-as-base branch (HIV-only output)[m
+[32m+[m[32m  df_as <- left_join(x = df_as_cdc, y = df_cov,[m
+[32m+[m[32m                     by = c("year_id", "location_id", "location_name"))[m
+ } else {[m
+[31m-  # Merge covariate data w/ age-standardized data[m
+[31m-  df_as <- left_join([m
+[31m-    x = df_as,[m
+[31m-    y = df_cov,[m
+[31m-    by = c("year_id", "location_id", "location_name")[m
+[31m-  )[m
+[32m+[m[32m  df_as <- left_join(x = df_as, y = df_cov,[m
+[32m+[m[32m                     by = c("year_id", "location_id", "location_name"))[m
+ }[m
+ [m
+ ##----------------------------------------------------------------[m
+[31m-## 6. Create "high_prev" variable to use as an interactive term in respective models (HIV models use HIV high_prev, SUD models use SUD high_prev)[m
+[32m+[m[32m## 6. Create "high_prev" interaction terms[m
+ ##----------------------------------------------------------------[m
+[31m-# Create sud_prevalence_counts column[m
+[31m-df_sud_prev_count <- df_as %>% [m
+[32m+[m[32mdf_sud_prev_count <- df_as %>%[m
+   filter(acause == "_subs") %>%[m
+[31m-  select(c("cause_id", "year_id", "location_id", "location_name", "acause", [m
+[32m+[m[32m  select(c("cause_id", "year_id", "location_id", "location_name", "acause",[m
+            "cause_name", "prevalence_counts")) %>%[m
+[31m-  setnames(old = "prevalence_counts", new = "sud_prevalence_counts")[m
+[31m-[m
+[31m-df_sud_prev_count <- df_sud_prev_count %>%[m
+[32m+[m[32m  setnames(old = "prevalence_counts", new = "sud_prevalence_counts") %>%[m
+   mutate(high_sud_prev = ifelse(sud_prevalence_counts >= median(sud_prevalence_counts), 1, 0))[m
+ [m
+[31m-# Create alcohol_prevalence_counts column ####################[m
+[31m-df_alcohol_prev_count <- df_as %>% [m
+[32m+[m[32mdf_alcohol_prev_count <- df_as %>%[m
+   filter(acause == "mental_alcohol") %>%[m
+[31m-  select(c("cause_id", "year_id", "location_id", "location_name", "acause", [m
+[32m+[m[32m  select(c("cause_id", "year_id", "location_id", "location_name", "acause",[m
+            "cause_name", "prevalence_counts")) %>%[m
+[31m-  setnames(old = "prevalence_counts", new = "alcohol_prevalence_counts")[m
+[31m-[m
+[31m-df_alcohol_prev_count <- df_alcohol_prev_count %>%[m
+[32m+[m[32m  setnames(old = "prevalence_counts", new = "alcohol_prevalence_counts") %>%[m
+   mutate(high_alcohol_prev = ifelse(alcohol_prevalence_counts >= median(alcohol_prevalence_counts), 1, 0))[m
+ [m
+[31m-# Create opioid_prevalence_counts column[m
+[31m-df_opioid_prev_count <- df_as %>% [m
+[32m+[m[32mdf_opioid_prev_count <- df_as %>%[m
+   filter(acause == "mental_drug_opioids") %>%[m
+[31m-  select(c("cause_id", "year_id", "location_id", "location_name", "acause", [m
+[32m+[m[32m  select(c("cause_id", "year_id", "location_id", "location_name", "acause",[m
+            "cause_name", "prevalence_counts")) %>%[m
+[31m-  setnames(old = "prevalence_counts", new = "opioid_prevalence_counts")[m
+[31m-[m
+[31m-df_opioid_prev_count <- df_opioid_prev_count %>%[m
+[32m+[m[32m  setnames(old = "prevalence_counts", new = "opioid_prevalence_counts") %>%[m
+   mutate(high_opioid_prev = ifelse(opioid_prevalence_counts >= median(opioid_prevalence_counts), 1, 0))[m
+ [m
+[31m-# Create hiv_prevalence_counts column[m
+[31m-if (cdc) { # use CDC hiv prevalence data[m
+[31m-  df_hiv_prev_count <- df_as %>% [m
+[32m+[m[32mif (cdc) {[m
+[32m+[m[32m  df_hiv_prev_count <- df_as %>%[m
+     filter(acause == "hiv") %>%[m
+[31m-    select(c("cause_id", "year_id", "location_id", "location_name", "acause", [m
+[31m-             "cause_name", "cdc_hiv_prevalence_counts"))[m
+[31m-  [m
+[31m-  df_hiv_prev_count <- df_hiv_prev_count %>%[m
+[32m+[m[32m    select(c("cause_id", "year_id", "location_id", "location_name", "acause",[m
+[32m+[m[32m             "cause_name", "cdc_hiv_prevalence_counts")) %>%[m
+     mutate(high_cdc_hiv_prev = ifelse(cdc_hiv_prevalence_counts >= median(cdc_hiv_prevalence_counts), 1, 0)) %>%[m
+     select(!c("cdc_hiv_prevalence_counts"))[m
+[31m-} else { # else use GBD hiv prevalence data[m
+[31m-  df_hiv_prev_count <- df_as %>% [m
+[32m+[m[32m} else {[m
+[32m+[m[32m  df_hiv_prev_count <- df_as %>%[m
+     filter(acause == "hiv") %>%[m
+[31m-    select(c("cause_id", "year_id", "location_id", "location_name", "acause", [m
+[32m+[m[32m    select(c("cause_id", "year_id", "location_id", "location_name", "acause",[m
+              "cause_name", "prevalence_counts")) %>%[m
+[31m-    setnames(old = "prevalence_counts", new = "hiv_prevalence_counts")[m
+[31m-  [m
+[31m-  df_hiv_prev_count <- df_hiv_prev_count %>%[m
+[32m+[m[32m    setnames(old = "prevalence_counts", new = "hiv_prevalence_counts") %>%[m
+     mutate(high_hiv_prev = ifelse(hiv_prevalence_counts >= median(hiv_prevalence_counts), 1, 0))[m
+ }[m
+ [m
+[31m-# Join[m
+[31m-df_as <- left_join([m
+[31m-  x = df_as,[m
+[31m-  y = df_sud_prev_count %>% select(!c("acause", "cause_id", "cause_name")),[m
+[31m-  by = c("year_id", "location_id", "location_name")[m
+[31m-)[m
+[31m-[m
+[31m-df_as <- left_join([m
+[31m-  x = df_as,[m
+[31m-  y = df_hiv_prev_count %>% select(!c("acause", "cause_id", "cause_name")),[m
+[31m-  by = c("year_id", "location_id", "location_name")[m
+[31m-)[m
+[31m-[m
+[31m-df_as <- left_join([m
+[31m-  x = df_as,[m
+[31m-  y = df_alcohol_prev_count %>% select(!c("acause", "cause_id", "cause_name")),[m
+[31m-  by = c("year_id", "location_id", "location_name")[m
+[31m-)[m
+[31m-[m
+[31m-df_as <- left_join([m
+[31m-  x = df_as,[m
+[31m-  y = df_opioid_prev_count %>% select(!c("acause", "cause_id", "cause_name")),[m
+[31m-  by = c("year_id", "location_id", "location_name")[m
+[31m-)[m
+[32m+[m[32mdf_as <- left_join(df_as, df_sud_prev_count     %>% select(!c("acause", "cause_id", "cause_name")),[m
+[32m+[m[32m                   by = c("year_id", "location_id", "location_name"))[m
+[32m+[m[32mdf_as <- left_join(df_as, df_hiv_prev_count     %>% select(!c("acause", "cause_id", "cause_name")),[m
+[32m+[m[32m                   by = c("year_id", "location_id", "location_name"))[m
+[32m+[m[32mdf_as <- left_join(df_as, df_alcohol_prev_count %>% select(!c("acause", "cause_id", "cause_name")),[m
+[32m+[m[32m                   by = c("year_id", "location_id", "location_name"))[m
+[32m+[m[32mdf_as <- left_join(df_as, df_opioid_prev_count  %>% select(!c("acause", "cause_id", "cause_name")),[m
+[32m+[m[32m                   by = c("year_id", "location_id", "location_name"))[m
+ [m
+ ##----------------------------------------------------------------[m
+[31m-## 7. Create Ryan White HIV prevalence ratios[m
+[31m-## # HIV - ryan_white_grant / HIV prevalence count[m
+[31m-## # HIV - ryan_white_grant + (spend_all from DEX data) / HIV prevalence count[m
+[31m-## # ONLY used in HIV models[m
+[32m+[m[32m## 7. Create Ryan White HIV prevalence ratios (per-case framework)[m
+ ##----------------------------------------------------------------[m
+[31m-# Create ratios[m
+ if (cdc) {[m
+[31m-  df_as$rw_cdc_hiv_prev_ratio <- df_as$ryan_white_funding_final / df_as$cdc_hiv_prevalence_counts[m
+[32m+[m[32m  df_as$rw_cdc_hiv_prev_ratio     <- df_as$ryan_white_funding_final / df_as$cdc_hiv_prevalence_counts[m
+   df_as$rw_cdc_dex_hiv_prev_ratio <- (df_as$ryan_white_funding_final + df_as$spend_all) / df_as$cdc_hiv_prevalence_counts[m
+ } else {[m
+[31m-  df_as$rw_hiv_prev_ratio <- df_as$ryan_white_funding_final / df_as$hiv_prevalence_counts[m
+[32m+[m[32m  df_as$rw_hiv_prev_ratio     <- df_as$ryan_white_funding_final / df_as$hiv_prevalence_counts[m
+   df_as$rw_dex_hiv_prev_ratio <- (df_as$ryan_white_funding_final + df_as$spend_all) / df_as$hiv_prevalence_counts[m
+ }[m
+ [m
+[31m-# Add the custom ratio ONLY used in HIV[m
+[31m-# - RW + DEX spend / CDC prev (have this already)[m
+[31m-# - GBD mortality / CDC prevalence (created below)[m
+ if (cdc_gbd_mix) {[m
+   df_as$as_cdc_mort_prev_ratio <- df_as$mortality_counts / df_as$cdc_hiv_prevalence_counts[m
+ }[m
+ [m
+[31m-################SAVINF[m
+ ##----------------------------------------------------------------[m
+[31m-## SECTION TO ADD AT END OF DATA PROCESSING[m
+[31m-## (Replace sections 8 and 9 with this)[m
+[32m+[m[32m## 8. Numeric IDs + centered year[m
+ ##----------------------------------------------------------------[m
+[31m-[m
+[31m-##----------------------------------------------------------------[m
+[31m-## 8. DO NOT Factor location_id and year_id here[m
+[31m-##    Keep them numeric for variance decomposition and panel modeling[m
+[31m-##    Only factor inside formulas when needed for FE models[m
+[31m-##----------------------------------------------------------------[m
+[31m-# REMOVED: df_as$year_id <- as.factor(df_as$year_id)[m
+[31m-# REMOVED: df_as$location_id <- as.factor(df_as$location_id)[m
+[31m-[m
+[31m-# Instead, ensure they are numeric and create useful derived variables[m
+ df_as <- df_as %>%[m
+[31m-  mutate([m
+[31m-    year_id = as.numeric(as.character(year_id)),[m
+[31m-    location_id = as.numeric(as.character(location_id)),[m
+[31m-    # Centered year for time trends (midpoint of 2010-2019)[m
+[31m-    year_centered = year_id - 2014.5[m
+[31m-  )[m
+[32m+[m[32m  mutate(year_id       = as.numeric(as.character(year_id)),[m
+[32m+[m[32m         location_id   = as.numeric(as.character(location_id)),[m
+[32m+[m[32m         year_centered = year_id - 2014.5)[m
+ [m
+ ##----------------------------------------------------------------[m
+[31m-## 9. Log transformations - EXPLICIT variable naming[m
+[31m-##    Don't use grep() - explicitly name what you transform[m
+[32m+[m[32m## 9. Log transformations (explicit variable naming)[m
+ ##----------------------------------------------------------------[m
+[32m+[m[32moutcome_vars_to_log   <- c("as_mort_prev_ratio", "as_daly_prev_ratio", "as_yll_prev_ratio")[m
+[32m+[m[32mpredictor_vars_to_log <- c("as_spend_prev_ratio", "rw_dex_hiv_prev_ratio", "rw_hiv_prev_ratio")[m
+ [m
+[31m-# Define variables to log-transform EXPLICITLY[m
+[31m-# Outcomes[m
+[31m-outcome_vars_to_log <- c([m
+[31m-  [m
+[31m-  "as_mort_prev_ratio",[m
+[31m-  "as_daly_prev_ratio", [m
+[31m-  "as_yll_prev_ratio"[m
+[31m-)[m
+[31m-[m
+[31m-# Predictors  [m
+[31m-predictor_vars_to_log <- c([m
+[31m-  "as_spend_prev_ratio",[m
+[31m-  "rw_dex_hiv_prev_ratio",[m
+[31m-  "rw_hiv_prev_ratio"[m
+[31m-)[m
+[31m-[m
+[31m-# CDC versions (if using CDC data)[m
+ if (cdc) {[m
+   predictor_vars_to_log <- c(predictor_vars_to_log,[m
+                              "rw_cdc_hiv_prev_ratio",[m
+                              "rw_cdc_dex_hiv_prev_ratio",[m
+                              "as_cdc_spend_prev_ratio")[m
+[31m-  outcome_vars_to_log <- c(outcome_vars_to_log, "as_cdc_mort_prev_ratio")[m
+[32m+[m[32m  outcome_vars_to_log   <- c(outcome_vars_to_log, "as_cdc_mort_prev_ratio")[m
+ }[m
+ [m
+[31m-# Covariates that need logging (skewed)[m
+[31m-covariate_vars_to_log <- c([m
+[31m-  "phys_act_10",[m
+[31m-  "sud_prevalence_counts"[m
+[31m-)[m
+[31m-[m
+[31m-# Combine all vars to log[m
+[32m+[m[32mcovariate_vars_to_log <- c("phys_act_10", "sud_prevalence_counts")[m
+ all_vars_to_log <- c(outcome_vars_to_log, predictor_vars_to_log, covariate_vars_to_log)[m
+[32m+[m[32mvars_to_log     <- all_vars_to_log[all_vars_to_log %in% names(df_as)][m
+ [m
+[31m-# Filter to only vars that exist in the data[m
+[31m-vars_to_log <- all_vars_to_log[all_vars_to_log %in% names(df_as)][m
+[31m-[m
+[31m-# Create BOTH logged and unlogged versions[m
+[31m-# Keep originals for diagnostics, create _log versions for modeling[m
+ df_as <- df_as %>%[m
+[31m-  mutate(across([m
+[31m-    all_of(vars_to_log),[m
+[31m-    list(log = ~log1p(.x)),[m
+[31m-    .names = "{.col}_log"[m
+[31m-  ))[m
+[32m+[m[32m  mutate(across(all_of(vars_to_log),[m
+[32m+[m[32m                list(log = ~log1p(.x)),[m
+[32m+[m[32m                .names = "{.col}_log"))[m
+ [m
+[31m-# Print confirmation of what was logged[m
+ cat("\n=== Variables log-transformed (originals preserved, _log versions created) ===\n")[m
+ cat(paste(vars_to_log, collapse = "\n"))[m
+ cat("\n")[m
+ [m
+ ##----------------------------------------------------------------[m
+[31m-## 9.5 Per-capita variables, logs, lags, Mundlak — POST-MAY-6-COMMITTEE[m
+[31m-##     Adds regression-ready columns used by the per-capita scripts[m
+[31m-##     (C_04_HIV_per_capita_models.R, C_05_HIV_per_capita_cascade.R).[m
+[31m-##     Old per-case scripts (C_02, C_03) ignore these new columns.[m
+[32m+[m[32m## 9.5 Per-capita / per-case staging — POST-MAY-6-COMMITTEE[m
+[32m+[m[32m##     Builds regression-ready columns consumed by C_02 (per-case),[m
+[32m+[m[32m##     C_04 (per-capita burden/prevention), and C_05 (cascade).[m
+ ##[m
+ ##     CAVEAT on Mundlak: _B / _W are computed over the FULL panel[m
+ ##     (all states, all years 2010-2019). If a future model fits on[m
+[31m-##     a sub-sample (e.g., filtered years), recompute on the subset.[m
+[32m+[m[32m##     a sub-sample, recompute on the subset.[m
+ ##----------------------------------------------------------------[m
+ [m
+ safe_log <- function(x) if_else(x > 0, log(x), NA_real_)[m
+ [m
+ ## --- 9.5.1 Merge CDC HIV mortality + prevalence counts (if available) ---[m
+[31m-fp_cdc_proc <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/", as_date, "df_as_cdc.csv")[m
+[32m+[m[32mfp_cdc_proc <- file.path(h, "/aim_outputs/Aim2/C_frontier_analysis/",[m
+[32m+[m[32m                         as_date, "df_as_cdc.csv")[m
+ if (file.exists(fp_cdc_proc)) {[m
+   df_as_cdc_raw <- read.csv(fp_cdc_proc, stringsAsFactors = FALSE)[m
+   df_cdc_point  <- df_as_cdc_raw %>%[m
+[36m@@ -542,16 +389,24 @@[m [mif (file.exists(fp_cdc_proc)) {[m
+   df_as$cdc_hiv_prevalence_counts <- NA_real_[m
+ }[m
+ [m
+[31m-## --- 9.5.2 Per-capita / per-100k variables ---[m
+[32m+[m[32m## --- 9.5.2 Per-capita, per-100k, and per-population rate variables ---[m
+[32m+[m[32m##     Per-capita / per-100k use dex_pop (DEX denominator, per-capita lens).[m
+[32m+[m[32m##     Rate vars use GBD population (per-case lens — consumed by C_02).[m
+ df_as <- df_as %>%[m
+   mutate([m
+[32m+[m[32m    # Per-capita (C_04 + C_05)[m
+     spending_per_capita       = (ryan_white_funding_final + spend_all) / dex_pop,[m
+     daly_per_capita           = daly_counts      / dex_pop,[m
+     mortality_per_capita      = mortality_counts / dex_pop,[m
+     cdc_mortality_per_capita  = cdc_hiv_mortality_counts  / dex_pop,[m
+     incidence_per_100k        = (incidence_counts  / dex_pop) * 1e5,[m
+     prevalence_per_100k       = (prevalence_counts / dex_pop) * 1e5,[m
+[31m-    cdc_prevalence_per_100k   = (cdc_hiv_prevalence_counts / dex_pop) * 1e5[m
+[32m+[m[32m    cdc_prevalence_per_100k   = (cdc_hiv_prevalence_counts / dex_pop) * 1e5,[m
+[32m+[m[32m    # Per-population rate variables (C_02 — per-case framework)[m
+[32m+[m[32m    incidence_rates           = incidence_counts  / population,[m
+[32m+[m[32m    mortality_rates           = mortality_counts  / population,[m
+[32m+[m[32m    prevalence_rates          = prevalence_counts / population,[m
+[32m+[m[32m    daly_rates                = daly_counts       / population[m
+   )[m
+ [m
+ ## --- 9.5.3 Logs of per-capita + a couple of covariates ---[m
+[36m@@ -570,16 +425,16 @@[m [mdf_as <- df_as %>%[m
+   )[m
+ [m
+ ## --- 9.5.4 TOC-level per-capita spending (if TOC columns are present) ---[m
+[31m-toc_cols <- c("spend_AM","spend_ED","spend_HH","spend_IP","spend_NF","spend_RX")[m
+[32m+[m[32mtoc_cols <- c("spend_AM", "spend_ED", "spend_HH", "spend_IP", "spend_NF", "spend_RX")[m
+ if (all(toc_cols %in% names(df_as))) {[m
+   df_as <- df_as %>%[m
+     mutate([m
+[31m-      spend_pharma_pc      = spend_RX / dex_pop,[m
+[31m-      spend_ambulatory_pc  = spend_AM / dex_pop,[m
+[31m-      spend_inpatient_pc   = spend_IP / dex_pop,[m
+[31m-      spend_nf_pc          = spend_NF / dex_pop,[m
+[31m-      spend_ed_pc          = spend_ED / dex_pop,[m
+[31m-      spend_hh_pc          = spend_HH / dex_pop,[m
+[32m+[m[32m      spend_pharma_pc          = spend_RX / dex_pop,[m
+[32m+[m[32m      spend_ambulatory_pc      = spend_AM / dex_pop,[m
+[32m+[m[32m      spend_inpatient_pc       = spend_IP / dex_pop,[m
+[32m+[m[32m      spend_nf_pc              = spend_NF / dex_pop,[m
+[32m+[m[32m      spend_ed_pc              = spend_ED / dex_pop,[m
+[32m+[m[32m      spend_hh_pc              = spend_HH / dex_pop,[m
+       log_spend_pharma_pc      = safe_log(spend_pharma_pc),[m
+       log_spend_ambulatory_pc  = safe_log(spend_ambulatory_pc),[m
+       log_spend_inpatient_pc   = safe_log(spend_inpatient_pc),[m
+[36m@@ -591,19 +446,17 @@[m [mif (all(toc_cols %in% names(df_as))) {[m
+   message("TOC columns not all present — per-TOC per-capita variables skipped.")[m
+ }[m
+ [m
+[31m-## --- 9.5.5 Lag variables (sorted by state, year) ---[m
+[31m-##     Covers per-capita lags (consumed by C_04) and per-case lags[m
+[31m-##     (rw_dex_hiv_prev_ratio_log_l1/_l2, consumed by C_02 lag specs).[m
+[32m+[m[32m## --- 9.5.5 Lag variables ---[m
+ df_as <- df_as %>%[m
+   arrange(location_id, year_id) %>%[m
+   group_by(location_id) %>%[m
+   mutate([m
+     # Per-capita (C_04)[m
+[31m-    log_spending_per_capita_l1 = dplyr::lag(log_spending_per_capita, 1),[m
+[31m-    log_spending_per_capita_l2 = dplyr::lag(log_spending_per_capita, 2),[m
+[31m-    log_prevalence_per_100k_l1 = dplyr::lag(log_prevalence_per_100k, 1),[m
+[31m-    log_prevalence_per_100k_l2 = dplyr::lag(log_prevalence_per_100k, 2),[m
+[31m-    log_incidence_per_100k_l1  = dplyr::lag(log_incidence_per_100k,  1),[m
+[32m+[m[32m    log_spending_per_capita_l1   = dplyr::lag(log_spending_per_capita, 1),[m
+[32m+[m[32m    log_spending_per_capita_l2   = dplyr::lag(log_spending_per_capita, 2),[m
+[32m+[m[32m    log_prevalence_per_100k_l1   = dplyr::lag(log_prevalence_per_100k, 1),[m
+[32m+[m[32m    log_prevalence_per_100k_l2   = dplyr::lag(log_prevalence_per_100k, 2),[m
+[32m+[m[32m    log_incidence_per_100k_l1    = dplyr::lag(log_incidence_per_100k,  1),[m
+     # Per-case (C_02)[m
+     rw_dex_hiv_prev_ratio_log_l1 = dplyr::lag(rw_dex_hiv_prev_ratio_log, 1),[m
+     rw_dex_hiv_prev_ratio_log_l2 = dplyr::lag(rw_dex_hiv_prev_ratio_log, 2)[m
+[36m@@ -611,18 +464,9 @@[m [mdf_as <- df_as %>%[m
+   ungroup()[m
+ [m
+ ## --- 9.5.6 Mundlak B/W decomposition over the full panel ---[m
+[31m-##     Standard convention: _B = mean(X), _W = X - mean(X). When X is[m
+[31m-##     already log-transformed (e.g. log_spending_per_capita), _B is[m
+[31m-##     mean-of-log; this is the convention C_04 uses.[m
+[31m-##[m
+[31m-##     Caveat: _B / _W computed over the FULL panel. If a future model[m
+[31m-##     fits on a sub-sample, recompute on the subset.[m
+ mundlak_vars <- c([m
+[31m-  # Per-capita exposures (C_04)[m
+   "log_spending_per_capita", "log_incidence_per_100k", "log_prevalence_per_100k",[m
+[31m-  # Per-case exposure (C_02)[m
+   "rw_dex_hiv_prev_ratio_log",[m
+[31m-  # Shared raw covariates[m
+   "race_prop_BLCK", "race_prop_HISP",[m
+   "incidence_rates", "bmi", "obesity", "prev_diabetes",[m
+   "aca_implemented_status", "edu_yrs",[m
+[36m@@ -641,17 +485,6 @@[m [mfor (v in mundlak_vars) {[m
+ }[m
+ [m
+ ## --- 9.5.7 C_02 log-of-state-mean derived variables ---[m
+[31m-##     For variables that C_02 logs AFTER taking the state mean, compute[m
+[31m-##     the log-of-mean version under the SAME names C_02 uses today[m
+[31m-##     (log_X_B, log_X_W). Matches C_02's existing convention so its[m
+[31m-##     formulas don't need updating.[m
+[31m-##[m
+[31m-##     log_X_B = log(X_B) = log(mean(X))[m
+[31m-##     log_X_W = log(X) - log_X_B[m
+[31m-##[m
+[31m-##     For log_prop_homeless specifically: both conventions are needed.[m
+[31m-##     This block produces the log-of-mean version (consumed by C_02).[m
+[31m-##     The mean-of-log version (consumed by C_04) is produced in 9.5.8.[m
+ c02_log_vars <- intersect([m
+   c("incidence_rates", "bmi", "prev_diabetes", "prop_homeless", "ldi_pc"),[m
+   mundlak_vars[m
+[36m@@ -660,7 +493,6 @@[m [mfor (v in c02_log_vars) {[m
+   log_var <- paste0("log_", v)[m
+   log_B   <- paste0("log_", v, "_B")[m
+   log_W   <- paste0("log_", v, "_W")[m
+[31m-  # log_X (time-varying) may already exist from section 9.5.3[m
+   if (!log_var %in% names(df_as)) {[m
+     df_as[[log_var]] <- safe_log(df_as[[v]])[m
+   }[m
+[36m@@ -669,13 +501,6 @@[m [mfor (v in c02_log_vars) {[m
+ }[m
+ [m
+ ## --- 9.5.8 Mean-of-log Mundlak variants (_MLB / _MLW) for C_04 ---[m
+[31m-##     For variables where C_02 claimed the _B / _W slot with log-of-mean[m
+[31m-##     (above in 9.5.7), provide the mean-of-log variant under _MLB / _MLW[m
+[31m-##     so C_04's per-capita Mundlak specs can use it.[m
+[31m-##[m
+[31m-##     Currently only log_prop_homeless requires this dual treatment;[m
+[31m-##     the per-capita exposures (log_spending_per_capita, etc.) are not[m
+[31m-##     used by C_02 and keep their default _B / _W as mean-of-log.[m
+ ml_log_vars <- intersect(c("log_prop_homeless"), names(df_as))[m
+ for (v in ml_log_vars) {[m
+   df_as <- df_as %>%[m
+[36m@@ -688,8 +513,6 @@[m [mfor (v in ml_log_vars) {[m
+ }[m
+ [m
+ ## --- 9.5.9 Indicators (high_incidence_q4_B, high_hiv_prev_B[_f]) ---[m
+[31m-##     Consumed by C_02's interaction specs and high-incidence quartile[m
+[31m-##     interactions. State-level binaries derived from state means.[m
+ if ("incidence_rates_B" %in% names(df_as)) {[m
+   q75_inc <- quantile(df_as$incidence_rates_B, 0.75, na.rm = TRUE)[m
+   df_as$high_incidence_q4_B <- as.integer(df_as$incidence_rates_B >= q75_inc)[m
+[36m@@ -698,7 +521,6 @@[m [mif ("prevalence_rates_B" %in% names(df_as)) {[m
+   med_prev_B <- quantile(df_as$prevalence_rates_B, 0.50, na.rm = TRUE)[m
+   df_as$high_hiv_prev_B <- as.integer(df_as$prevalence_rates_B >= med_prev_B)[m
+ } else if ("prevalence_counts" %in% names(df_as)) {[m
+[31m-  # Fallback: median split of state-mean HIV prevalence counts[m
+   state_prev_hiv <- df_as %>%[m
+     dplyr::filter(acause == "hiv") %>%[m
+     dplyr::group_by(location_id) %>%[m
+[36m@@ -719,7 +541,6 @@[m [mif ("high_hiv_prev_B" %in% names(df_as)) {[m
+ }[m
+ [m
+ ## --- 9.5.10 Dose-response variables (per-case spending) ---[m
+[31m-##     Consumed by C_02's dose family (quadratic, threshold specs).[m
+ if ("rw_dex_hiv_prev_ratio_log" %in% names(df_as)) {[m
+   knot_p75 <- quantile(df_as$rw_dex_hiv_prev_ratio_log, 0.75, na.rm = TRUE)[m
+   df_as <- df_as %>%[m
+[36m@@ -729,10 +550,6 @@[m [mif ("rw_dex_hiv_prev_ratio_log" %in% names(df_as)) {[m
+     )[m
+ }[m
+ [m
+[31m-## --- 9.5.11 Time variables ---[m
+[31m-##     year_factor already created in 9.5.3. Add year_centered (midpoint).[m
+[31m-df_as <- df_as %>% mutate(year_centered = year_id - 2014.5)[m
+[31m-[m
+ cat("Section 9.5 staging complete. df_as columns: ", ncol(df_as), "\n", sep = "")[m
+ [m
+ ##----------------------------------------------------------------[m
+[36m@@ -740,50 +557,42 @@[m [mcat("Section 9.5 staging complete. df_as columns: ", ncol(df_as), "\n", sep = ""[m
+ ##----------------------------------------------------------------[m
+ cat("\n=== DATA VALIDATION CHECKS ===\n")[m
+ [m
+[31m-# Check 1: Verify RW + DEX spending identity (for HIV)[m
+ if (!cdc) {[m
+   df_check <- df_as %>%[m
+     filter(acause == "hiv") %>%[m
+     mutate([m
+[31m-      # Reconstruct from ratio[m
+       implied_total = rw_dex_hiv_prev_ratio * hiv_prevalence_counts,[m
+[31m-      # Actual components[m
+[31m-      actual_total = ryan_white_funding_final + spend_all,[m
+[31m-      # Difference[m
+[31m-      diff_pct = abs(implied_total - actual_total) / actual_total * 100[m
+[32m+[m[32m      actual_total  = ryan_white_funding_final + spend_all,[m
+[32m+[m[32m      diff_pct      = abs(implied_total - actual_total) / actual_total * 100[m
+     )[m
+[31m-  [m
+   cat("\nSpending identity check (RW + DEX):\n")[m
+[31m-  cat(sprintf("  Max discrepancy: %.2f%%\n", max(df_check$diff_pct, na.rm = TRUE)))[m
+[32m+[m[32m  cat(sprintf("  Max discrepancy:  %.2f%%\n", max(df_check$diff_pct, na.rm = TRUE)))[m
+   cat(sprintf("  Mean discrepancy: %.2f%%\n", mean(df_check$diff_pct, na.rm = TRUE)))[m
+[31m-  [m
+   if (max(df_check$diff_pct, na.rm = TRUE) > 1) {[m
+     warning("Spending identity discrepancy > 1% detected!")[m
+   }[m
+ }[m
+ [m
+[31m-# Check 2: Missingness summary[m
+ cat("\nMissingness by year (HIV only):\n")[m
+ missing_summary <- df_as %>%[m
+   filter(acause == "hiv") %>%[m
+   group_by(year_id) %>%[m
+   summarize([m
+[31m-    n_states = n(),[m
+[31m-    missing_rw = sum(is.na(ryan_white_funding_final)),[m
+[31m-    missing_mort_ratio = sum(is.na(as_mort_prev_ratio)),[m
+[32m+[m[32m    n_states            = n(),[m
+[32m+[m[32m    missing_rw          = sum(is.na(ryan_white_funding_final)),[m
+[32m+[m[32m    missing_mort_ratio  = sum(is.na(as_mort_prev_ratio)),[m
+     missing_spend_ratio = sum(is.na(rw_dex_hiv_prev_ratio)),[m
+     .groups = "drop"[m
+   )[m
+ print(missing_summary)[m
+ [m
+[31m-# Check 3: Extreme values (potential outliers)[m
+ cat("\nPotential outliers (|z-score| > 3):\n")[m
+ df_outliers <- df_as %>%[m
+   filter(acause == "hiv") %>%[m
+   mutate([m
+[31m-    spend_z = (rw_dex_hiv_prev_ratio - mean(rw_dex_hiv_prev_ratio, na.rm = TRUE)) / [m
+[32m+[m[32m    spend_z = (rw_dex_hiv_prev_ratio - mean(rw_dex_hiv_prev_ratio, na.rm = TRUE)) /[m
+       sd(rw_dex_hiv_prev_ratio, na.rm = TRUE),[m
+[31m-    mort_z = (as_mort_prev_ratio - mean(as_mort_prev_ratio, na.rm = TRUE)) / [m
+[32m+[m[32m    mort_z  = (as_mort_prev_ratio - mean(as_mort_prev_ratio, na.rm = TRUE)) /[m
+       sd(as_mort_prev_ratio, na.rm = TRUE)[m
+   ) %>%[m
+   filter(abs(spend_z) > 3 | abs(mort_z) > 3) %>%[m
+[36m@@ -795,11 +604,10 @@[m [mif (nrow(df_outliers) > 0) {[m
+   cat("  No extreme outliers detected.\n")[m
+ }[m
+ [m
+[31m-# Check 4: Summary statistics for key variables[m
+ cat("\nKey variable summary (HIV):\n")[m
+ df_as %>%[m
+   filter(acause == "hiv") %>%[m
+[31m-  select(as_mort_prev_ratio, rw_dex_hiv_prev_ratio, hiv_prevalence_counts, [m
+[32m+[m[32m  select(as_mort_prev_ratio, rw_dex_hiv_prev_ratio, hiv_prevalence_counts,[m
+          mortality_counts, spend_all, ryan_white_funding_final) %>%[m
+   summary() %>%[m
+   print()[m
+[36m@@ -807,28 +615,22 @@[m [mdf_as %>%[m
+ ##----------------------------------------------------------------[m
+ ## 11. Save processed data[m
+ ##----------------------------------------------------------------[m
+[31m-[m
+[31m-# Since we're always using RW + GBD (not CDC), simplify the naming[m
+[31m-output_suffix <- "rw_gbd"  # Clear label: Ryan White + GBD data[m
+[31m-[m
+[31m-[m
+[31m-# Save as CSV[m
+[31m-output_filename <- glue("df_as_processed_{output_suffix}.csv")[m
+[31m-output_filepath <- file.path(dir_output, output_filename)[m
+[32m+[m[32moutput_suffix    <- "rw_gbd"[m
+[32m+[m[32moutput_filename  <- glue("df_as_processed_{output_suffix}.csv")[m
+[32m+[m[32moutput_filepath  <- file.path(dir_output, output_filename)[m
+ [m
+ write_csv(df_as, output_filepath)[m
+ cat(sprintf("\n=== Data saved to: %s ===\n", output_filepath))[m
+ [m
+[31m-[m
+ ##----------------------------------------------------------------[m
+[31m-## 13. Print data structure for verification[m
+[32m+[m[32m## 12. Print data structure for verification[m
+ ##----------------------------------------------------------------[m
+ cat("\n=== Final data structure (df_as) ===\n")[m
+ cat(sprintf("Dimensions: %d rows x %d columns\n", nrow(df_as), ncol(df_as)))[m
+ cat("\nKey columns:\n")[m
+ str(df_as %>% select([m
+   year_id, location_id, location_name, year_centered,[m
+[31m-  acause, [m
+[32m+[m[32m  acause,[m
+   as_mort_prev_ratio, as_mort_prev_ratio_log,[m
+   rw_dex_hiv_prev_ratio, rw_dex_hiv_prev_ratio_log,[m
+   hiv_prevalence_counts, mortality_counts,[m
+[36m@@ -838,12 +640,4 @@[m [mstr(df_as %>% select([m
+ ))[m
+ [m
+ cat("\n=== DATA PROCESSING COMPLETE ===\n")[m
+[31m-cat("Next step: Run C_regression...scripts for modeling\n")[m
+[31m-[m
+[31m-[m
+[31m-[m
+[31m-[m
+[31m-[m
+[31m-[m
+[31m-[m
+[31m-[m
+[32m+[m[32mcat("Next step: Run C_02 (per-case) and/or C_04 (per-capita) regression scripts.\n")[m
+\ No newline at end of file[m
+[1mdiff --git a/C_frontier_analysis/C_02_HIV_per_case_models.R b/C_frontier_analysis/C_02_HIV_per_case_models.R[m
+[1mindex 4a87180..1730ed0 100644[m
+[1m--- a/C_frontier_analysis/C_02_HIV_per_case_models.R[m
+[1m+++ b/C_frontier_analysis/C_02_HIV_per_case_models.R[m
+[36m@@ -98,7 +98,7 @@[m [mtryCatch([m
+   error = function(e) invisible(NULL)[m
+ )[m
+ [m
+[31m-input_date  <- "20260516"[m
+[32m+[m[32minput_date  <- "20260517"[m
+ dir_input   <- file.path(h, "aim_outputs/Aim2/C_frontier_analysis", input_date)[m
+ [m
+ output_date <- format(Sys.time(), "%Y%m%d")[m
+[36m@@ -417,9 +417,20 @@[m [mscreen_confounders([m
+ #   within_var  = var of (x_it - x_bar_i) on the panel.[m
+ #   total_var   = var(x_it) on the panel.[m
+ [m
+[31m-calc_variance_decomp <- function(df_panel, var_name, group_var = "location_id") {[m
+[31m-  x <- df_panel[[var_name]][m
+[31m-  total_var <- var(x, na.rm = TRUE)[m
+[32m+[m
+[32m+[m[32m# candidates <- c("rw_dex_hiv_prev_ratio_log", "race_prop_BLCK", "race_prop_HISP",[m
+[32m+[m[32m#                 "incidence_rates", "obesity", "bmi", "prev_diabetes",[m
+[32m+[m[32m#                 "edu_yrs", "prop_homeless", "ldi_pc", "unemployment_rate",[m
+[32m+[m[32m#                 "aca_implemented_status")[m
+[32m+[m[32m# setdiff(candidates, names(df_hiv))    # the ones that aren't there[m
+[32m+[m
+[32m+[m[32m  calc_variance_decomp <- function(df_panel, var_name, group_var = "location_id") {[m
+[32m+[m[32m    if (!var_name %in% names(df_panel)) {[m
+[32m+[m[32m      message("Skipping variance_decomp for '", var_name, "' — not in df_panel.")[m
+[32m+[m[32m      return(NULL)[m
+[32m+[m[32m    }[m
+[32m+[m[32m    x <- df_panel[[var_name]][m
+[32m+[m[32m    total_var <- var(x, na.rm = TRUE)[m
+   [m
+   # State means (one per state)[m
+   state_means <- df_panel %>%[m
+[1mdiff --git a/C_frontier_analysis/C_04_HIV_per_capita_models.R b/C_frontier_analysis/C_04_HIV_per_capita_models.R[m
+[1mindex 3893906..8696c68 100644[m
+[1m--- a/C_frontier_analysis/C_04_HIV_per_capita_models.R[m
+[1m+++ b/C_frontier_analysis/C_04_HIV_per_capita_models.R[m
+[36m@@ -100,7 +100,7 @@[m [mtryCatch([m
+ )[m
+ [m
+ # ---------- IO ----------[m
+[31m-input_date  <- "20260514"   # <-- EDIT: date of prep_B output[m
+[32m+[m[32minput_date  <- "20260517"   # <-- EDIT: date of prep_B output[m
+ dir_input   <- file.path(h, "aim_outputs/Aim2/C_frontier_analysis", input_date)[m
+ [m
+ output_date <- format(Sys.time(), "%Y%m%d")[m
+[1mdiff --git a/C_frontier_analysis/C_05_HIV_per_capita_cascade.R b/C_frontier_analysis/C_05_HIV_per_capita_cascade.R[m
+[1mindex aac91e7..3da4922 100644[m
+[1m--- a/C_frontier_analysis/C_05_HIV_per_capita_cascade.R[m
+[1m+++ b/C_frontier_analysis/C_05_HIV_per_capita_cascade.R[m
+[36m@@ -56,7 +56,7 @@[m
+ rm(list = ls())[m
+ [m
+ # >>>> GATE: flip to TRUE only after diagnostic block is reviewed <<<<[m
+[31m-RUN_REGRESSIONS <- F[m
+[32m+[m[32mRUN_REGRESSIONS <- T[m
+ [m
+ if (Sys.info()["sysname"] == "Linux") {[m
+   j <- "/home/j/"[m
+[36m@@ -85,9 +85,11 @@[m [mpacman::p_load([m
+ if ("plotly" %in% loadedNamespaces()) filter <- dplyr::filter[m
+ tryCatch(conflicted::conflicts_prefer(dplyr::filter, .quiet = TRUE),[m
+          error = function(e) invisible(NULL))[m
+[32m+[m[32mtryCatch(conflicted::conflicts_prefer(purrr::discard, .quiet = TRUE),[m
+[32m+[m[32m         error = function(e) invisible(NULL))[m
+ [m
+ # ---------- IO ----------[m
+[31m-panel_date  <- "20260515"     # <-- EDIT: date of Lens 1/2 panel output[m
+[32m+[m[32mpanel_date  <- "20260517"     # <-- EDIT: date of Lens 1/2 panel output[m
+ dir_panel   <- file.path(h, "aim_outputs/Aim2/C_frontier_analysis",[m
+                          panel_date, "analysis_per_capita")[m
+ fp_panel    <- file.path(dir_panel, "df_hiv_per_capita_panel.csv")[m

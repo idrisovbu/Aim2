@@ -56,7 +56,7 @@
 rm(list = ls())
 
 # >>>> GATE: flip to TRUE only after diagnostic block is reviewed <<<<
-RUN_REGRESSIONS <- F
+RUN_REGRESSIONS <- T
 
 if (Sys.info()["sysname"] == "Linux") {
   j <- "/home/j/"
@@ -85,9 +85,11 @@ pacman::p_load(
 if ("plotly" %in% loadedNamespaces()) filter <- dplyr::filter
 tryCatch(conflicted::conflicts_prefer(dplyr::filter, .quiet = TRUE),
          error = function(e) invisible(NULL))
+tryCatch(conflicted::conflicts_prefer(purrr::discard, .quiet = TRUE),
+         error = function(e) invisible(NULL))
 
 # ---------- IO ----------
-panel_date  <- "20260515"     # <-- EDIT: date of Lens 1/2 panel output
+panel_date  <- "20260517"     # <-- EDIT: date of Lens 1/2 panel output
 dir_panel   <- file.path(h, "aim_outputs/Aim2/C_frontier_analysis",
                          panel_date, "analysis_per_capita")
 fp_panel    <- file.path(dir_panel, "df_hiv_per_capita_panel.csv")

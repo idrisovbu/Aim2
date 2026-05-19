@@ -100,7 +100,7 @@ tryCatch(
 )
 
 # ---------- IO ----------
-input_date  <- "20260514"   # <-- EDIT: date of prep_B output
+input_date  <- "20260517"   # <-- EDIT: date of prep_B output
 dir_input   <- file.path(h, "aim_outputs/Aim2/C_frontier_analysis", input_date)
 
 output_date <- format(Sys.time(), "%Y%m%d")
