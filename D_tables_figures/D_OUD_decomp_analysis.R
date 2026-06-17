@@ -1,5 +1,8 @@
 ##----------------------------------------------------------------
 ##' Title: D_OUD_decomp_analysis.R
+##' 
+##' ##note for the future this code has Cat level 4 reconciliaiton approach that assumes not cat 4 exists. It works fine for OUD which 
+##' ## is the case as no Cat 4, but see code for OUD that handless this better. 
 ##'
 ##' Purpose: Das Gupta 4-Factor Decomposition of OUD Spending (2010-2019)
 ##'          WITH UNCERTAINTY INTERVALS FROM DRAW-LEVEL DATA
@@ -103,10 +106,6 @@ df_decomp_p <- df_decomp %>%
     names_from = year_id,
     values_from = all_of(val_cols)
   )
-
-#HIV to test 
-# df_decomp_p <- df_decomp_p %>%
-#   filter(cause_name == "HIV/AIDS")
 
 # Filter to OUD only
 df_decomp_p <- df_decomp_p %>%
@@ -661,36 +660,6 @@ daly_intensity_by_draw <- by_location_daly_draw[, .(draw, location_id, location_
 # B.2: Weaver-style functions for spending effectiveness
 # ----------------------------------------------------------------------------
 
-# ----------------------------------------------------------------------------
-# B.2: Weaver-style functions for spending effectiveness
-# ----------------------------------------------------------------------------
-
-# Format a single percentile value/category combo into display text.
-# Cat 1 -> dollar ratio; Cat 2/3/4 -> category label; otherwise N/A.
-format_weaver_value <- function(val, cat) {
-  if (is.na(cat))                return("N/A")
-  if (cat == 1L && !is.na(val))  return(paste0("$", format(round(val), big.mark = ",")))
-  if (cat == 2L)                 return("Category 2")
-  if (cat == 3L)                 return("Category 3")
-  if (cat == 4L)                 return("Category 4")
-  return("N/A")
-}
-
-# Build "median (q25 - q75)" string from the three (value, category) pairs.
-format_weaver_interpretation <- function(median_val, median_cat,
-                                         q25_val,    q25_cat,
-                                         q75_val,    q75_cat) {
-  median_str <- format_weaver_value(median_val, median_cat)
-  q25_str    <- format_weaver_value(q25_val,    q25_cat)
-  q75_str    <- format_weaver_value(q75_val,    q75_cat)
-  paste0(median_str, " (", q25_str, " - ", q75_str, ")")
-}
-
-#' Compute spending effectiveness using Weaver methodology
-compute_weaver_stats <- function(spend_draws, daly_averted_draws) {
-  # ... your existing function body ...
-}
-
 #' Compute spending effectiveness using Weaver methodology
 compute_weaver_stats <- function(spend_draws, daly_averted_draws) {
   
@@ -709,70 +678,94 @@ compute_weaver_stats <- function(spend_draws, daly_averted_draws) {
                           crossed$spend / crossed$daly_averted,
                           NA_real_)
   
-  n_cat1 <- sum(crossed$category == 1L, na.rm = TRUE)
-  n_cat2 <- sum(crossed$category == 2L, na.rm = TRUE)
-  n_cat3 <- sum(crossed$category == 3L, na.rm = TRUE)
-  n_cat4 <- sum(crossed$category == 4L, na.rm = TRUE)
-  n_total <- nrow(crossed)
+  n_cat1_all <- sum(crossed$category == 1L, na.rm = TRUE)
+  n_cat2_all <- sum(crossed$category == 2L, na.rm = TRUE)
+  n_cat3_all <- sum(crossed$category == 3L, na.rm = TRUE)
+  n_cat4_all <- sum(crossed$category == 4L, na.rm = TRUE)
+  n_total_all <- nrow(crossed)
   
-  pct_cat1 <- 100 * n_cat1 / n_total
-  pct_cat2 <- 100 * n_cat2 / n_total
-  pct_cat3 <- 100 * n_cat3 / n_total
-  pct_cat4 <- 100 * n_cat4 / n_total
-  
-  # ----- DOMINANT (modal) category from crossed draws -----
-  cat_pcts <- c(`1` = pct_cat1, `2` = pct_cat2, `3` = pct_cat3, `4` = pct_cat4)
-  dominant_category <- as.integer(names(which.max(cat_pcts)))
-  pct_dominant      <- max(cat_pcts)
-  
-  # ----- Weaver median/IQR: only meaningful when Cat 1 or Cat 2 dominates -----
-  # When Cat 3 or Cat 4 dominates, the rank-ordered ratio summary is misleading
-  # (it is computed on a non-representative subset of draws).
-  if (dominant_category %in% c(1L, 2L)) {
-    
-    crossed_sub <- crossed[!is.na(crossed$category) & crossed$category != 4L, ]
-    n_sub <- nrow(crossed_sub)
-    
-    if (n_sub > 0) {
-      crossed_sub$rank_value <- with(crossed_sub, ifelse(
-        category == 2L, -Inf,
-        ifelse(category == 1L, ratio, Inf)))
-      crossed_sub <- crossed_sub[order(crossed_sub$rank_value), ]
-      
-      med_row <- crossed_sub[ceiling(n_sub * 0.50), ]
-      q25_row <- crossed_sub[ceiling(n_sub * 0.25), ]
-      q75_row <- crossed_sub[ceiling(n_sub * 0.75), ]
-      
-      median_value    <- if (med_row$category == 1L) med_row$ratio else NA_real_
-      median_category <- med_row$category
-      q25_value       <- if (q25_row$category == 1L) q25_row$ratio else NA_real_
-      q25_category    <- q25_row$category
-      q75_value       <- if (q75_row$category == 1L) q75_row$ratio else NA_real_
-      q75_category    <- q75_row$category
-    } else {
-      median_value <- q25_value <- q75_value <- NA_real_
-      median_category <- q25_category <- q75_category <- NA_integer_
-    }
-    
+  # Mean Cat-1 ratio across all crossed draws (for scatter vs. frontier efficiency)
+  mean_cat1_ratio <- if (n_cat1_all > 0) {
+    mean(crossed$ratio[crossed$category == 1L], na.rm = TRUE)
   } else {
-    # Cat 3 or Cat 4 dominates: do not report a Weaver ratio.
-    # Set all percentile categories to the dominant one for transparency.
-    median_value <- q25_value <- q75_value <- NA_real_
-    median_category <- q25_category <- q75_category <- dominant_category
+    NA_real_
   }
   
+  # Exclude Category 4 (per Weaver methodology)
+  crossed <- crossed[!is.na(crossed$category) & crossed$category != 4L, ]
+  
+  n_total <- nrow(crossed)
+  
+  if (n_total == 0) {
+    return(list(
+      median_value = NA_real_, median_category = NA_integer_,
+      q25_value = NA_real_, q25_category = NA_integer_,
+      q75_value = NA_real_, q75_category = NA_integer_,
+      n_cat1 = n_cat1_all, n_cat2 = n_cat2_all,
+      n_cat3 = n_cat3_all, n_cat4 = n_cat4_all,
+      n_total = n_total_all,
+      pct_cat1 = 100 * n_cat1_all / n_total_all,
+      pct_cat2 = 100 * n_cat2_all / n_total_all,
+      pct_cat3 = 100 * n_cat3_all / n_total_all,
+      pct_cat4 = 100 * n_cat4_all / n_total_all,
+      mean_cat1_ratio = mean_cat1_ratio
+    ))
+  }
+  
+  # Rank ordering: Cat 2 = -Inf (most favorable), Cat 1 = ratio, Cat 3 = +Inf
+  crossed$rank_value <- with(crossed, ifelse(
+    category == 2L, -Inf,
+    ifelse(category == 1L, ratio, Inf)))
+  
+  crossed <- crossed[order(crossed$rank_value), ]
+  
+  median_idx <- ceiling(n_total * 0.50)
+  q25_idx    <- ceiling(n_total * 0.25)
+  q75_idx    <- ceiling(n_total * 0.75)
+  
+  median_row <- crossed[median_idx, ]
+  q25_row    <- crossed[q25_idx, ]
+  q75_row    <- crossed[q75_idx, ]
+  
   list(
-    median_value      = median_value,    median_category = median_category,
-    q25_value         = q25_value,       q25_category    = q25_category,
-    q75_value         = q75_value,       q75_category    = q75_category,
-    n_cat1 = n_cat1, n_cat2 = n_cat2, n_cat3 = n_cat3, n_cat4 = n_cat4,
-    n_total = n_total,
-    pct_cat1 = pct_cat1, pct_cat2 = pct_cat2,
-    pct_cat3 = pct_cat3, pct_cat4 = pct_cat4,
-    dominant_category = dominant_category,
-    pct_dominant      = pct_dominant,
-    cat4_concern      = pct_cat4 >= 25  # transparency flag
+    median_value    = if (median_row$category == 1L) median_row$ratio else NA_real_,
+    median_category = median_row$category,
+    q25_value       = if (q25_row$category == 1L) q25_row$ratio else NA_real_,
+    q25_category    = q25_row$category,
+    q75_value       = if (q75_row$category == 1L) q75_row$ratio else NA_real_,
+    q75_category    = q75_row$category,
+    n_cat1 = n_cat1_all,
+    n_cat2 = n_cat2_all,
+    n_cat3 = n_cat3_all,
+    n_cat4 = n_cat4_all,
+    n_total = n_total_all,
+    pct_cat1 = 100 * n_cat1_all / n_total_all,
+    pct_cat2 = 100 * n_cat2_all / n_total_all,
+    pct_cat3 = 100 * n_cat3_all / n_total_all,
+    pct_cat4 = 100 * n_cat4_all / n_total_all,
+    mean_cat1_ratio = mean_cat1_ratio  
   )
+}
+
+format_weaver_value <- function(val, cat) {
+  if (is.na(cat)) {
+    return("N/A")
+  } else if (cat == 1L && !is.na(val)) {
+    return(paste0("$", format(round(val), big.mark = ",")))
+  } else if (cat == 2L) {
+    return("Category 2")
+  } else if (cat == 3L) {
+    return("Category 3")
+  } else {
+    return("N/A")
+  }
+}
+
+format_weaver_interpretation <- function(median_val, median_cat, q25_val, q25_cat, q75_val, q75_cat) {
+  median_str <- format_weaver_value(median_val, median_cat)
+  q25_str    <- format_weaver_value(q25_val, q25_cat)
+  q75_str    <- format_weaver_value(q75_val, q75_cat)
+  paste0(median_str, " (", q25_str, " - ", q75_str, ")")
 }
 
 # ----------------------------------------------------------------------------
@@ -792,8 +785,14 @@ spend_eff_results <- lapply(locations, function(loc_id) {
   
   ws <- compute_weaver_stats(spend_draws, daly_averted_draws)
   
-  # Category from MODAL crossed-draw category (not means)
-  category <- ws$dominant_category
+  mean_spend_intensity <- mean(spend_draws,        na.rm = TRUE)
+  mean_daly_averted    <- mean(daly_averted_draws, na.rm = TRUE)
+  
+  category <- NA_integer_
+  if (mean_spend_intensity > 0 && mean_daly_averted > 0) category <- 1L
+  else if (mean_spend_intensity < 0 && mean_daly_averted > 0) category <- 2L
+  else if (mean_spend_intensity > 0 && mean_daly_averted < 0) category <- 3L
+  else if (mean_spend_intensity < 0 && mean_daly_averted < 0) category <- 4L
   
   interpretation <- format_weaver_interpretation(
     ws$median_value, ws$median_category,
@@ -805,8 +804,8 @@ spend_eff_results <- lapply(locations, function(loc_id) {
     location_id   = loc_id,
     location_name = loc_name,
     
-    spend_intensity_effect = mean(spend_draws,        na.rm = TRUE),
-    daly_averted_effect    = mean(daly_averted_draws, na.rm = TRUE),
+    spend_intensity_effect = mean_spend_intensity,
+    daly_averted_effect    = mean_daly_averted,
     
     spend_effectiveness_median           = ws$median_value,
     spend_effectiveness_median_category  = ws$median_category,
@@ -821,65 +820,15 @@ spend_eff_results <- lapply(locations, function(loc_id) {
     pct_cat1 = ws$pct_cat1, pct_cat2 = ws$pct_cat2,
     pct_cat3 = ws$pct_cat3, pct_cat4 = ws$pct_cat4,
     
-    dominant_category = ws$dominant_category,
-    pct_dominant      = ws$pct_dominant,
-    cat4_concern      = ws$cat4_concern,
+    mean_cat1_ratio = ws$mean_cat1_ratio, 
     
     category = category,
     interpretation = interpretation
   )
 })
 
-# spend_eff_results <- lapply(locations, function(loc_id) {
-#   loc_name <- spend_intensity_by_draw[location_id == loc_id, unique(location_name)]
-#   
-#   spend_draws        <- spend_intensity_by_draw[location_id == loc_id, spend_intensity_effect]
-#   daly_averted_draws <- daly_intensity_by_draw[location_id == loc_id, daly_averted_effect]
-#   
-#   ws <- compute_weaver_stats(spend_draws, daly_averted_draws)
-#   
-#   mean_spend_intensity <- mean(spend_draws,        na.rm = TRUE)
-#   mean_daly_averted    <- mean(daly_averted_draws, na.rm = TRUE)
-#   
-#   category <- NA_integer_
-#   if (mean_spend_intensity > 0 && mean_daly_averted > 0) category <- 1L
-#   else if (mean_spend_intensity < 0 && mean_daly_averted > 0) category <- 2L
-#   else if (mean_spend_intensity > 0 && mean_daly_averted < 0) category <- 3L
-#   else if (mean_spend_intensity < 0 && mean_daly_averted < 0) category <- 4L
-#   
-#   interpretation <- format_weaver_interpretation(
-#     ws$median_value, ws$median_category,
-#     ws$q25_value,    ws$q25_category,
-#     ws$q75_value,    ws$q75_category
-#   )
-#   
-#   data.table(
-#     location_id   = loc_id,
-#     location_name = loc_name,
-#     
-#     spend_intensity_effect = mean_spend_intensity,
-#     daly_averted_effect    = mean_daly_averted,
-#     
-#     spend_effectiveness_median           = ws$median_value,
-#     spend_effectiveness_median_category  = ws$median_category,
-#     spend_effectiveness_q25              = ws$q25_value,
-#     spend_effectiveness_q25_category     = ws$q25_category,
-#     spend_effectiveness_q75              = ws$q75_value,
-#     spend_effectiveness_q75_category     = ws$q75_category,
-#     
-#     n_cat1 = ws$n_cat1, n_cat2 = ws$n_cat2,
-#     n_cat3 = ws$n_cat3, n_cat4 = ws$n_cat4,
-#     n_total = ws$n_total,
-#     pct_cat1 = ws$pct_cat1, pct_cat2 = ws$pct_cat2,
-#     pct_cat3 = ws$pct_cat3, pct_cat4 = ws$pct_cat4,
-#     
-#     category = category,
-#     interpretation = interpretation
-#   )
-# })
-# 
 spend_eff_table <- rbindlist(spend_eff_results)
-# 
+
 cat("Weaver-style computation complete.\n")
 
 # ----------------------------------------------------------------------------
